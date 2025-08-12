@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Jan Summarizer",
+  "version": "0.1.0",
+  "description": "Summarize the current page using Jan Server, Cerebras, or any OpenAI-compatible endpoint.",
+  "action": {
+    "default_title": "Open Jan Summarizer"
+  },
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel.html"
+  },
+  "options_page": "src/options.html",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

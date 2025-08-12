@@ -1,1 +1,70 @@
-# jan-browser-extension
+# Jan Summarizer (Chrome Extension)
+
+A Manifest V3 Chrome extension that summarizes the current page (or selected text) using any OpenAI-compatible API, including Cerebras and Jan Server.
+
+- Side Panel UI to trigger summaries
+- Content script extracts visible page text (or your selection)
+- Background service worker calls `/v1/chat/completions`
+
+## Quick Start
+
+1. Open `chrome://extensions` in Chrome.
+2. Enable "Developer mode".
+3. Click "Load unpacked" and select this folder: `jan-browser-extension/`.
+4. Pin the extension and click it to open the Side Panel.
+5. Click the settings (⚙️) button in the side panel to configure your API.
+
+## Configuration
+
+Open the Options page (⚙️ in the side panel) and set:
+
+- Provider Preset
+  - Cerebras → sets base to `https://api.cerebras.ai/v1`
+  - Jan Server → sets base to `http://localhost:1337/v1`
+  - Custom → any OpenAI-compatible base URL
+- API Base URL (required)
+- API Key (required)
+- Model (required)
+- Temperature (optional, default 0.2)
+
+Click "Test" to verify connectivity.
+
+## Usage
+
+- "Summarize Page": summarizes the whole page (trimmed to a safe length)
+- "Summarize Selection": prioritizes current text selection (if present)
+
+Output is plain Markdown in the side panel.
+
+## How it Works
+
+- `src/content.js` collects `document.body.innerText`, selection text, title, URL, lang, and meta description.
+- `src/background.js` sends these to your configured endpoint via `/chat/completions` with a structured prompt.
+- `src/sidepanel.html` + `src/sidepanel.js` provide the UI.
+- `src/options.html` + `src/options.js` manage settings via `chrome.storage.sync`.
+
+## Files
+
+- `manifest.json` — MV3 manifest with side panel, background service worker, and content script
+- `src/background.js` — service worker; calls the model
+- `src/content.js` — collects page data
+- `src/sidepanel.html` / `src/sidepanel.js` — side panel UI
+- `src/options.html` / `src/options.js` — settings UI
+- `src/styles.css` — shared styles
+
+## Notes
+
+- Host permissions are set to `*://*/*` for local dev. Restrict before publishing.
+- API keys are stored in `chrome.storage.sync`. Avoid sharing Chrome profiles. Do not check in secrets.
+- For pages loaded before you installed the extension, refresh so the content script can attach.
+
+## Roadmap (nice-to-have)
+
+- Readability-based extraction for cleaner text
+- Render Markdown with a lightweight renderer
+- "Read later" queue integrated with summaries
+- Per-site auto-summarize toggle
+
+## License
+
+MIT

@@ -1,0 +1,19 @@
+# Node / tooling (if added later)
+node_modules/
+dist/
+build/
+
+# OS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+
+# Chrome extension packaging
+*.crx
+*.pem
+
+# Never commit secrets
+# (Extension stores API keys in chrome.storage, not files)
+.env
