@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./ui/*"]
+    },
+    "allowJs": true,
+    "jsx": "react-jsx"
+  },
+  "include": ["ui", "src", "vite.config.js", "postcss.config.js"],
+  "exclude": ["dist", "node_modules"]
+}
