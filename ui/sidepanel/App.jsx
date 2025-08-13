@@ -1,11 +1,39 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Hand from '../assets/jan-hand.svg'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
-function Message({ role, content }) {
+function Message({ role, content, onCopy }) {
   const isUser = role === 'user'
+  const bubbleBase = isUser ? 'bg-blue-600 text-white' : 'ds-card ds-text'
   return (
     <div className={`w-full flex ${isUser ? 'justify-end' : 'justify-start'} mb-2`}>
-      <div className={`${isUser ? 'bg-blue-600 text-white' : 'ds-card ds-text'} shadow-sm max-w-[80%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap`}>{content}</div>
+      <div className={`${bubbleBase} relative shadow-sm max-w-[80%] rounded-2xl px-3 py-2 text-sm`}>
+        <button className="absolute top-1 right-1 text-xs opacity-70 hover:opacity-100" title="Copy" onClick={() => onCopy?.(content)}>📋</button>
+        {isUser ? (
+          <div className="whitespace-pre-wrap">{content}</div>
+        ) : (
+          <div className="max-w-none break-words">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+              code({ node, inline, className, children, ...props }) {
+                const text = String(children || '')
+                if (inline) return <code className="px-1 py-0.5 rounded bg-black/20">{text}</code>
+                const copyCode = async () => {
+                  try { await navigator.clipboard.writeText(text) } catch (_) {}
+                }
+                return (
+                  <div className="relative my-2">
+                    <button className="absolute top-1 right-1 text-xs opacity-70 hover:opacity-100" title="Copy code" onClick={copyCode}>📋</button>
+                    <pre className="overflow-auto ds-muted-bg p-2 rounded"><code className={className} {...props}>{text}</code></pre>
+                  </div>
+                )
+              }
+            }}>
+              {content || ''}
+            </ReactMarkdown>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -34,6 +62,16 @@ export default function App() {
   const streamingReqIdRef = useRef(null)
   const sessionsRef = useRef(sessions)
   const activeSessionIdRef = useRef(activeSessionId)
+
+  const copyToClipboard = async (text) => {
+    try { await navigator.clipboard.writeText(text) } catch (_) {}
+  }
+
+  const stopStreaming = useCallback(async () => {
+    const id = streamingReqIdRef.current
+    if (!id) return
+    try { await chrome.runtime.sendMessage({ type: 'CHAT_COMPLETION_STREAM_STOP', payload: { reqId: id } }) } catch (_) {}
+  }, [])
 
   const scrollToBottom = () => {
     const el = listRef.current
@@ -237,14 +275,26 @@ export default function App() {
             const last = s.messages[s.messages.length - 1]
             if (last && last.role === 'assistant') {
               last.content = (last.content || '') + delta
-              s.updatedAt = Date.now()
               next[idx] = s
               return next
             }
             return prev
           })
         } else if (msg.type === 'CHAT_STREAM_DONE') {
-          // Persist on done
+          // Mark updated and persist on done
+          const aId = activeSessionIdRef.current
+          await new Promise(resolve => {
+            setSessions(prev => {
+              const idx = prev.findIndex(s => s.id === aId)
+              if (idx < 0) { resolve(); return prev }
+              const next = [...prev]
+              const s = { ...next[idx] }
+              s.updatedAt = Date.now()
+              next[idx] = s
+              resolve()
+              return next
+            })
+          })
           const toSave = sessionsRef.current
           await saveSessions(toSave)
           setStreamingReqId(null)
@@ -535,7 +585,7 @@ export default function App() {
 
         <main ref={listRef} className="flex-1 overflow-auto p-3 space-y-1">
           {messages.map((m, i) => (
-            <Message key={i} role={m.role} content={m.content} />
+            <Message key={i} role={m.role} content={m.content} onCopy={copyToClipboard} />
           ))}
         </main>
 
@@ -553,7 +603,11 @@ export default function App() {
               <label className="text-xs ds-muted-text flex items-center gap-2">
                 <input type="checkbox" checked={useContextThisMsg} onChange={e => setUseContextThisMsg(e.target.checked)} /> Use context this message
               </label>
-              <button className="btn" onClick={sendChat} disabled={busy || !input.trim()}>Send</button>
+              {streamingReqId ? (
+                <button className="btn" onClick={stopStreaming}>Stop</button>
+              ) : (
+                <button className="btn" onClick={sendChat} disabled={busy || !input.trim()}>Send</button>
+              )}
             </div>
           </div>
         </footer>

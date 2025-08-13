@@ -14,6 +14,8 @@ const isSupportedUrl = (url) => /^https?:\/\//.test(url || '');
 // Keep track of side panel ports by tabId for streaming updates
 const sidepanelPorts = new Map(); // key (tabId|GLOBAL_KEY) -> port
 const GLOBAL_KEY = '__global__';
+// Track in-flight streaming controllers by reqId so we can cancel
+const streamingControllers = new Map(); // reqId -> AbortController
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'jan-stream') return;
@@ -48,6 +50,8 @@ async function chatCompletionsStream({ apiBase, apiKey, model, temperature, mess
   const url = `${apiBase.replace(/\/$/, '')}/chat/completions`;
   const controller = new AbortController();
   const to = setTimeout(() => controller.abort(), 120_000);
+  // Register the controller so UI can cancel
+  try { streamingControllers.set(reqId, controller) } catch (_) {}
   const post = (msg) => {
     // Prefer tab-specific port, fall back to global, else broadcast to all
     const specific = sidepanelPorts.get(tabId);
@@ -72,6 +76,7 @@ async function chatCompletionsStream({ apiBase, apiKey, model, temperature, mess
       const text = await resp.text().catch(() => '');
       post({ type: 'CHAT_STREAM_ERROR', error: `API error ${resp.status}: ${text || resp.statusText}` });
       clearTimeout(to);
+      streamingControllers.delete(reqId);
       return;
     }
 
@@ -89,6 +94,7 @@ async function chatCompletionsStream({ apiBase, apiKey, model, temperature, mess
         post({ type: 'CHAT_STREAM_ERROR', error: `Non-stream parse error: ${String(e?.message || e)} ${text ? `(${text.slice(0,200)})` : ''}` });
       }
       clearTimeout(to);
+      streamingControllers.delete(reqId);
       return;
     }
 
@@ -143,6 +149,7 @@ async function chatCompletionsStream({ apiBase, apiKey, model, temperature, mess
           const shouldStop = handleEvent();
           if (shouldStop) {
             clearTimeout(to);
+            streamingControllers.delete(reqId);
             return;
           }
           continue;
@@ -157,9 +164,17 @@ async function chatCompletionsStream({ apiBase, apiKey, model, temperature, mess
     handleEvent();
     post({ type: 'CHAT_STREAM_DONE' });
     clearTimeout(to);
+    streamingControllers.delete(reqId);
   } catch (err) {
-    post({ type: 'CHAT_STREAM_ERROR', error: `Request failed: ${String(err?.message || err)}` });
+    const msg = String(err?.message || err || '')
+    if (err?.name === 'AbortError' || /aborted|abort/i.test(msg)) {
+      // Treat user stop/cancel as a graceful end
+      try { post({ type: 'CHAT_STREAM_DONE' }) } catch (_) {}
+    } else {
+      post({ type: 'CHAT_STREAM_ERROR', error: `Request failed: ${msg}` });
+    }
     clearTimeout(to);
+    streamingControllers.delete(reqId);
   }
 }
 
@@ -295,6 +310,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     })();
     return true; // keep channel open for initial ack
+  }
+
+  if (message?.type === 'CHAT_COMPLETION_STREAM_STOP') {
+    (async () => {
+      try {
+        const { reqId } = message.payload || {};
+        const ctl = reqId ? streamingControllers.get(reqId) : null;
+        if (ctl) {
+          try { ctl.abort() } catch (_) {}
+          streamingControllers.delete(reqId);
+        }
+        sendResponse({ ok: true, stopped: !!ctl });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+      }
+    })();
+    return true;
   }
 });
 
