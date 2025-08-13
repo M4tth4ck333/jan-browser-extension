@@ -7,10 +7,11 @@ import rehypeHighlight from 'rehype-highlight'
 import 'highlight.js/styles/github-dark.min.css'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import { Button } from '../components/ui/button.jsx'
+import { Textarea } from '../components/ui/textarea.jsx'
 
 function Message({ role, content, onCopy }) {
   const isUser = role === 'user'
-  const bubbleBase = isUser ? 'bg-blue-600 text-white' : 'ds-card ds-text'
+  const bubbleBase = isUser ? 'bg-primary text-primary-foreground' : 'bg-card text-card-foreground'
   const sanitizeSchema = useMemo(() => ({
     ...defaultSchema,
     attributes: {
@@ -55,7 +56,7 @@ function Message({ role, content, onCopy }) {
                         </Tooltip.Trigger>
                         <Tooltip.Content sideOffset={6} className="text-xs ds-card ds-text border ds-border rounded px-2 py-1">Copy code</Tooltip.Content>
                       </Tooltip.Root>
-                      <pre className="overflow-auto ds-muted-bg p-2 rounded"><code className={className} {...props}>{text}</code></pre>
+                      <pre className="overflow-auto bg-muted p-2 rounded"><code className={className} {...props}>{text}</code></pre>
                     </div>
                   )
                 }
@@ -491,6 +492,8 @@ export default function App() {
       setStreamingReqId(reqId)
       streamingReqIdRef.current = reqId
       const tab = await getActiveTab()
+      // Ensure background routes stream messages to this UI by re-registering the port with the active tab
+      try { if (tab?.id && portRef.current) portRef.current.postMessage({ type: 'REGISTER_PORT', tabId: tab.id }) } catch (_) {}
       const ack = await chrome.runtime.sendMessage({ type: 'CHAT_COMPLETION_STREAM_START', payload: { messages: msgs, reqId, tabId: tab?.id } })
       if (!ack?.ok) {
         setStreamingReqId(null)
@@ -560,15 +563,15 @@ export default function App() {
   useEffect(() => { persistContext() }, [useContextDefault, selectedTabIds, contextCache])
 
   return (
-    <div className="h-screen ds-bg ds-text grid" style={{ gridTemplateColumns: sidebarOpen ? '220px 1fr' : '1fr' }}>
+    <div className="h-screen bg-background text-foreground grid" style={{ gridTemplateColumns: sidebarOpen ? '220px 1fr' : '1fr' }}>
       {/* Sidebar */}
       {sidebarOpen && (
         <aside className="border-r ds-border flex flex-col overflow-hidden">
           <div className="p-2 flex items-center justify-between ds-card border-b ds-border">
             <div className="flex items-center gap-2"><img src={Hand} className="h-4 w-4" /> <span className="font-semibold">Jan</span></div>
-            <button className="icon-btn" onClick={() => setSidebarOpen(false)}>←</button>
+            <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(false)} aria-label="Collapse sidebar">←</Button>
           </div>
-          <div className="p-2"><button className="btn w-full" onClick={newChat}>New Chat</button></div>
+          <div className="p-2"><Button className="w-full" onClick={newChat}>New Chat</Button></div>
           <div className="px-2 text-xs ds-muted-text">Chats</div>
           <div className="flex-1 overflow-auto px-2 space-y-1 py-2">
             {sessions.map(s => (
@@ -589,8 +592,8 @@ export default function App() {
               ))}
             </div>
             <div className="mt-2 flex items-center gap-2">
-              <button className="btn" onClick={refreshTabs}>Refresh</button>
-              <button className="btn" onClick={rescrapeSelected} disabled={!selectedTabIds.length}>Scrape</button>
+              <Button variant="secondary" onClick={refreshTabs}>Refresh</Button>
+              <Button variant="secondary" onClick={rescrapeSelected} disabled={!selectedTabIds.length}>Scrape</Button>
             </div>
             <div className="mt-2 flex items-center gap-2 text-xs">
               <label className="flex items-center gap-2"><input type="checkbox" checked={useContextDefault} onChange={e => setUseContextDefault(e.target.checked)} /> Use context by default</label>
@@ -603,15 +606,15 @@ export default function App() {
       <div className="flex flex-col">
         <header className="sticky top-0 z-10 flex items-center justify-between px-3 py-2 border-b ds-border ds-card">
           <div className="flex items-center gap-2">
-            {!sidebarOpen && <button className="icon-btn" onClick={() => setSidebarOpen(true)}>☰</button>}
+            {!sidebarOpen && <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} aria-label="Expand sidebar">☰</Button>}
             <img src={Hand} alt="Jan" className="h-5 w-5" />
             <span className="font-semibold">Jan</span>
             <span className="text-sm ds-muted-text">Summarizer & Chat</span>
           </div>
           <div className="flex items-center gap-2">
-            <button className="btn" onClick={() => summarize(false)} disabled={busy}>Summarize Page</button>
-            <button className="btn" onClick={() => summarize(true)} disabled={busy}>Summarize Selection</button>
-            <button className="icon-btn" title="Settings" onClick={() => chrome.runtime.openOptionsPage?.()}>⚙️</button>
+            <Button onClick={() => summarize(false)} disabled={busy}>Summarize Page</Button>
+            <Button variant="secondary" onClick={() => summarize(true)} disabled={busy}>Summarize Selection</Button>
+            <Button variant="ghost" size="icon" title="Settings" onClick={() => chrome.runtime.openOptionsPage?.()} aria-label="Settings">⚙️</Button>
           </div>
         </header>
 
@@ -623,8 +626,8 @@ export default function App() {
 
         <footer className="p-3 border-t ds-border ds-card">
           <div className="flex items-end gap-2">
-            <textarea
-              className="flex-1 resize-none min-h-[44px] max-h-40 rounded-xl ds-muted-bg ds-text p-2 outline-none"
+            <Textarea
+              className="flex-1 resize-none min-h-[44px] max-h-40 rounded-xl"
               placeholder={busy ? 'Working…' : 'Ask anything…'}
               value={input}
               onChange={e => setInput(e.target.value)}
@@ -636,9 +639,9 @@ export default function App() {
                 <input type="checkbox" checked={useContextThisMsg} onChange={e => setUseContextThisMsg(e.target.checked)} /> Use context this message
               </label>
               {streamingReqId ? (
-                <button className="btn" onClick={stopStreaming}>Stop</button>
+                <Button variant="secondary" onClick={stopStreaming}>Stop</Button>
               ) : (
-                <button className="btn" onClick={sendChat} disabled={busy || !input.trim()}>Send</button>
+                <Button onClick={sendChat} disabled={busy || !input.trim()}>Send</Button>
               )}
             </div>
           </div>
