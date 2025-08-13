@@ -1,17 +1,26 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Hand from '../assets/jan-hand.svg'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import rehypeHighlight from 'rehype-highlight'
-import 'highlight.js/styles/github-dark.min.css'
+import 'highlight.js/styles/github.min.css'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import { Button } from '../components/ui/button.jsx'
 import { Textarea } from '../components/ui/textarea.jsx'
+import * as ScrollArea from '@radix-ui/react-scroll-area'
+import * as Popover from '@radix-ui/react-popover'
+import { User as UserIcon, Send, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Search as SearchIcon, Settings as SettingsIcon, Sun as SunIcon, Moon as MoonIcon, Laptop as LaptopIcon } from 'lucide-react'
+import { Input } from '../components/ui/input.jsx'
 
-function Message({ role, content, onCopy }) {
+function Message({ role, content, ts, isFirst, isLast, onCopy }) {
   const isUser = role === 'user'
-  const bubbleBase = isUser ? 'bg-primary text-primary-foreground' : 'bg-card text-card-foreground'
+  // Pastel gradient for user, neutral card for assistant
+  const bubbleBase = isUser ? 'pastel-grad pastel-fore' : 'bg-card text-card-foreground'
+  const radius = [
+    'rounded-2xl',
+    !isFirst ? (isUser ? 'rounded-tr-md' : 'rounded-tl-md') : '',
+    !isLast ? (isUser ? 'rounded-br-md' : 'rounded-bl-md') : ''
+  ].filter(Boolean).join(' ')
   const sanitizeSchema = useMemo(() => ({
     ...defaultSchema,
     attributes: {
@@ -22,50 +31,62 @@ function Message({ role, content, onCopy }) {
       a: [ ...(defaultSchema.attributes?.a || []), ['target'], ['rel'] ],
     },
   }), [])
+  const formatTime = (t) => {
+    if (!t) return ''
+    try {
+      const d = new Date(t)
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    } catch { return '' }
+  }
+
   return (
-    <div className={`w-full flex ${isUser ? 'justify-end' : 'justify-start'} mb-2`}>
-      <div className={`${bubbleBase} relative shadow-sm max-w-[80%] rounded-2xl px-3 py-2 text-sm`}>
-        <Tooltip.Root>
-          <Tooltip.Trigger asChild>
-            <Button variant="ghost" size="icon" className="absolute top-1 right-1" onClick={() => onCopy?.(content)} aria-label="Copy message">
-              {/* copy icon */}
-              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 7a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2V7zm-4 4V6a2 2 0 0 1 2-2h7v2H7v5H5zm4 5h7V7h-7v9z"/></svg>
-            </Button>
-          </Tooltip.Trigger>
-          <Tooltip.Content sideOffset={6} className="text-xs ds-card ds-text border ds-border rounded px-2 py-1">Copy</Tooltip.Content>
-        </Tooltip.Root>
-        {isUser ? (
-          <div className="whitespace-pre-wrap">{content}</div>
-        ) : (
-          <div className="max-w-none break-words">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[[rehypeSanitize, sanitizeSchema], rehypeHighlight]}
-              components={{
-                code({ node, inline, className, children, ...props }) {
-                  const text = String(children || '')
-                  if (inline) return <code className="px-1 py-0.5 rounded bg-black/20">{text}</code>
-                  const copyCode = async () => { try { await navigator.clipboard.writeText(text) } catch (_) {} }
-                  return (
-                    <div className="relative my-2">
-                      <Tooltip.Root>
-                        <Tooltip.Trigger asChild>
-                          <Button variant="ghost" size="icon" className="absolute top-1 right-1" onClick={copyCode} aria-label="Copy code">
-                            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 7a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2V7zm-4 4V6a2 2 0 0 1 2-2h7v2H7v5H5zm4 5h7V7h-7v9z"/></svg>
-                          </Button>
-                        </Tooltip.Trigger>
-                        <Tooltip.Content sideOffset={6} className="text-xs ds-card ds-text border ds-border rounded px-2 py-1">Copy code</Tooltip.Content>
-                      </Tooltip.Root>
-                      <pre className="overflow-auto bg-muted p-2 rounded"><code className={className} {...props}>{text}</code></pre>
-                    </div>
-                  )
-                }
-              }}
-            >
-              {content || ''}
-            </ReactMarkdown>
-          </div>
-        )}
+    <div className={`w-full ${isUser ? 'justify-end' : 'justify-start'} mb-1 flex`}>
+      <div className={`flex items-end gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
+        <div className={`hidden sm:flex shrink-0 h-6 w-6 rounded-full bg-muted text-muted-foreground items-center justify-center ${isLast ? '' : 'invisible'}`}>
+          {isUser ? <UserIcon size={14} /> : <Bot size={14} />}
+        </div>
+        <div className={`group ${bubbleBase} relative max-w-[100%] sm:max-w-[75%] ${radius} px-3 py-2 text-sm ${isUser ? '' : 'min-h-[2.25rem]'}`}>
+          {isUser ? (
+            <div className="whitespace-pre-wrap">{content}</div>
+          ) : (
+            <div className="max-w-none break-words">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[[rehypeSanitize, sanitizeSchema], rehypeHighlight]}
+                components={{
+                  code({ node, inline, className, children, ...props }) {
+                    const text = String(children || '')
+                    if (inline) return <code className="px-1 py-0.5 rounded ds-muted-bg">{text}</code>
+                    const copyCode = async () => { try { await navigator.clipboard.writeText(text) } catch (_) {} }
+                    return (
+                      <div className="relative my-2">
+                        <Tooltip.Root>
+                          <Tooltip.Trigger asChild>
+                            <Button variant="ghost" size="icon" className="absolute top-1 right-1" onClick={copyCode} aria-label="Copy code">
+                              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 7a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2V7zm-4 4V6a2 2 0 0 1 2-2h7v2H7v5H5zm4 5h7V7h-7v9z"/></svg>
+                            </Button>
+                          </Tooltip.Trigger>
+                          <Tooltip.Content sideOffset={6} className="text-xs ds-card ds-text border ds-border rounded px-2 py-1">Copy code</Tooltip.Content>
+                        </Tooltip.Root>
+                        <pre className="overflow-auto bg-card border ds-border p-2 rounded"><code className={className} {...props}>{text}</code></pre>
+                      </div>
+                    )
+                  }
+                }}
+              >
+                {content || ''}
+              </ReactMarkdown>
+            </div>
+          )}
+          {/* timestamps hidden for minimal UI */}
+          {!isUser ? (
+            <div className="mt-2 pt-1 border-t ds-border flex justify-end opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onCopy?.(content)} aria-label="Copy">
+                <CopyIcon size={14} className="mr-1" /> Copy
+              </Button>
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   )
@@ -75,7 +96,12 @@ export default function App() {
   // UI state
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [tabPickerOpen, setTabPickerOpen] = useState(false)
+  const [tabQuery, setTabQuery] = useState('')
+  // Theme: 'system' | 'light' | 'dark'
+  const [themePref, setThemePref] = useState('system')
+  const mqRef = useRef(null)
 
   // Page/context state
   const [pageData, setPageData] = useState(null)
@@ -88,6 +114,7 @@ export default function App() {
   // Sessions (history)
   const [sessions, setSessions] = useState([])
   const [activeSessionId, setActiveSessionId] = useState('')
+  const [sessionTitle, setSessionTitle] = useState('')
 
   const listRef = useRef(null)
   const portRef = useRef(null)
@@ -109,18 +136,88 @@ export default function App() {
   const scrollToBottom = () => {
     const el = listRef.current
     if (!el) return
-    el.scrollTop = el.scrollHeight
+    try { el.scrollTop = el.scrollHeight } catch (_) {}
   }
 
   // Derived active session (must be before effects that depend on `messages`)
   const activeSession = useMemo(() => sessions.find(s => s.id === activeSessionId) || null, [sessions, activeSessionId])
+  const filteredTabs = useMemo(() => {
+    const q = tabQuery.trim().toLowerCase()
+    if (!q) return tabs
+    return tabs.filter(t => (t.title || '').toLowerCase().includes(q) || String(t.id).includes(q))
+  }, [tabs, tabQuery])
   const messages = activeSession?.messages || []
 
   const isSupportedUrl = (url) => /^https?:\/\//.test(url || '')
 
+  // Open a Google search for the given query (or current input)
+  const openGoogleSearch = (q) => {
+    const query = (q ?? input ?? '').trim()
+    if (!query) return
+    const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`
+    try {
+      if (chrome?.tabs?.create) {
+        chrome.tabs.create({ url })
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer')
+      }
+    } catch {
+      window.open(url, '_blank', 'noopener,noreferrer')
+    }
+  }
+
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Theme application helpers
+  const getSystemDark = () => {
+    try { return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches } catch { return false }
+  }
+  const applyTheme = useCallback((pref) => {
+    const root = document.documentElement
+    const effectiveDark = pref === 'dark' ? true : (pref === 'light' ? false : getSystemDark())
+    try {
+      if (effectiveDark) root.classList.add('dark')
+      else root.classList.remove('dark')
+    } catch (_) {}
+  }, [])
+
+  // Load theme pref and react to changes
+  useEffect(() => {
+    (async () => {
+      try {
+        const { themePref: saved } = await chrome.storage.sync.get(['themePref'])
+        const pref = saved || 'system'
+        setThemePref(pref)
+        applyTheme(pref)
+      } catch (_) {
+        applyTheme('system')
+      }
+    })()
+  }, [applyTheme])
+
+  // Respond to system theme changes when on 'system'
+  useEffect(() => {
+    try {
+      if (mqRef.current) { mqRef.current.onchange = null; mqRef.current = null }
+      if (themePref === 'system' && window.matchMedia) {
+        const mq = window.matchMedia('(prefers-color-scheme: dark)')
+        mqRef.current = mq
+        mq.onchange = () => applyTheme('system')
+      }
+    } catch (_) {}
+    applyTheme(themePref)
+    return () => { try { if (mqRef.current) mqRef.current.onchange = null } catch (_) {} }
+  }, [themePref, applyTheme])
+
+  const cycleTheme = () => {
+    const order = ['system', 'light', 'dark']
+    const idx = order.indexOf(themePref)
+    const next = order[(idx + 1) % order.length]
+    setThemePref(next)
+    try { chrome.storage.sync.set({ themePref: next }) } catch (_) {}
+  }
 
   const delay = (ms) => new Promise(res => setTimeout(res, ms))
 
@@ -239,7 +336,7 @@ export default function App() {
         createdAt: Date.now(),
         updatedAt: Date.now(),
         messages: [
-          { role: 'assistant', content: 'Hi! I can summarize this page or chat about it. What would you like to do?' }
+          { role: 'assistant', content: 'Hi! I can summarize this page or chat about it. What would you like to do?', ts: Date.now() }
         ],
         context: { useContextDefault: true, selectedTabIds: [], contextCache: {} },
       }
@@ -253,6 +350,7 @@ export default function App() {
       setUseContextDefault(!!s.context?.useContextDefault)
       setSelectedTabIds(s.context?.selectedTabIds || [])
       setContextCache(s.context?.contextCache || {})
+      setSessionTitle(s.title)
     }
   }, [])
 
@@ -292,7 +390,7 @@ export default function App() {
             if (idx < 0) return prev
             const next = [...prev]
             const s = { ...next[idx], messages: [...next[idx].messages] }
-            s.messages.push({ role: 'assistant', content: '' })
+            s.messages.push({ role: 'assistant', content: '', ts: Date.now() })
             s.updatedAt = Date.now()
             next[idx] = s
             return next
@@ -338,7 +436,7 @@ export default function App() {
               const idx = prev.findIndex(s => s.id === aId)
               if (idx < 0) { resolve(); return prev }
               const next = [...prev]
-              const s = { ...next[idx], messages: [...next[idx].messages, { role: 'assistant', content: `Error: ${msg.error}` }] }
+              const s = { ...next[idx], messages: [...next[idx].messages, { role: 'assistant', content: `Error: ${msg.error}`, ts: Date.now() }] }
               s.updatedAt = Date.now()
               next[idx] = s
               resolve()
@@ -395,19 +493,19 @@ export default function App() {
       const idx = sessions.findIndex(s => s.id === activeSessionId)
       const nextSessions = [...sessions]
       const s = nextSessions[idx]
-      s.messages = [...s.messages, { role: 'user', content: useSelection ? 'Summarize my selection.' : 'Summarize this page.' }]
+      s.messages = [...s.messages, { role: 'user', content: useSelection ? 'Summarize my selection.' : 'Summarize this page.', ts: Date.now() }]
       s.updatedAt = Date.now()
       await saveSessions(nextSessions)
       const res = await chrome.runtime.sendMessage({ type: 'SUMMARIZE', payload })
       if (!res?.ok) throw new Error(res?.error || 'Unknown error')
-      s.messages = [...s.messages, { role: 'assistant', content: res.summary }]
+      s.messages = [...s.messages, { role: 'assistant', content: res.summary, ts: Date.now() }]
       s.updatedAt = Date.now()
       await saveSessions(nextSessions)
     } catch (e) {
       const idx = sessions.findIndex(s => s.id === activeSessionId)
       if (idx >= 0) {
         const nextSessions = [...sessions]
-        nextSessions[idx].messages = [...nextSessions[idx].messages, { role: 'assistant', content: `Error: ${e.message}` }]
+        nextSessions[idx].messages = [...nextSessions[idx].messages, { role: 'assistant', content: `Error: ${e.message}`, ts: Date.now() }]
         nextSessions[idx].updatedAt = Date.now()
         await saveSessions(nextSessions)
       }
@@ -422,12 +520,30 @@ export default function App() {
       const head = [c.title ? `Title: ${c.title}` : null, c.url ? `URL: ${c.url}` : null].filter(Boolean).join(' | ')
       const meta = c.metaDescription ? `Meta: ${c.metaDescription}` : ''
       const snippet = (c.selection?.trim() || c.content?.trim() || '').slice(0, 2000)
-      return [`[Tab] ${head}`, meta, snippet].filter(Boolean).join('\n')
+      return `[Tab] ${head}\n${[meta, snippet].filter(Boolean).join('\n')}`
     }).join('\n\n----\n\n')
     return [
-      { role: 'system', content: 'The following context comes from the user\'s selected browser tabs. Use it to answer queries accurately. Do not fabricate URLs.' },
-      { role: 'user', content: `Context:\n\n${parts}` }
+      { role: 'system', content: `You have additional context from selected browser tabs. Use it only if relevant.\n\n${parts}` }
     ]
+  }
+
+  const buildGoogleMessages = (serp) => {
+    if (!serp || !serp.ok) return []
+    const data = serp.data || {}
+    const lines = []
+    if (data.answerBox) {
+      lines.push(`Answer box:\n${data.answerBox.trim().slice(0, 800)}`)
+    }
+    const results = Array.isArray(data.results) ? data.results.slice(0, 5) : []
+    results.forEach((r, i) => {
+      const title = (r?.title || '').trim()
+      const url = (r?.url || '').trim()
+      const snip = (r?.snippet || '').trim()
+      lines.push(`${i + 1}. ${title}${url ? `\n${url}` : ''}${snip ? `\n${snip}` : ''}`)
+    })
+    if (!lines.length) return []
+    const header = data.query ? `Fresh Google results for: "${data.query}"` : 'Fresh Google results'
+    return [{ role: 'system', content: `${header}\n\n${lines.join('\n\n')}` }]
   }
 
   const scrapeSelectedTabs = useCallback(async (tabIds) => {
@@ -465,8 +581,12 @@ export default function App() {
     if (sIdx < 0) return setBusy(false)
     const nextSessions = [...sessions]
     const sess = nextSessions[sIdx]
-    sess.messages = [...sess.messages, { role: 'user', content: text }]
+    sess.messages = [...sess.messages, { role: 'user', content: text, ts: Date.now() }]
     sess.updatedAt = Date.now()
+    if (!sessionTitle) {
+      setSessionTitle(text)
+      nextSessions[sIdx].title = text
+    }
     await saveSessions(nextSessions)
     try {
       // Determine contexts
@@ -512,13 +632,79 @@ export default function App() {
     }
   }, [input, sessions, activeSessionId, useContextThisMsg, useContextDefault, contextCache, pageData, selectedTabIds, saveSessions, scrapeSelectedTabs])
 
+  const askWithGoogle = useCallback(async () => {
+    const text = input.trim()
+    if (!text) return
+    setInput('')
+    setBusy(true)
+    const sIdx = sessions.findIndex(s => s.id === activeSessionId)
+    if (sIdx < 0) return setBusy(false)
+    const nextSessions = [...sessions]
+    const sess = nextSessions[sIdx]
+    sess.messages = [...sess.messages, { role: 'user', content: text, ts: Date.now() }]
+    sess.updatedAt = Date.now()
+    if (!sessionTitle) {
+      setSessionTitle(text)
+      nextSessions[sIdx].title = text
+    }
+    await saveSessions(nextSessions)
+    try {
+      // Get Google SERP
+      let serp = null
+      try {
+        serp = await chrome.runtime.sendMessage({ type: 'GOOGLE_SEARCH_AND_SCRAPE', payload: { query: text, closeTab: true } })
+      } catch (_) { serp = null }
+      const googleMsgs = buildGoogleMessages(serp)
+      // Determine contexts (tabs)
+      const wantContext = useContextThisMsg || useContextDefault
+      let contexts = []
+      let cache = { ...contextCache }
+      const tabsToUse = (selectedTabIds && selectedTabIds.length) ? selectedTabIds : (pageData ? [ (await getActiveTab())?.id ].filter(Boolean) : [])
+      if (wantContext) {
+        const missing = tabsToUse.filter(id => !cache[id])
+        if (missing.length) {
+          const scraped = await scrapeSelectedTabs(missing)
+          scraped.forEach(r => { cache[r.tabId] = r })
+          setContextCache(cache)
+        }
+        contexts = tabsToUse.map(id => cache[id]).filter(Boolean)
+      }
+      const active = nextSessions[sIdx]
+      const baseMessages = active.messages
+      const prepended = [
+        ...googleMsgs,
+        ...(wantContext ? buildContextMessages(contexts) : [])
+      ]
+      const msgs = prepended.length ? [...prepended, ...baseMessages] : baseMessages
+      const reqId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now())
+      setStreamingReqId(reqId)
+      streamingReqIdRef.current = reqId
+      const tab = await getActiveTab()
+      try { if (tab?.id && portRef.current) portRef.current.postMessage({ type: 'REGISTER_PORT', tabId: tab.id }) } catch (_) {}
+      const ack = await chrome.runtime.sendMessage({ type: 'CHAT_COMPLETION_STREAM_START', payload: { messages: msgs, reqId, tabId: tab?.id } })
+      if (!ack?.ok) {
+        setStreamingReqId(null)
+        throw new Error(ack?.error || 'stream start failed')
+      }
+    } catch (e) {
+      const sIdx2 = sessions.findIndex(s => s.id === activeSessionId)
+      if (sIdx2 >= 0) {
+        const next = [...sessions]
+        next[sIdx2].messages = [...next[sIdx2].messages, { role: 'assistant', content: `Error: ${e.message}` }]
+        next[sIdx2].updatedAt = Date.now()
+        await saveSessions(next)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }, [input, sessions, activeSessionId, sessionTitle, useContextThisMsg, useContextDefault, contextCache, pageData, selectedTabIds, saveSessions, scrapeSelectedTabs])
+
   const onKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       sendChat()
     }
   }
-
 
   const toggleTab = (id) => {
     setSelectedTabIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
@@ -531,7 +717,7 @@ export default function App() {
       title: 'New Chat',
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      messages: [ { role: 'assistant', content: 'New chat created. How can I help?' } ],
+      messages: [ { role: 'assistant', content: 'New chat created. How can I help?', ts: Date.now() } ],
       context: { useContextDefault, selectedTabIds, contextCache },
     }
     const next = [s, ...sessions]
@@ -545,6 +731,7 @@ export default function App() {
     setUseContextDefault(!!s.context?.useContextDefault)
     setSelectedTabIds(s.context?.selectedTabIds || [])
     setContextCache(s.context?.contextCache || {})
+    setSessionTitle(s.title)
     await chrome.storage.local.set({ activeSessionId: id })
   }
 
@@ -567,11 +754,11 @@ export default function App() {
       {/* Sidebar */}
       {sidebarOpen && (
         <aside className="border-r ds-border flex flex-col overflow-hidden">
-          <div className="p-2 flex items-center justify-between ds-card border-b ds-border">
-            <div className="flex items-center gap-2"><img src={Hand} className="h-4 w-4" /> <span className="font-semibold">Jan</span></div>
+          <div className="p-2 flex items-center justify-between ds-card border-b ds-border pastel-grad">
+            <div className="flex items-center gap-2"><span className="font-semibold">Chats</span></div>
             <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(false)} aria-label="Collapse sidebar">←</Button>
           </div>
-          <div className="p-2"><Button className="w-full" onClick={newChat}>New Chat</Button></div>
+          <div className="p-2"><Button variant="pastel" className="w-full" onClick={newChat}>New Chat</Button></div>
           <div className="px-2 text-xs ds-muted-text">Chats</div>
           <div className="flex-1 overflow-auto px-2 space-y-1 py-2">
             {sessions.map(s => (
@@ -593,7 +780,7 @@ export default function App() {
             </div>
             <div className="mt-2 flex items-center gap-2">
               <Button variant="secondary" onClick={refreshTabs}>Refresh</Button>
-              <Button variant="secondary" onClick={rescrapeSelected} disabled={!selectedTabIds.length}>Scrape</Button>
+              <Button variant="pastelReverse" onClick={rescrapeSelected} disabled={!selectedTabIds.length}>Scrape</Button>
             </div>
             <div className="mt-2 flex items-center gap-2 text-xs">
               <label className="flex items-center gap-2"><input type="checkbox" checked={useContextDefault} onChange={e => setUseContextDefault(e.target.checked)} /> Use context by default</label>
@@ -603,31 +790,128 @@ export default function App() {
       )}
 
       {/* Main column */}
-      <div className="flex flex-col">
-        <header className="sticky top-0 z-10 flex items-center justify-between px-3 py-2 border-b ds-border ds-card">
-          <div className="flex items-center gap-2">
+      <div className="flex flex-col min-w-0">
+        <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between px-3 py-2 border-b ds-border ds-card pastel-grad pastel-fore">
+          <div className="flex items-center gap-2 min-w-0">
             {!sidebarOpen && <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} aria-label="Expand sidebar">☰</Button>}
-            <img src={Hand} alt="Jan" className="h-5 w-5" />
-            <span className="font-semibold">Jan</span>
-            <span className="text-sm ds-muted-text">Summarizer & Chat</span>
+            <span className="font-semibold truncate max-w-[60vw] min-w-0">{sessionTitle || 'Chat'}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={() => summarize(false)} disabled={busy}>Summarize Page</Button>
-            <Button variant="secondary" onClick={() => summarize(true)} disabled={busy}>Summarize Selection</Button>
-            <Button variant="ghost" size="icon" title="Settings" onClick={() => chrome.runtime.openOptionsPage?.()} aria-label="Settings">⚙️</Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={cycleTheme}
+              aria-label={`Theme: ${themePref}`}
+              title={`Theme: ${themePref}`}
+            >
+              {themePref === 'system' ? <LaptopIcon size={16} /> : themePref === 'light' ? <SunIcon size={16} /> : <MoonIcon size={16} />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => { try { chrome.runtime.openOptionsPage() } catch (_) {} }}
+              aria-label="Settings"
+              title="Settings"
+            >
+              <SettingsIcon size={16} />
+            </Button>
           </div>
         </header>
 
-        <main ref={listRef} className="flex-1 overflow-auto p-3 space-y-1">
-          {messages.map((m, i) => (
-            <Message key={i} role={m.role} content={m.content} onCopy={copyToClipboard} />
-          ))}
-        </main>
+        <ScrollArea.Root className="flex-1">
+          <ScrollArea.Viewport ref={listRef} className="h-full w-full p-3 min-w-0">
+            <div className="space-y-0.5">
+              {messages.map((m, i) => {
+                const prevRole = messages[i - 1]?.role
+                const nextRole = messages[i + 1]?.role
+                const isFirst = prevRole !== m.role
+                const isLast = nextRole !== m.role
+                return (
+                  <Message
+                    key={i}
+                    role={m.role}
+                    content={m.content}
+                    ts={m.ts}
+                    isFirst={isFirst}
+                    isLast={isLast}
+                    onCopy={copyToClipboard}
+                  />
+                )
+              })}
+            </div>
+          </ScrollArea.Viewport>
+          <ScrollArea.Scrollbar orientation="vertical" className="flex select-none touch-none p-0.5 bg-transparent">
+            <ScrollArea.Thumb className="flex-1 rounded-full bg-muted-foreground/30" />
+          </ScrollArea.Scrollbar>
+        </ScrollArea.Root>
 
-        <footer className="p-3 border-t ds-border ds-card">
-          <div className="flex items-end gap-2">
+        <footer className="p-3 border-t ds-border ds-card pastel-grad pastel-fore">
+          {/* Selected context chips */}
+          <div className="mb-2 flex items-center gap-1 overflow-x-auto">
+            {tabs.filter(t => selectedTabIds.includes(t.id)).map(t => (
+              <div key={t.id} className="inline-flex items-center gap-1 rounded-md border ds-border bg-muted text-muted-foreground px-2 py-1 text-xs">
+                <span className="max-w-[40vw] truncate" title={t.title}>{t.title}</span>
+                <button className="opacity-70 hover:opacity-100" title="Remove" onClick={() => toggleTab(t.id)}>
+                  <XIcon size={12} />
+                </button>
+              </div>
+            ))}
+            <Popover.Root open={tabPickerOpen} onOpenChange={setTabPickerOpen}>
+              <Popover.Trigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">
+                  <PlusIcon size={14} className="mr-1" /> Add
+                </Button>
+              </Popover.Trigger>
+              <Popover.Content side="top" align="start" sideOffset={8} className="ds-card border ds-border rounded-md p-2 w-[85vw] sm:w-[360px] shadow-md">
+                <div className="flex items-center gap-2 mb-2">
+                  <Input
+                    placeholder="Search tabs..."
+                    value={tabQuery}
+                    onChange={(e) => setTabQuery(e.target.value)}
+                    className="h-8"
+                  />
+                  <Button variant="secondary" size="sm" className="h-8" onClick={refreshTabs} title="Refresh tabs">
+                    <RefreshIcon size={14} />
+                  </Button>
+                </div>
+                <ScrollArea.Root className="max-h-60">
+                  <ScrollArea.Viewport className="h-full w-full pr-1">
+                    <div className="space-y-1">
+                      {filteredTabs.length === 0 ? (
+                        <div className="text-xs ds-muted-text px-1 py-2">No tabs match.</div>
+                      ) : (
+                        filteredTabs.map(t => {
+                          const checked = selectedTabIds.includes(t.id)
+                          return (
+                            <label key={t.id} className={`flex items-center justify-between gap-2 rounded-md px-2 py-1 border ${checked ? 'bg-muted' : 'bg-card'} ds-border text-sm cursor-pointer`}>
+                              <div className="flex items-center gap-2 min-w-0">
+                                <input type="checkbox" checked={checked} onChange={() => toggleTab(t.id)} />
+                                <span className="truncate" title={t.title}>{t.title}</span>
+                              </div>
+                              {checked ? <CheckIcon size={14} className="text-muted-foreground" /> : null}
+                            </label>
+                          )
+                        })
+                      )}
+                    </div>
+                  </ScrollArea.Viewport>
+                  <ScrollArea.Scrollbar orientation="vertical" className="flex select-none touch-none p-0.5 bg-transparent">
+                    <ScrollArea.Thumb className="flex-1 rounded-full bg-muted-foreground/30" />
+                  </ScrollArea.Scrollbar>
+                </ScrollArea.Root>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <div className="text-xs ds-muted-text">Selected: {selectedTabIds.length}</div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="sm" className="h-8" onClick={() => { setTabQuery(''); refreshTabs() }}>Reset</Button>
+                    <Button size="sm" className="h-8" onClick={() => setTabPickerOpen(false)}>Done</Button>
+                  </div>
+                </div>
+              </Popover.Content>
+            </Popover.Root>
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-end items-stretch gap-2">
             <Textarea
-              className="flex-1 resize-none min-h-[44px] max-h-40 rounded-xl"
+              className="w-full flex-1 resize-y min-h-[44px] max-h-40 sm:max-h-56 rounded-xl"
               placeholder={busy ? 'Working…' : 'Ask anything…'}
               value={input}
               onChange={e => setInput(e.target.value)}
@@ -636,13 +920,31 @@ export default function App() {
             />
             <div className="flex flex-col items-end gap-2">
               <label className="text-xs ds-muted-text flex items-center gap-2">
-                <input type="checkbox" checked={useContextThisMsg} onChange={e => setUseContextThisMsg(e.target.checked)} /> Use context this message
+                <input type="checkbox" checked={useContextThisMsg} onChange={e => setUseContextThisMsg(e.target.checked)} /> Context
               </label>
-              {streamingReqId ? (
-                <Button variant="secondary" onClick={stopStreaming}>Stop</Button>
-              ) : (
-                <Button onClick={sendChat} disabled={busy || !input.trim()}>Send</Button>
-              )}
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title="Search + Ask (Alt-click to open tab)"
+                  aria-label="Search + Ask"
+                  onClick={(e) => {
+                    if (e.altKey || e.metaKey) openGoogleSearch(); else askWithGoogle()
+                  }}
+                  disabled={busy}
+                >
+                  <SearchIcon size={16} />
+                </Button>
+                {streamingReqId ? (
+                  <Button variant="secondary" onClick={stopStreaming} disabled={busy}>Stop</Button>
+                ) : (
+                  <Button onClick={sendChat} disabled={busy || !input.trim()}>
+                    <div className="flex items-center gap-1">
+                      <Send size={16} /> <span>Send</span>
+                    </div>
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </footer>
