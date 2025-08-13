@@ -9,6 +9,7 @@
   "permissions": [
     "storage",
     "activeTab",
+    "tabs",
     "scripting",
     "sidePanel"
   ],
@@ -21,9 +22,9 @@
     "type": "module"
   },
   "side_panel": {
-    "default_path": "src/sidepanel.html"
+    "default_path": "dist/ui/sidepanel/index.html"
   },
-  "options_page": "src/options.html",
+  "options_page": "dist/ui/options/index.html",
   "content_scripts": [
     {
       "matches": ["<all_urls>"],

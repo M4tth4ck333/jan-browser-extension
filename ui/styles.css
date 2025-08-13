@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+/* Theme variables using system preference */
+:root {
+  color-scheme: light dark;
+  --background: #0b0f14;
+  --foreground: #e7eef7;
+  --card: #11161d;
+  --muted: #9bb0c3;
+  --primary: #7aa2f7;
+  --border: #1e2630;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --background: #ffffff;
+    --foreground: #0b0f14;
+    --card: #f7f9fc;
+    --muted: #516173;
+    --primary: #3b82f6;
+    --border: #e5e7eb;
+  }
+}
+
+/* Design-system helpers (avoid Tailwind-like names to prevent parsing errors) */
+.ds-bg { background-color: var(--background); }
+.ds-text { color: var(--foreground); }
+.ds-card { background-color: var(--card); }
+.ds-muted-text { color: var(--muted); }
+.ds-border { border-color: var(--border); }
+.ds-muted-bg { background-color: color-mix(in oklab, var(--card) 85%, var(--foreground) 15%); }
+.ds-primary-bg { background-color: var(--primary); }
+
+/* Buttons and inputs */
+.btn {
+  @apply px-3 py-2 rounded-lg text-sm border;
+  border-color: var(--border);
+  background: var(--card);
+  color: var(--foreground);
+}
+.btn:hover { outline: 1px solid var(--primary); }
+.input {
+  @apply px-3 py-2 rounded-lg text-sm border;
+  border-color: var(--border);
+  background: var(--card);
+  color: var(--foreground);
+}
+.icon-btn { @apply px-2 py-1 rounded-md border; border-color: var(--border); background: var(--card); }
