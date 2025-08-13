@@ -1,5 +1,4 @@
 @import "tailwindcss";
-
 /* Theme variables using system preference */
 :root {
   color-scheme: light dark;

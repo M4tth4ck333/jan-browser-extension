@@ -2,33 +2,65 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Hand from '../assets/jan-hand.svg'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
+import rehypeHighlight from 'rehype-highlight'
+import 'highlight.js/styles/github-dark.min.css'
+import * as Tooltip from '@radix-ui/react-tooltip'
+import { Button } from '../components/ui/button.jsx'
 
 function Message({ role, content, onCopy }) {
   const isUser = role === 'user'
   const bubbleBase = isUser ? 'bg-blue-600 text-white' : 'ds-card ds-text'
+  const sanitizeSchema = useMemo(() => ({
+    ...defaultSchema,
+    attributes: {
+      ...defaultSchema.attributes,
+      code: [...(defaultSchema.attributes?.code || []), ['className']],
+      pre: [...(defaultSchema.attributes?.pre || []), ['className']],
+      span: [...(defaultSchema.attributes?.span || []), ['className']],
+      a: [ ...(defaultSchema.attributes?.a || []), ['target'], ['rel'] ],
+    },
+  }), [])
   return (
     <div className={`w-full flex ${isUser ? 'justify-end' : 'justify-start'} mb-2`}>
       <div className={`${bubbleBase} relative shadow-sm max-w-[80%] rounded-2xl px-3 py-2 text-sm`}>
-        <button className="absolute top-1 right-1 text-xs opacity-70 hover:opacity-100" title="Copy" onClick={() => onCopy?.(content)}>📋</button>
+        <Tooltip.Root>
+          <Tooltip.Trigger asChild>
+            <Button variant="ghost" size="icon" className="absolute top-1 right-1" onClick={() => onCopy?.(content)} aria-label="Copy message">
+              {/* copy icon */}
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 7a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2V7zm-4 4V6a2 2 0 0 1 2-2h7v2H7v5H5zm4 5h7V7h-7v9z"/></svg>
+            </Button>
+          </Tooltip.Trigger>
+          <Tooltip.Content sideOffset={6} className="text-xs ds-card ds-text border ds-border rounded px-2 py-1">Copy</Tooltip.Content>
+        </Tooltip.Root>
         {isUser ? (
           <div className="whitespace-pre-wrap">{content}</div>
         ) : (
           <div className="max-w-none break-words">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-              code({ node, inline, className, children, ...props }) {
-                const text = String(children || '')
-                if (inline) return <code className="px-1 py-0.5 rounded bg-black/20">{text}</code>
-                const copyCode = async () => {
-                  try { await navigator.clipboard.writeText(text) } catch (_) {}
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[[rehypeSanitize, sanitizeSchema], rehypeHighlight]}
+              components={{
+                code({ node, inline, className, children, ...props }) {
+                  const text = String(children || '')
+                  if (inline) return <code className="px-1 py-0.5 rounded bg-black/20">{text}</code>
+                  const copyCode = async () => { try { await navigator.clipboard.writeText(text) } catch (_) {} }
+                  return (
+                    <div className="relative my-2">
+                      <Tooltip.Root>
+                        <Tooltip.Trigger asChild>
+                          <Button variant="ghost" size="icon" className="absolute top-1 right-1" onClick={copyCode} aria-label="Copy code">
+                            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 7a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2V7zm-4 4V6a2 2 0 0 1 2-2h7v2H7v5H5zm4 5h7V7h-7v9z"/></svg>
+                          </Button>
+                        </Tooltip.Trigger>
+                        <Tooltip.Content sideOffset={6} className="text-xs ds-card ds-text border ds-border rounded px-2 py-1">Copy code</Tooltip.Content>
+                      </Tooltip.Root>
+                      <pre className="overflow-auto ds-muted-bg p-2 rounded"><code className={className} {...props}>{text}</code></pre>
+                    </div>
+                  )
                 }
-                return (
-                  <div className="relative my-2">
-                    <button className="absolute top-1 right-1 text-xs opacity-70 hover:opacity-100" title="Copy code" onClick={copyCode}>📋</button>
-                    <pre className="overflow-auto ds-muted-bg p-2 rounded"><code className={className} {...props}>{text}</code></pre>
-                  </div>
-                )
-              }
-            }}>
+              }}
+            >
               {content || ''}
             </ReactMarkdown>
           </div>
