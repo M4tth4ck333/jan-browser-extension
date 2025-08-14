@@ -7,6 +7,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "dev:ext": "vite build --watch",
+    "dev:mcp": "npm run dev --prefix mcp/search-server",
+    "build:mcp": "npm run build --prefix mcp/search-server",
+    "start:mcp": "node mcp/search-server/dist/src/index.js",
+    "dev:all": "concurrently -n ext,mcp -c blue,magenta \"npm run dev:ext\" \"npm run dev:mcp\"",
+    "build:all": "npm run build && npm run build:mcp",
     "preview": "vite preview",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -33,6 +39,7 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
+    "concurrently": "^9.1.2",
     "@tailwindcss/postcss": "^4.1.11",
     "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.4.21",

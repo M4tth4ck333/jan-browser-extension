@@ -162,6 +162,42 @@ This document captures the current architecture, recent changes, and a practical
   - Or switch to explicit open with cache‑busting query.
 - Build: `bun run build` (Vite multi‑page). Source maps enabled.
 
+### MCP bridge + unified dev
+
+- The MCP Search server lives at `mcp/search-server/` and spins up a local WebSocket bridge (`ws://127.0.0.1:17389`) that the extension’s background connects to.
+- Recommended workflow to run extension and MCP server together during dev:
+
+```bash
+# from repo root
+npm install                # installs root + dev tool (concurrently)
+npm run build:mcp          # one‑time TS build of the MCP server
+npm run dev:all            # runs Vite (extension) and MCP server watch in parallel
+```
+
+- Load the extension from `dist/` in Chrome. The background will connect out to the MCP bridge once active.
+- For MCP client testing, configure your client (e.g., Claude Desktop) to launch the server entry: `mcp/search-server/dist/src/index.js`.
+
+Claude Desktop config (macOS): `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "search": {
+      "command": "node",
+      "args": ["/absolute/path/to/jan-browser-extension/mcp/search-server/dist/src/index.js"],
+      "env": {
+        "BRIDGE_HOST": "127.0.0.1",
+        "BRIDGE_PORT": "17389"
+      }
+    }
+  }
+}
+```
+
+Notes:
+- The MCP server logs a startup line to `mcp/search-server/log.txt` and exposes a `server_info` tool (prints name/version/ts) and `bridge_status` tool.
+- Ensure port `17389` is free (`lsof -iTCP:17389 -sTCP:LISTEN`). Kill stale processes if needed.
+
 
 ## Changelog (recent)
 

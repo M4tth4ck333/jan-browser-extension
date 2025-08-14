@@ -82,18 +82,59 @@ Output is plain Markdown in the side panel.
 
 ## MCP: Search Server
 
-A standalone MCP server that exposes a `search` tool (Google) lives in `mcp/search-server/`.
+A standalone MCP server that bridges to the Chrome extension lives in `mcp/search-server/`.
 
-- Install & build:
-  ```bash
-  cd mcp/search-server
-  npm install
-  npm run build
-  ```
-- Configure your MCP client (e.g., Claude Desktop) to launch `node mcp/search-server/dist/index.js`.
-- Optional env for Google CSE: `GOOGLE_API_KEY`, `GOOGLE_CSE_ID`.
+### Unified dev workflow (extension + MCP server)
 
-See `mcp/search-server/README.md` for detailed usage and client configuration.
+```bash
+# from repo root
+npm install
+npm run build:mcp    # one-time build of MCP TS (or run dev below)
+npm run dev:all      # runs Vite (extension) and MCP server watch in parallel
+```
+
+Then load the extension from `dist/` in Chrome (Developer mode → Load unpacked). The background service worker will connect to the MCP bridge at `ws://127.0.0.1:17389` automatically when running.
+
+### Build all
+
+```bash
+# from repo root
+npm run build:all  # builds the extension (Vite) and MCP server (tsc)
+```
+
+### Start MCP server only
+
+```bash
+npm run start:mcp   # node mcp/search-server/dist/src/index.js
+```
+
+### Tools exposed
+
+- `search({ query, numResults?, format? })` → Serper-like JSON (default) or text summary. Adds `_meta.urls` and `urls` in JSON.
+- `visit_tool({ url, mode? })` → Returns compact JSON `{ url, success, title?, contentType, content }`. Uses extension first; falls back to HTTP fetch.
+- `bridge_status()` → `connected: true|false` (extension ↔ bridge).
+- `server_info()` → `{ name, version, ts }` to verify running binary.
+
+### Configure in an MCP client (Claude Desktop)
+
+Edit: `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "search": {
+      "command": "node",
+      "args": ["/absolute/path/to/jan-browser-extension/mcp/search-server/dist/src/index.js"],
+      "env": {
+        "BRIDGE_HOST": "127.0.0.1",
+        "BRIDGE_PORT": "17389"
+      }
+    }
+  }
+}
+```
+
+See `mcp/search-server/README.md` for more details.
 
 ## License
 
