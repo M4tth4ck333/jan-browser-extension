@@ -8,11 +8,26 @@ A Manifest V3 Chrome extension that summarizes the current page (or selected tex
 
 ## Quick Start
 
-1. Open `chrome://extensions` in Chrome.
-2. Enable "Developer mode".
-3. Click "Load unpacked" and select this folder: `jan-browser-extension/`.
-4. Pin the extension and click it to open the Side Panel.
-5. Click the settings (⚙️) button in the side panel to configure your API.
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/your-repo/jan-browser-extension.git
+    cd jan-browser-extension
+    ```
+2.  **Install dependencies:**
+    ```bash
+    npm install
+    ```
+3.  **Build the extension:**
+    ```bash
+    npm run build
+    ```
+4.  **Load the extension in Chrome:**
+    *   Open `chrome://extensions` in Chrome.
+    *   Enable "Developer mode".
+    *   Click "Load unpacked" and select the `dist` folder.
+5.  **Configure and use the extension:**
+    *   Pin the extension and click it to open the Side Panel.
+    *   Click the settings (⚙️) button in the side panel to configure your API.
 
 ## Configuration
 

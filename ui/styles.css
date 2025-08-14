@@ -1,0 +1,254 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+@plugin "tailwindcss-animate";
+
+/* Theme variables using system preference */
+:root {
+  color-scheme: light dark;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --muted: oklch(0.97 0 0);
+  --primary: oklch(0.205 0 0);
+  --border: oklch(0.922 0 0);
+  --radius: 0.625rem;
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+
+  /* Pastel gradient palette (light) */
+  --pastel-1: #FFF8CC; /* yellow */
+  --pastel-2: #FCECCB; /* warm peachy-yellow */
+  --pastel-3: #F8E6D4; /* creamy beige */
+  --pastel-4: #E4E7E7; /* neutral pastel gray */
+  --pastel-5: #D2E6F0; /* pale sky blue */
+  --pastel-6: #BFE2F5; /* soft pastel blue */
+  --pastel-grad: linear-gradient(90deg, var(--pastel-1) 0%, var(--pastel-2) 20%, var(--pastel-3) 40%, var(--pastel-4) 60%, var(--pastel-5) 80%, var(--pastel-6) 100%);
+  --pastel-grad-rev: linear-gradient(90deg, var(--pastel-6) 0%, var(--pastel-5) 20%, var(--pastel-4) 40%, var(--pastel-3) 60%, var(--pastel-2) 80%, var(--pastel-1) 100%);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --background: #ffffff;
+    --foreground: #0b0f14;
+    --card: #f7f9fc;
+    --muted: #516173;
+    --primary: #3b82f6;
+    --border: #e5e7eb;
+  }
+}
+
+/* Design-system helpers (avoid Tailwind-like names to prevent parsing errors) */
+.ds-bg { background-color: var(--background); }
+.ds-text { color: var(--foreground); }
+.ds-card { background-color: var(--card); }
+.ds-muted-text { color: var(--muted); }
+.ds-border { border-color: var(--border); }
+.ds-muted-bg { background-color: color-mix(in oklab, var(--card) 85%, var(--foreground) 15%); }
+.ds-primary-bg { background-color: var(--primary); }
+
+/* Gradient utilities */
+.pastel-grad { background-image: var(--pastel-grad); }
+.pastel-grad-rev { background-image: var(--pastel-grad-rev); }
+.pastel-hover:hover { filter: brightness(1.05); }
+.pastel-fore { color: #0b0f14; }
+.pastel-fore a { color: #0b0f14; }
+
+/* Dark mode: replace gradient with translucent glass and fix foreground */
+.dark .pastel-grad {
+  background-image: none !important;
+  background-color: oklch(1 0 0 / 0.06); /* subtle translucent light on dark */
+  -webkit-backdrop-filter: saturate(1.1) blur(10px);
+  backdrop-filter: saturate(1.1) blur(10px);
+}
+.dark .pastel-fore,
+.dark .pastel-fore a {
+  color: var(--foreground) !important;
+}
+
+/* Gradient buttons (consumed by Button component) */
+.btn-pastel {
+  background-image: var(--pastel-grad);
+  color: #0b0f14;
+}
+.btn-pastel:hover { filter: brightness(1.05); }
+.btn-pastel-rev {
+  background-image: var(--pastel-grad-rev);
+  color: #0b0f14;
+}
+.btn-pastel-rev:hover { filter: brightness(1.05); }
+
+/* Buttons and inputs */
+.btn {
+  @apply px-3 py-2 rounded-lg text-sm border;
+  border-color: var(--border);
+  background: var(--card);
+  color: var(--foreground);
+}
+.btn:hover { outline: 1px solid var(--primary); }
+.input {
+  @apply px-3 py-2 rounded-lg text-sm border;
+  border-color: var(--border);
+  background: var(--card);
+  color: var(--foreground);
+}
+.icon-btn { @apply px-2 py-1 rounded-md border; border-color: var(--border); background: var(--card); }/* Assistant message typography (no bubble) */
+.ai-typography {
+  line-height: 1.75;
+  font-size: 0.95rem;
+}
+.ai-typography > * + * {
+  margin-top: 0.9rem;
+}
+.ai-typography p {
+  margin: 0;
+}
+.ai-typography h1,
+.ai-typography h2,
+.ai-typography h3,
+.ai-typography h4 {
+  line-height: 1.3;
+  font-weight: 650;
+  margin: 0.8rem 0 0.4rem;
+}
+.ai-typography h1 { font-size: 1.35rem; }
+.ai-typography h2 { font-size: 1.2rem; }
+.ai-typography h3 { font-size: 1.1rem; }
+.ai-typography h4 { font-size: 1rem; }
+
+.ai-typography ul,
+.ai-typography ol {
+  padding-left: 1.25rem;
+}
+.ai-typography ul { list-style: disc; }
+.ai-typography ol { list-style: decimal; }
+.ai-typography li > ul,
+.ai-typography li > ol { margin-top: 0.5rem; }
+
+.ai-typography blockquote {
+  margin: 0;
+  padding-left: 0.9rem;
+  border-left: 3px solid var(--border);
+  color: var(--muted-foreground);
+}
+
+.ai-typography hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1rem 0;
+}
+
+.ai-typography a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ai-typography img,
+.ai-typography video {
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+}
+
+.ai-typography table {
+  width: 100%;
+  border-collapse: collapse;
+  overflow: hidden;
+}
+.ai-typography th,
+.ai-typography td {
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.6rem;
+  vertical-align: top;
+}
+.ai-typography thead th {
+  background: color-mix(in oklab, var(--card) 80%, var(--foreground) 20%);
+}
+
+.ai-typography pre {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem;
+  overflow: auto;
+}
+
+
+
+/* Hide scrollbars for horizontal chip scrollers */
+.no-scrollbar {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* Tab chip styles */
+.tab-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 7px; /* slightly shrunk */
+  font-size: 11px;  /* compact */
+  line-height: 1;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--card) 80%, transparent 20%); /* ~0.8 opacity feel */
+  -webkit-backdrop-filter: saturate(1.1) blur(6px);
+  backdrop-filter: saturate(1.1) blur(6px);
+  color: var(--foreground);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tab-chip[aria-selected="true"] {
+  background: color-mix(in oklab, var(--primary) 12%, var(--card) 88%);
+  border-color: color-mix(in oklab, var(--primary) 45%, var(--border) 55%);
+}
+.tab-chip:hover { outline: 1px solid var(--primary); }
+
+/* Close icon within chip */
+.chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 4px;
+  border-radius: 9999px;
+  color: var(--muted-foreground);
+  background: transparent;
+  opacity: 0.7;
+}
+.tab-chip:hover .chip-x { opacity: 1; }
+.chip-x:hover {
+  background: color-mix(in oklab, var(--foreground) 10%, transparent 90%);
+}
+
+/* Add chip variant (for + trigger) */
+.add-chip {
+  cursor: pointer;
+  border-style: dashed;
+}
