@@ -1,10 +1,24 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
 
-const DEFAULTS = { provider: 'custom', apiBase: '', apiKey: '', model: '', temperature: 0.2 }
+const DEFAULTS = { provider: 'custom', apiBase: '', apiKey: '', model: '', temperature: 0.2, themePref: 'system' }
 
 export default function OptionsApp() {
   const [cfg, setCfg] = useState(DEFAULTS)
   const [status, setStatus] = useState('')
+  const mqRef = useRef(null)
+
+  // Theme helpers
+  const getSystemDark = () => {
+    try { return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches } catch { return false }
+  }
+  const applyTheme = useCallback((pref) => {
+    const root = document.documentElement
+    const effectiveDark = pref === 'dark' ? true : (pref === 'light' ? false : getSystemDark())
+    try {
+      if (effectiveDark) root.classList.add('dark')
+      else root.classList.remove('dark')
+    } catch (_) {}
+  }, [])
 
   useEffect(() => {
     ;(async () => {
@@ -12,6 +26,20 @@ export default function OptionsApp() {
       setCfg({ ...DEFAULTS, ...s })
     })()
   }, [])
+
+  // React to theme changes and system changes
+  useEffect(() => {
+    applyTheme(cfg.themePref)
+    try {
+      if (mqRef.current) { mqRef.current.onchange = null; mqRef.current = null }
+      if (cfg.themePref === 'system' && window.matchMedia) {
+        const mq = window.matchMedia('(prefers-color-scheme: dark)')
+        mqRef.current = mq
+        mq.onchange = () => applyTheme('system')
+      }
+    } catch (_) {}
+    return () => { try { if (mqRef.current) mqRef.current.onchange = null } catch (_) {} }
+  }, [cfg.themePref, applyTheme])
 
   const onChange = (k) => (e) => setCfg({ ...cfg, [k]: k === 'temperature' ? Number(e.target.value) : e.target.value })
 
@@ -41,6 +69,14 @@ export default function OptionsApp() {
         <div className="text-lg font-semibold">Jan Summarizer – Settings</div>
       </header>
       <main className="p-4 max-w-xl mx-auto space-y-4">
+        <div className="grid gap-1">
+          <label className="text-sm ds-muted-text">Theme</label>
+          <select value={cfg.themePref} onChange={onChange('themePref')} className="input">
+            <option value="system">System (default)</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </div>
         <div className="grid gap-1">
           <label className="text-sm ds-muted-text">Provider Preset</label>
           <select value={cfg.provider} onChange={onProviderChange} className="input">

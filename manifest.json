@@ -21,6 +21,18 @@
     "service_worker": "src/background.js",
     "type": "module"
   },
+  "commands": {
+    "open_sidepanel": {
+      "suggested_key": {
+        "default": "Alt+J",
+        "mac": "Command+Shift+Y",
+        "windows": "Ctrl+Shift+Y",
+        "chromeos": "Ctrl+Shift+Y",
+        "linux": "Ctrl+Shift+Y"
+      },
+      "description": "Open Jan side panel"
+    }
+  },
   "side_panel": {
     "default_path": "dist/ui/sidepanel/index.html"
   },

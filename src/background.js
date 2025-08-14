@@ -251,6 +251,34 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
+// Keyboard shortcut handler to open the side panel
+try {
+  chrome.commands.onCommand.addListener(async (command) => {
+    if (command !== 'open_sidepanel') return;
+    try {
+      const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+      let targetTabId = active?.id || 0;
+      if (!active || !isSupportedUrl(active.url)) {
+        const inWindow = await chrome.tabs.query({ currentWindow: true });
+        const alt = inWindow.find(t => isSupportedUrl(t.url));
+        if (alt?.id) {
+          targetTabId = alt.id;
+        } else {
+          const created = await chrome.tabs.create({ url: 'https://example.com' });
+          targetTabId = created.id;
+        }
+      }
+      try { await chrome.tabs.update(targetTabId, { active: true }); } catch (_) {}
+      await chrome.sidePanel.setOptions({ tabId: targetTabId, path: `dist/ui/sidepanel/index.html`, enabled: true });
+      try { if (chrome.sidePanel?.open) await chrome.sidePanel.open({ tabId: targetTabId }); } catch (_) {}
+    } catch (err) {
+      console.warn('open_sidepanel command failed:', err);
+    }
+  });
+} catch (err) {
+  console.warn('commands API not available:', err);
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'SUMMARIZE') {
     (async () => {
@@ -328,7 +356,61 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     })();
     return true;
   }
+
+  if (message?.type === 'GOOGLE_SEARCH_AND_SCRAPE') {
+    (async () => {
+      try {
+        const { query, closeTab = true } = message.payload || {};
+        if (!query || !String(query).trim()) {
+          return sendResponse({ ok: false, error: 'Missing query' });
+        }
+        const url = `https://www.google.com/search?q=${encodeURIComponent(String(query).trim())}`;
+        const created = await chrome.tabs.create({ url, active: false });
+        const tabId = created.id;
+        // Wait for load complete
+        await waitForTabComplete(tabId, 15000);
+        // Small settle delay for dynamic SERP hydration
+        await delay(700);
+        const data = await sendMessageWithRetry(tabId, { type: 'SCRAPE_GOOGLE_SERP' }, 3, 500);
+        if (closeTab) {
+          try { await chrome.tabs.remove(tabId); } catch (_) {}
+        }
+        sendResponse({ ok: true, data, sourceTabId: tabId });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+      }
+    })();
+    return true;
+  }
 });
+
+function delay(ms) { return new Promise(res => setTimeout(res, ms)); }
+
+async function waitForTabComplete(tabId, timeoutMs = 10000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const t = await chrome.tabs.get(tabId);
+      if (t?.status === 'complete') return true;
+    } catch (_) { /* ignore transient */ }
+    await delay(200);
+  }
+  return true; // best-effort
+}
+
+async function sendMessageWithRetry(tabId, msg, retries = 2, backoffMs = 400) {
+  let lastErr = null;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const resp = await chrome.tabs.sendMessage(tabId, msg);
+      return resp;
+    } catch (e) {
+      lastErr = e;
+      await delay(backoffMs);
+    }
+  }
+  throw lastErr || new Error('sendMessage failed');
+}
 
 async function getSettings() {
   const s = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));

@@ -9,13 +9,12 @@ import { Button } from '../components/ui/button.jsx'
 import { Textarea } from '../components/ui/textarea.jsx'
 import * as ScrollArea from '@radix-ui/react-scroll-area'
 import * as Popover from '@radix-ui/react-popover'
-import { User as UserIcon, Send, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Search as SearchIcon, Settings as SettingsIcon, Sun as SunIcon, Moon as MoonIcon, Laptop as LaptopIcon } from 'lucide-react'
+import { User as UserIcon, Send, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Search as SearchIcon, Settings as SettingsIcon, Sun as SunIcon, Moon as MoonIcon, Laptop as LaptopIcon, Trash2 as TrashIcon } from 'lucide-react'
 import { Input } from '../components/ui/input.jsx'
 
 function Message({ role, content, ts, isFirst, isLast, onCopy }) {
   const isUser = role === 'user'
-  // Pastel gradient for user, neutral card for assistant
-  const bubbleBase = isUser ? 'pastel-grad pastel-fore' : 'bg-card text-card-foreground'
+  // Bubble for user; assistant will be clean typography (no bubble)
   const radius = [
     'rounded-2xl',
     !isFirst ? (isUser ? 'rounded-tr-md' : 'rounded-tl-md') : '',
@@ -45,11 +44,11 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
         <div className={`hidden sm:flex shrink-0 h-6 w-6 rounded-full bg-muted text-muted-foreground items-center justify-center ${isLast ? '' : 'invisible'}`}>
           {isUser ? <UserIcon size={14} /> : <Bot size={14} />}
         </div>
-        <div className={`group ${bubbleBase} relative max-w-[100%] sm:max-w-[75%] ${radius} px-3 py-2 text-sm ${isUser ? '' : 'min-h-[2.25rem]'}`}>
+        <div className={`${isUser ? `group pastel-grad pastel-fore relative max-w-[100%] sm:max-w-[75%] ${radius} px-3 py-2 text-sm` : 'group relative max-w-[100%] sm:max-w-[75%]'}`}>
           {isUser ? (
             <div className="whitespace-pre-wrap">{content}</div>
           ) : (
-            <div className="max-w-none break-words">
+            <div className="max-w-none break-words ai-typography">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[[rehypeSanitize, sanitizeSchema], rehypeHighlight]}
@@ -78,9 +77,8 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
               </ReactMarkdown>
             </div>
           )}
-          {/* timestamps hidden for minimal UI */}
           {!isUser ? (
-            <div className="mt-2 pt-1 border-t ds-border flex justify-end opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+            <div className="mt-3 pt-2 border-t ds-border flex justify-end opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
               <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onCopy?.(content)} aria-label="Copy">
                 <CopyIcon size={14} className="mr-1" /> Copy
               </Button>
@@ -219,6 +217,20 @@ export default function App() {
     try { chrome.storage.sync.set({ themePref: next }) } catch (_) {}
   }
 
+  // React live to changes from Options page
+  useEffect(() => {
+    const handler = (changes, area) => {
+      try {
+        if (area === 'sync' && changes?.themePref) {
+          const next = changes.themePref.newValue || 'system'
+          setThemePref(next)
+        }
+      } catch (_) {}
+    }
+    try { chrome.storage.onChanged.addListener(handler) } catch (_) {}
+    return () => { try { chrome.storage.onChanged.removeListener(handler) } catch (_) {} }
+  }, [])
+
   const delay = (ms) => new Promise(res => setTimeout(res, ms))
 
   const waitForTabComplete = async (tabId, attempts = 10, intervalMs = 300) => {
@@ -332,7 +344,7 @@ export default function App() {
       const newId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now())
       const initial = {
         id: newId,
-        title: 'New Chat',
+        title: 'Jan',
         createdAt: Date.now(),
         updatedAt: Date.now(),
         messages: [
@@ -595,13 +607,10 @@ export default function App() {
       let cache = { ...contextCache }
       const tabsToUse = (selectedTabIds && selectedTabIds.length) ? selectedTabIds : (pageData ? [ (await getActiveTab())?.id ].filter(Boolean) : [])
       if (wantContext) {
-        // Scrape missing tabs
-        const missing = tabsToUse.filter(id => !cache[id])
-        if (missing.length) {
-          const scraped = await scrapeSelectedTabs(missing)
-          scraped.forEach(r => { cache[r.tabId] = r })
-          setContextCache(cache)
-        }
+        // Always re-scrape selected tabs to keep content fresh
+        const scraped = await scrapeSelectedTabs(tabsToUse)
+        scraped.forEach(r => { cache[r.tabId] = r })
+        setContextCache(cache)
         contexts = tabsToUse.map(id => cache[id]).filter(Boolean)
       }
       // Prefer streaming
@@ -661,12 +670,10 @@ export default function App() {
       let cache = { ...contextCache }
       const tabsToUse = (selectedTabIds && selectedTabIds.length) ? selectedTabIds : (pageData ? [ (await getActiveTab())?.id ].filter(Boolean) : [])
       if (wantContext) {
-        const missing = tabsToUse.filter(id => !cache[id])
-        if (missing.length) {
-          const scraped = await scrapeSelectedTabs(missing)
-          scraped.forEach(r => { cache[r.tabId] = r })
-          setContextCache(cache)
-        }
+        // Always re-scrape selected tabs to keep content fresh
+        const scraped = await scrapeSelectedTabs(tabsToUse)
+        scraped.forEach(r => { cache[r.tabId] = r })
+        setContextCache(cache)
         contexts = tabsToUse.map(id => cache[id]).filter(Boolean)
       }
       const active = nextSessions[sIdx]
@@ -714,14 +721,49 @@ export default function App() {
     const newId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now())
     const s = {
       id: newId,
-      title: 'New Chat',
+      title: 'Jan',
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      messages: [ { role: 'assistant', content: 'New chat created. How can I help?', ts: Date.now() } ],
+      messages: [],
       context: { useContextDefault, selectedTabIds, contextCache },
     }
     const next = [s, ...sessions]
     await saveSessions(next, newId)
+  }
+
+  const deleteChat = async (id) => {
+    const targetId = id || activeSessionId
+    const idx = sessions.findIndex(s => s.id === targetId)
+    if (idx < 0) return
+    const next = sessions.filter(s => s.id !== targetId)
+    if (next.length === 0) {
+      // If no sessions remain, create a fresh one
+      const newId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now())
+      const initial = {
+        id: newId,
+        title: 'Jan',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        messages: [],
+        context: { useContextDefault: true, selectedTabIds: [], contextCache: {} },
+      }
+      await saveSessions([initial], newId)
+      setUseContextDefault(true)
+      setSelectedTabIds([])
+      setContextCache({})
+      setSessionTitle(initial.title)
+      return
+    }
+    const nextActive = targetId === activeSessionId ? next[0].id : activeSessionId
+    await saveSessions(next, nextActive)
+    // Sync dependent state when switching
+    const s = next.find(x => x.id === nextActive)
+    if (s) {
+      setUseContextDefault(!!s.context?.useContextDefault)
+      setSelectedTabIds(s.context?.selectedTabIds || [])
+      setContextCache(s.context?.contextCache || {})
+      setSessionTitle(s.title)
+    }
   }
 
   const switchSession = async (id) => {
@@ -750,7 +792,7 @@ export default function App() {
   useEffect(() => { persistContext() }, [useContextDefault, selectedTabIds, contextCache])
 
   return (
-    <div className="h-screen bg-background text-foreground grid" style={{ gridTemplateColumns: sidebarOpen ? '220px 1fr' : '1fr' }}>
+    <div className="h-screen bg-transparent text-foreground grid" style={{ gridTemplateColumns: sidebarOpen ? '220px 1fr' : '1fr' }}>
       {/* Sidebar */}
       {sidebarOpen && (
         <aside className="border-r ds-border flex flex-col overflow-hidden">
@@ -758,14 +800,21 @@ export default function App() {
             <div className="flex items-center gap-2"><span className="font-semibold">Chats</span></div>
             <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(false)} aria-label="Collapse sidebar">←</Button>
           </div>
-          <div className="p-2"><Button variant="pastel" className="w-full" onClick={newChat}>New Chat</Button></div>
+          <div className="p-2"><Button variant="secondary" className="w-full" onClick={newChat}>New Chat</Button></div>
           <div className="px-2 text-xs ds-muted-text">Chats</div>
           <div className="flex-1 overflow-auto px-2 space-y-1 py-2">
             {sessions.map(s => (
-              <button key={s.id} onClick={() => switchSession(s.id)} className={`w-full text-left rounded-md px-2 py-2 border ${s.id === activeSessionId ? 'border-blue-500' : ''}`} style={{ borderColor: s.id === activeSessionId ? '#3b82f6' : 'var(--border)', background: 'var(--card)' }}>
-                <div className="text-sm truncate">{s.title || 'Untitled'}</div>
-                <div className="text-xs ds-muted-text">{new Date(s.updatedAt).toLocaleTimeString()}</div>
-              </button>
+              <div key={s.id} className={`w-full rounded-md px-2 py-2 border ${s.id === activeSessionId ? 'border-blue-500' : ''}`} style={{ borderColor: s.id === activeSessionId ? '#3b82f6' : 'var(--border)', background: 'var(--card)' }}>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => switchSession(s.id)} className="flex-1 text-left min-w-0">
+                    <div className="text-sm truncate">{s.title || 'Untitled'}</div>
+                    <div className="text-[10px] ds-muted-text">{new Date(s.updatedAt).toLocaleString()}</div>
+                  </button>
+                  <Button variant="ghost" size="icon" title="Delete" onClick={(e) => { e.stopPropagation(); deleteChat(s.id) }}>
+                    <TrashIcon size={14} />
+                  </Button>
+                </div>
+              </div>
             ))}
           </div>
           <div className="p-2 border-t ds-border">
@@ -791,12 +840,30 @@ export default function App() {
 
       {/* Main column */}
       <div className="flex flex-col min-w-0">
-        <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between px-3 py-2 border-b ds-border ds-card pastel-grad pastel-fore">
+        <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between px-3 py-2 bg-transparent">
           <div className="flex items-center gap-2 min-w-0">
             {!sidebarOpen && <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} aria-label="Expand sidebar">☰</Button>}
-            <span className="font-semibold truncate max-w-[60vw] min-w-0">{sessionTitle || 'Chat'}</span>
+            <span className="font-semibold truncate max-w-[60vw] min-w-0">{sessionTitle || 'Jan'}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={newChat}
+              aria-label="New Chat"
+              title="New Chat"
+            >
+              <PlusIcon size={14} className="mr-1" /> New
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => deleteChat()}
+              aria-label="Delete Chat"
+              title="Delete Chat"
+            >
+              <TrashIcon size={16} />
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -819,25 +886,27 @@ export default function App() {
         </header>
 
         <ScrollArea.Root className="flex-1">
-          <ScrollArea.Viewport ref={listRef} className="h-full w-full p-3 min-w-0">
-            <div className="space-y-0.5">
-              {messages.map((m, i) => {
-                const prevRole = messages[i - 1]?.role
-                const nextRole = messages[i + 1]?.role
-                const isFirst = prevRole !== m.role
-                const isLast = nextRole !== m.role
-                return (
-                  <Message
-                    key={i}
-                    role={m.role}
-                    content={m.content}
-                    ts={m.ts}
-                    isFirst={isFirst}
-                    isLast={isLast}
-                    onCopy={copyToClipboard}
-                  />
-                )
-              })}
+          <ScrollArea.Viewport ref={listRef} className="h-full w-full p-3 pb-28 min-w-0">
+            <div className="space-y-6 md:space-y-7">
+              {messages
+                .filter(m => m.role !== 'system' && !(m.role === 'assistant' && typeof m.content === 'string' && m.content.startsWith('New chat created')))
+                .map((m, i, arr) => {
+                  const prevRole = arr[i - 1]?.role
+                  const nextRole = arr[i + 1]?.role
+                  const isFirst = prevRole !== m.role
+                  const isLast = nextRole !== m.role
+                  return (
+                    <Message
+                      key={i}
+                      role={m.role}
+                      content={m.content}
+                      ts={m.ts}
+                      isFirst={isFirst}
+                      isLast={isLast}
+                      onCopy={copyToClipboard}
+                    />
+                  )
+                })}
             </div>
           </ScrollArea.Viewport>
           <ScrollArea.Scrollbar orientation="vertical" className="flex select-none touch-none p-0.5 bg-transparent">
@@ -845,106 +914,110 @@ export default function App() {
           </ScrollArea.Scrollbar>
         </ScrollArea.Root>
 
-        <footer className="p-3 border-t ds-border ds-card pastel-grad pastel-fore">
-          {/* Selected context chips */}
-          <div className="mb-2 flex items-center gap-1 overflow-x-auto">
-            {tabs.filter(t => selectedTabIds.includes(t.id)).map(t => (
-              <div key={t.id} className="inline-flex items-center gap-1 rounded-md border ds-border bg-muted text-muted-foreground px-2 py-1 text-xs">
-                <span className="max-w-[40vw] truncate" title={t.title}>{t.title}</span>
-                <button className="opacity-70 hover:opacity-100" title="Remove" onClick={() => toggleTab(t.id)}>
-                  <XIcon size={12} />
-                </button>
-              </div>
-            ))}
+        <footer className="p-3 sticky bottom-0 z-20 bg-transparent border-transparent composer">
+          {/* Open tabs chips row */}
+          <div className="mb-2 flex items-center gap-2 overflow-x-auto no-scrollbar">
+            {tabs.map(t => {
+              const selected = selectedTabIds.includes(t.id)
+              if (!selected) return null
+              return (
+                <div
+                  key={t.id}
+                  className="tab-chip"
+                  aria-selected={selected}
+                  title={t.title}
+                  onClick={() => toggleTab(t.id)}
+                  role="button"
+                >
+                  {t.favIconUrl ? (
+                    <img src={t.favIconUrl} alt="" className="h-3.5 w-3.5 rounded-sm" />
+                  ) : (
+                    <span className="h-3.5 w-3.5 rounded-sm bg-muted inline-block" />
+                  )}
+                  <span className="truncate max-w-[30vw] sm:max-w-[240px]">{t.title}</span>
+                  <span
+                    className="chip-x"
+                    role="button"
+                    aria-label="Remove tab from context"
+                    onClick={(e) => { e.stopPropagation(); toggleTab(t.id) }}
+                  >
+                    <XIcon size={12} />
+                  </span>
+                </div>
+              )
+            })}
+
+            {/* Add tabs popover */}
             <Popover.Root open={tabPickerOpen} onOpenChange={setTabPickerOpen}>
               <Popover.Trigger asChild>
-                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">
-                  <PlusIcon size={14} className="mr-1" /> Add
-                </Button>
+                <button type="button" className="tab-chip add-chip" aria-label="Add tabs" title="Add tabs">
+                  <PlusIcon size={14} />
+                  <span>Add</span>
+                </button>
               </Popover.Trigger>
-              <Popover.Content side="top" align="start" sideOffset={8} className="ds-card border ds-border rounded-md p-2 w-[85vw] sm:w-[360px] shadow-md">
-                <div className="flex items-center gap-2 mb-2">
+              <Popover.Content side="top" align="end" className="rounded-xl border ds-border bg-card/80 backdrop-blur-sm shadow-lg p-2 w-[86vw] sm:w-[460px] max-h-[60vh]">
+                <div className="flex flex-col gap-2">
                   <Input
-                    placeholder="Search tabs..."
                     value={tabQuery}
                     onChange={(e) => setTabQuery(e.target.value)}
-                    className="h-8"
+                    placeholder="Search tabs..."
+                    className="h-8 text-sm"
                   />
-                  <Button variant="secondary" size="sm" className="h-8" onClick={refreshTabs} title="Refresh tabs">
-                    <RefreshIcon size={14} />
-                  </Button>
-                </div>
-                <ScrollArea.Root className="max-h-60">
-                  <ScrollArea.Viewport className="h-full w-full pr-1">
-                    <div className="space-y-1">
-                      {filteredTabs.length === 0 ? (
-                        <div className="text-xs ds-muted-text px-1 py-2">No tabs match.</div>
-                      ) : (
-                        filteredTabs.map(t => {
-                          const checked = selectedTabIds.includes(t.id)
-                          return (
-                            <label key={t.id} className={`flex items-center justify-between gap-2 rounded-md px-2 py-1 border ${checked ? 'bg-muted' : 'bg-card'} ds-border text-sm cursor-pointer`}>
-                              <div className="flex items-center gap-2 min-w-0">
-                                <input type="checkbox" checked={checked} onChange={() => toggleTab(t.id)} />
-                                <span className="truncate" title={t.title}>{t.title}</span>
-                              </div>
-                              {checked ? <CheckIcon size={14} className="text-muted-foreground" /> : null}
-                            </label>
-                          )
-                        })
-                      )}
-                    </div>
-                  </ScrollArea.Viewport>
-                  <ScrollArea.Scrollbar orientation="vertical" className="flex select-none touch-none p-0.5 bg-transparent">
-                    <ScrollArea.Thumb className="flex-1 rounded-full bg-muted-foreground/30" />
-                  </ScrollArea.Scrollbar>
-                </ScrollArea.Root>
-                <div className="mt-2 flex items-center justify-between gap-2">
-                  <div className="text-xs ds-muted-text">Selected: {selectedTabIds.length}</div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="sm" className="h-8" onClick={() => { setTabQuery(''); refreshTabs() }}>Reset</Button>
-                    <Button size="sm" className="h-8" onClick={() => setTabPickerOpen(false)}>Done</Button>
+                  <div className="overflow-y-auto pr-1" style={{ maxHeight: '48vh' }}>
+                    {filteredTabs
+                      .filter(t2 => !selectedTabIds.includes(t2.id) && isSupportedUrl(t2.url))
+                      .map(t2 => {
+                        let host = ''
+                        try { host = new URL(t2.url || '').hostname } catch {}
+                        return (
+                          <button
+                            key={t2.id}
+                            className="w-full text-left flex items-center gap-2 p-2 rounded-lg border ds-border bg-card/70 hover:bg-card/90"
+                            onClick={() => { toggleTab(t2.id); setTabPickerOpen(false); setTabQuery('') }}
+                          >
+                            {t2.favIconUrl ? (
+                              <img src={t2.favIconUrl} alt="" className="h-4 w-4 rounded-sm" />
+                            ) : (
+                              <span className="h-4 w-4 rounded-sm bg-muted inline-block" />
+                            )}
+                            <div className="min-w-0">
+                              <div className="truncate text-sm">{t2.title || '(untitled tab)'}</div>
+                              <div className="truncate text-xs text-muted-foreground">{host}</div>
+                            </div>
+                            <div className="ml-auto text-xs text-muted-foreground">Add</div>
+                          </button>
+                        )
+                      })}
+                    {!filteredTabs.filter(t2 => !selectedTabIds.includes(t2.id) && isSupportedUrl(t2.url)).length ? (
+                      <div className="text-xs text-muted-foreground p-2">No other tabs found</div>
+                    ) : null}
                   </div>
                 </div>
               </Popover.Content>
             </Popover.Root>
           </div>
-          <div className="flex flex-col sm:flex-row sm:items-end items-stretch gap-2">
+          <div className="flex items-stretch gap-2">
             <Textarea
-              className="w-full flex-1 resize-y min-h-[44px] max-h-40 sm:max-h-56 rounded-xl"
+              className="w-full flex-1 resize-none min-h-[72px] rounded-2xl text-base leading-6 shadow-lg bg-card/80 border-border/60 backdrop-blur-sm"
               placeholder={busy ? 'Working…' : 'Ask anything…'}
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={onKeyDown}
               disabled={busy}
             />
-            <div className="flex flex-col items-end gap-2">
-              <label className="text-xs ds-muted-text flex items-center gap-2">
-                <input type="checkbox" checked={useContextThisMsg} onChange={e => setUseContextThisMsg(e.target.checked)} /> Context
-              </label>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  title="Search + Ask (Alt-click to open tab)"
-                  aria-label="Search + Ask"
-                  onClick={(e) => {
-                    if (e.altKey || e.metaKey) openGoogleSearch(); else askWithGoogle()
-                  }}
-                  disabled={busy}
-                >
-                  <SearchIcon size={16} />
-                </Button>
-                {streamingReqId ? (
-                  <Button variant="secondary" onClick={stopStreaming} disabled={busy}>Stop</Button>
-                ) : (
-                  <Button onClick={sendChat} disabled={busy || !input.trim()}>
-                    <div className="flex items-center gap-1">
-                      <Send size={16} /> <span>Send</span>
-                    </div>
-                  </Button>
-                )}
-              </div>
+            <div className="flex items-center">
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Search + Ask"
+                aria-label="Search + Ask"
+                onClick={(e) => {
+                  if (e.altKey || e.metaKey) openGoogleSearch(); else askWithGoogle()
+                }}
+                disabled={busy}
+              >
+                <SearchIcon size={16} />
+              </Button>
             </div>
           </div>
         </footer>
