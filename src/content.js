@@ -52,7 +52,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const container = h3.closest('div.g') || h3.parentElement?.parentElement || null;
         const snippetEl = container?.querySelector('.VwiC3b, .yXK7lf, .MUxGbd');
         const snippet = (snippetEl?.innerText || '').trim();
-        results.push({ title, url: href, snippet });
+        const snippetHtml = (snippetEl?.innerHTML || '').trim();
+        const html = container ? container.outerHTML : '';
+        results.push({ title, url: href, snippet, snippetHtml, html });
       }
       const answerBoxCandidates = [
         '#kp-wp-tab-overview',
@@ -61,14 +63,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         'div[data-tts]'
       ];
       let answerBox = '';
+      let answerBoxHtml = '';
       for (const sel of answerBoxCandidates) {
         const el = document.querySelector(sel);
         if (el && (el.innerText || '').trim()) {
           answerBox = el.innerText.trim();
+          try { answerBoxHtml = el.outerHTML; } catch (_) { answerBoxHtml = ''; }
           break;
         }
       }
-      sendResponse({ ok: true, query: q, pageTitle: document.title || '', answerBox, results });
+      sendResponse({ ok: true, query: q, pageTitle: document.title || '', answerBox, answerBoxHtml, results });
     } catch (e) {
       sendResponse({ ok: false, error: String(e?.message || e) });
     }

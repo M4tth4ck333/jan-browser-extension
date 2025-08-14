@@ -80,6 +80,21 @@ Output is plain Markdown in the side panel.
 - "Read later" queue integrated with summaries
 - Per-site auto-summarize toggle
 
+## MCP: Search Server
+
+A standalone MCP server that exposes a `search` tool (Google) lives in `mcp/search-server/`.
+
+- Install & build:
+  ```bash
+  cd mcp/search-server
+  npm install
+  npm run build
+  ```
+- Configure your MCP client (e.g., Claude Desktop) to launch `node mcp/search-server/dist/index.js`.
+- Optional env for Google CSE: `GOOGLE_API_KEY`, `GOOGLE_CSE_ID`.
+
+See `mcp/search-server/README.md` for detailed usage and client configuration.
+
 ## License
 
 MIT

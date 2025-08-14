@@ -46,6 +46,83 @@ try {
   console.warn('setPanelBehavior (startup) not supported:', err);
 }
 
+// --- MCP Bridge (WebSocket client) ---
+const BRIDGE_URL = 'ws://127.0.0.1:17389';
+let bridgeSocket = null;
+
+function connectMcpBridge() {
+  try {
+    const ws = new WebSocket(BRIDGE_URL);
+    bridgeSocket = ws;
+    ws.addEventListener('open', () => {
+      try { console.log('[MCP Bridge] connected'); } catch (_) {}
+    });
+    ws.addEventListener('message', async (evt) => {
+      let msg;
+      try { msg = JSON.parse(evt.data); } catch (_) { return; }
+      if (!msg || msg.kind !== 'call') return;
+      const { id, tool, params } = msg;
+      try { console.log('[MCP Bridge] call received', { id, tool, params }); } catch (_) {}
+      if (!id) return;
+      const reply = (payload) => {
+        try {
+          console.log('[MCP Bridge] sending reply', { id, ok: payload?.ok, keys: Object.keys(payload || {}) });
+          ws.send(JSON.stringify({ id, kind: 'result', ...payload }));
+        } catch (_) {}
+      };
+      try {
+        if (tool === 'search') {
+          const query = String(params?.query || '').trim();
+          if (!query) return reply({ ok: false, error: 'Missing query' });
+          console.log('[MCP Bridge] invoking performGoogleSearchAndScrape', { query });
+          const res = await performGoogleSearchAndScrape({ query, closeTab: true });
+          console.log('[MCP Bridge] performGoogleSearchAndScrape done', { ok: res?.ok, hasData: !!res?.data });
+          if (res?.ok && res?.data) {
+            try {
+              const d = res.data;
+              const summarizeResult = (r) => ({
+                title: r?.title,
+                url: r?.url,
+                snippetLen: r?.snippet ? r.snippet.length : 0,
+                snippetHtmlLen: r?.snippetHtml ? r.snippetHtml.length : 0,
+                htmlLen: r?.html ? r.html.length : 0,
+              });
+              console.log('[MCP Bridge] raw scrape preview', {
+                query: d.query,
+                pageTitle: d.pageTitle,
+                answerBoxLen: d.answerBox ? d.answerBox.length : 0,
+                answerBoxHtmlLen: d.answerBoxHtml ? d.answerBoxHtml.length : 0,
+                resultsCount: Array.isArray(d.results) ? d.results.length : 0,
+                resultsSample: Array.isArray(d.results) ? d.results.slice(0, 3).map(summarizeResult) : [],
+              });
+            } catch (_) {}
+          }
+          if (!res?.ok) return reply({ ok: false, error: res?.error || 'Search failed' });
+          return reply({ ok: true, data: res.data });
+        }
+        // Unknown tool
+        reply({ ok: false, error: `Unknown tool: ${tool}` });
+      } catch (e) {
+        reply({ ok: false, error: String(e?.message || e) });
+      }
+    });
+    ws.addEventListener('close', () => {
+      try { console.warn('[MCP Bridge] disconnected, retrying...'); } catch (_) {}
+      bridgeSocket = null;
+      setTimeout(connectMcpBridge, 1500);
+    });
+    ws.addEventListener('error', () => {
+      try { ws.close(); } catch (_) {}
+    });
+  } catch (e) {
+    try { console.warn('[MCP Bridge] connect error:', e); } catch (_) {}
+    setTimeout(connectMcpBridge, 2000);
+  }
+}
+
+// Establish the bridge connection on service worker startup
+connectMcpBridge();
+
 async function chatCompletionsStream({ apiBase, apiKey, model, temperature, messages }, tabId, reqId) {
   const url = `${apiBase.replace(/\/$/, '')}/chat/completions`;
   const controller = new AbortController();
@@ -207,8 +284,9 @@ chrome.runtime.onStartup.addListener(async () => {
   try {
     await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   } catch (err) {
-    console.warn('setPanelBehavior (onStartup) not supported:', err);
+    console.warn('setPanelBehavior (startup) not supported:', err);
   }
+
 });
 
 // On action click, just ensure the correct panel path/options for the current tab.
@@ -359,26 +437,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === 'GOOGLE_SEARCH_AND_SCRAPE') {
     (async () => {
-      try {
-        const { query, closeTab = true } = message.payload || {};
-        if (!query || !String(query).trim()) {
-          return sendResponse({ ok: false, error: 'Missing query' });
-        }
-        const url = `https://www.google.com/search?q=${encodeURIComponent(String(query).trim())}`;
-        const created = await chrome.tabs.create({ url, active: false });
-        const tabId = created.id;
-        // Wait for load complete
-        await waitForTabComplete(tabId, 15000);
-        // Small settle delay for dynamic SERP hydration
-        await delay(700);
-        const data = await sendMessageWithRetry(tabId, { type: 'SCRAPE_GOOGLE_SERP' }, 3, 500);
-        if (closeTab) {
-          try { await chrome.tabs.remove(tabId); } catch (_) {}
-        }
-        sendResponse({ ok: true, data, sourceTabId: tabId });
-      } catch (e) {
-        sendResponse({ ok: false, error: String(e?.message || e) });
-      }
+      const resp = await performGoogleSearchAndScrape(message?.payload || {});
+      sendResponse(resp);
     })();
     return true;
   }
@@ -410,6 +470,39 @@ async function sendMessageWithRetry(tabId, msg, retries = 2, backoffMs = 400) {
     }
   }
   throw lastErr || new Error('sendMessage failed');
+}
+
+// Reusable function to perform Google Search + scrape
+async function performGoogleSearchAndScrape(payload) {
+  try {
+    const { query, closeTab = true } = payload || {};
+    if (!query || !String(query).trim()) {
+      return { ok: false, error: 'Missing query' };
+    }
+    const url = `https://www.google.com/search?q=${encodeURIComponent(String(query).trim())}`;
+    console.log('[SearchFlow] creating tab', { url });
+    const created = await chrome.tabs.create({ url, active: false });
+    const tabId = created.id;
+    console.log('[SearchFlow] tab created', { tabId });
+    // Wait for load complete
+    await waitForTabComplete(tabId, 15000);
+    console.log('[SearchFlow] tab load complete', { tabId });
+    // Small settle delay for dynamic SERP hydration
+    await delay(700);
+    console.log('[SearchFlow] sending SCRAPE_GOOGLE_SERP to content script', { tabId });
+    const data = await sendMessageWithRetry(tabId, { type: 'SCRAPE_GOOGLE_SERP' }, 3, 500);
+    console.log('[SearchFlow] scrape response received', { ok: !!data, keys: data ? Object.keys(data) : [] });
+    if (closeTab) {
+      try {
+        console.log('[SearchFlow] closing tab', { tabId });
+        await chrome.tabs.remove(tabId);
+      } catch (_) {}
+    }
+    return { ok: true, data, sourceTabId: tabId };
+  } catch (e) {
+    console.warn('[SearchFlow] error', String(e?.message || e));
+    return { ok: false, error: String(e?.message || e) };
+  }
 }
 
 async function getSettings() {
