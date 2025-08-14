@@ -138,4 +138,4 @@ See `mcp/search-server/README.md` for more details.
 
 ## License
 
-MIT
+Apache License 2.0 — see [LICENSE](./LICENSE)

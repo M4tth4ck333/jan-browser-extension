@@ -112,4 +112,4 @@ Load the extension from `dist/` in Chrome (Developer mode → Load unpacked). Wh
 
 ## License
 
-MIT
+Apache License 2.0 — see [LICENSE](../../LICENSE)
