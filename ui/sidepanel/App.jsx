@@ -792,7 +792,7 @@ export default function App() {
   useEffect(() => { persistContext() }, [useContextDefault, selectedTabIds, contextCache])
 
   return (
-    <div className="h-screen bg-transparent text-foreground grid" style={{ gridTemplateColumns: sidebarOpen ? '220px 1fr' : '1fr' }}>
+    <div className="h-screen ds-bg ds-text grid" style={{ gridTemplateColumns: sidebarOpen ? '220px 1fr' : '1fr' }}>
       {/* Sidebar */}
       {sidebarOpen && (
         <aside className="border-r ds-border flex flex-col overflow-hidden">

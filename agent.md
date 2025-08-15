@@ -162,6 +162,42 @@ This document captures the current architecture, recent changes, and a practical
   - Or switch to explicit open with cache‑busting query.
 - Build: `bun run build` (Vite multi‑page). Source maps enabled.
 
+### MCP bridge + unified dev
+
+- The MCP Search server lives at `mcp/search-server/` and spins up a local WebSocket bridge (`ws://127.0.0.1:17389`) that the extension’s background connects to.
+- Recommended workflow to run extension and MCP server together during dev:
+
+```bash
+# from repo root
+npm install                # installs root + dev tool (concurrently)
+npm run build:mcp          # one‑time TS build of the MCP server
+npm run dev:all            # runs Vite (extension) and MCP server watch in parallel
+```
+
+- Load the extension from `dist/` in Chrome. The background will connect out to the MCP bridge once active.
+- For MCP client testing, configure your client (e.g., Claude Desktop) to launch the server entry: `mcp/search-server/dist/src/index.js`.
+
+Claude Desktop config (macOS): `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "search": {
+      "command": "node",
+      "args": ["/absolute/path/to/jan-browser-extension/mcp/search-server/dist/src/index.js"],
+      "env": {
+        "BRIDGE_HOST": "127.0.0.1",
+        "BRIDGE_PORT": "17389"
+      }
+    }
+  }
+}
+```
+
+Notes:
+- The MCP server logs a startup line to `mcp/search-server/log.txt` and exposes a `server_info` tool (prints name/version/ts) and `bridge_status` tool.
+- Ensure port `17389` is free (`lsof -iTCP:17389 -sTCP:LISTEN`). Kill stale processes if needed.
+
 
 ## Changelog (recent)
 
@@ -179,3 +215,17 @@ This document captures the current architecture, recent changes, and a practical
 - Decide on side‑panel opening strategy (auto‑open vs explicit + cache‑bust) for your workflow.
 - Choose whether to expose reasoning streams (toggle) and/or strip them.
 - Prioritize the roadmap items above and create issues per task.
+
+## Changelog – 15 August 2025
+
+- Theme sync polish:
+  - Options theme changes now persist immediately to `chrome.storage.sync` and apply to `<html>` so the Side Panel updates live without Save.
+  - Side Panel root updated to use `ds-bg ds-text` for consistent theming with the Options UI.
+- MCP Bridge security hardening:
+  - Introduced `useBridgeToken` toggle (default Off) in `ui/options/App.jsx` to make browser token usage optional.
+  - `src/background.js` now includes the token in the WebSocket URL only if both `bridgeToken` is set and `useBridgeToken` is true.
+  - Background reconnects automatically when `bridgeToken` or `useBridgeToken` changes.
+  - `GET_BRIDGE_STATUS` reports `usingToken` accurately (true only when both token exists and toggle is On).
+- Bridge UI clarity:
+  - Server command copy adapts to the toggle: includes `BRIDGE_TOKEN=…` when On; plain `npm run dev[:mcp]` when Off.
+  - Button enable/disable logic updated accordingly; helper text clarifies whether a token will be used.

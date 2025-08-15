@@ -80,6 +80,93 @@ Output is plain Markdown in the side panel.
 - "Read later" queue integrated with summaries
 - Per-site auto-summarize toggle
 
+## MCP: Search Server
+
+A standalone MCP server that bridges to the Chrome extension lives in `mcp/search-server/`.
+
+### Unified dev workflow (extension + MCP server)
+
+```bash
+# from repo root
+npm install
+npm run build:mcp    # one-time build of MCP TS (or run dev below)
+npm run dev:all      # runs Vite (extension) and MCP server watch in parallel
+```
+
+Then load the extension from `dist/` in Chrome (Developer mode → Load unpacked). The background service worker will connect to the MCP bridge at `ws://127.0.0.1:17389` automatically when running.
+
+To verify the connection:
+
+- Open `chrome://extensions` → find this extension → "Service worker" → Inspect.
+- You should see `[MCP Bridge] connected` in the console shortly after `npm run dev:all` starts.
+
+### Build all
+
+```bash
+# from repo root
+npm run build:all  # builds the extension (Vite) and MCP server (tsc)
+```
+
+### Start MCP server only
+
+```bash
+npm run start:mcp   # node mcp/search-server/dist/src/index.js
+```
+
+### Tools exposed
+
+- `search({ query, numResults?, format? })` → Serper-like JSON (default) or text summary. Adds `_meta.urls` and `urls` in JSON.
+- `visit_tool({ url, mode? })` → Returns compact JSON `{ url, success, title?, contentType, content }`. Uses extension first; falls back to HTTP fetch.
+- `bridge_status()` → `connected: true|false` (extension ↔ bridge).
+- `server_info()` → `{ name, version, ts }` to verify running binary.
+
+### Configure in an MCP client (Claude Desktop)
+
+Edit: `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "search": {
+      "command": "node",
+      "args": ["/absolute/path/to/jan-browser-extension/mcp/search-server/dist/src/index.js"],
+      "env": {
+        "BRIDGE_HOST": "127.0.0.1",
+        "BRIDGE_PORT": "17389"
+      }
+    }
+  }
+}
+```
+
+See `mcp/search-server/README.md` for more details.
+
+### WebSocket bridge (127.0.0.1:17389)
+
+- The MCP server opens a local WebSocket bridge at `ws://127.0.0.1:17389`.
+- The extension’s background service worker connects out to it automatically and handles `search` and `visit_tool` calls.
+
+### Optional token authentication
+
+- You can secure the bridge with a shared token:
+  - Start MCP with `BRIDGE_TOKEN` set (env var).
+  - Set the same token in the extension storage under key `bridgeToken`.
+
+Quick way to set the token in the extension (DevTools console of the service worker):
+
+```js
+chrome.storage.sync.set({ bridgeToken: 'your-secret' })
+```
+
+Then reload the extension or wait for it to auto-reconnect.
+
+### Troubleshooting: `ERR_CONNECTION_REFUSED`
+
+- The MCP server isn’t running → start it via `npm run dev:all` or `npm run dev:mcp`.
+- Port 17389 is in use → free it: `lsof -iTCP:17389 -sTCP:LISTEN` then `kill -9 <PID>`.
+- Host/port overridden → ensure `BRIDGE_HOST=127.0.0.1` and `BRIDGE_PORT=17389` (default).
+- Firewall blocked → allow local loopback connections for Node.
+
 ## License
 
-MIT
+Apache License 2.0 — see [LICENSE](./LICENSE)
