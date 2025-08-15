@@ -17,3 +17,8 @@ build/
 # Never commit secrets
 # (Extension stores API keys in chrome.storage, not files)
 .env
+
+# Logs
+log.txt
+*.log
+logs/
