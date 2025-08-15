@@ -9,16 +9,43 @@ import { v4 as uuid } from "uuid";
 // Bridge: extension connects OUTBOUND to this local WS server
 const BRIDGE_HOST = process.env.BRIDGE_HOST || "127.0.0.1";
 const BRIDGE_PORT = Number(process.env.BRIDGE_PORT || 17389);
+const BRIDGE_TOKEN = process.env.BRIDGE_TOKEN || undefined; // optional shared secret
 const SERVER_VERSION = "0.1.1-visit-shape";
 
-// Write a quick startup log to a file (not stdout)
-try {
-  appendFileSync(
-    "log.txt",
-    `[${new Date().toISOString()}] search-mcp-server v${SERVER_VERSION} starting; bridge ws://${BRIDGE_HOST}:${BRIDGE_PORT}\n`
-  );
-} catch (e) {
-  console.error("[Startup] failed to write log.txt", e);
+// Optional file logging if MCP_LOG_FILE is set
+const LOG_FILE = process.env.MCP_LOG_FILE;
+if (LOG_FILE) {
+  try {
+    appendFileSync(
+      LOG_FILE,
+      `[${new Date().toISOString()}] search-mcp-server v${SERVER_VERSION} starting; bridge ws://${BRIDGE_HOST}:${BRIDGE_PORT}\n`
+    );
+  } catch (e) {
+    console.error("[Startup] failed to write log file", e);
+  }
+}
+
+// Basic SSRF guard: allow only http/https and block obvious localhost/private IPs
+function isSafePublicUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    const h = (u.hostname || '').toLowerCase();
+    if (!h) return false;
+    if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return false;
+    // Block common private IPv4 ranges
+    if (/^(10|127)\./.test(h)) return false;
+    if (/^169\.254\./.test(h)) return false;
+    if (/^192\.168\./.test(h)) return false;
+    const m = h.match(/^172\.(\d{1,3})\./);
+    if (m) {
+      const oct = Number(m[1]);
+      if (oct >= 16 && oct <= 31) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const server = new McpServer({
@@ -52,8 +79,28 @@ type SearchResult = {
 
 // --- WebSocket bridge state ---
 let extSocket: WebSocket | null = null;
-const wss = new WebSocketServer({ host: BRIDGE_HOST, port: BRIDGE_PORT });
-wss.on("connection", (ws: WebSocket) => {
+const wss = new WebSocketServer({
+  host: BRIDGE_HOST,
+  port: BRIDGE_PORT,
+  maxPayload: 1 << 20,
+  perMessageDeflate: false,
+});
+wss.on("connection", (ws: WebSocket, req) => {
+  try {
+    // Enforce optional token via ?t= query parameter
+    if (BRIDGE_TOKEN) {
+      const u = new URL(req.url || "/", `ws://${BRIDGE_HOST}:${BRIDGE_PORT}`);
+      const t = u.searchParams.get("t") || undefined;
+      if (t !== BRIDGE_TOKEN) {
+        try { console.warn("[Bridge] rejected connection with invalid token"); } catch {}
+        try { ws.close(1008, "Invalid token"); } catch {}
+        return;
+      }
+    }
+  } catch (_) {
+    try { ws.close(1011, "Handshake error"); } catch {}
+    return;
+  }
   extSocket = ws;
   console.error("[Bridge] Extension connected");
   ws.on("close", () => {
@@ -170,6 +217,10 @@ server.registerTool(
 
     // Fallback: direct fetch (Node 18+/Bun global fetch)
     if (!html && !markdown && !text) {
+      if (!isSafePublicUrl(url)) {
+        const msg = `Refused to fetch ${url}: not a safe public URL`;
+        return { content: [{ type: "text", text: msg }], _meta: { urls: [url] } } as any;
+      }
       try {
         const resp = await (globalThis as any).fetch(url);
         const raw = await resp.text();

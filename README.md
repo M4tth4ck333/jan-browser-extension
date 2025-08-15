@@ -95,6 +95,11 @@ npm run dev:all      # runs Vite (extension) and MCP server watch in parallel
 
 Then load the extension from `dist/` in Chrome (Developer mode → Load unpacked). The background service worker will connect to the MCP bridge at `ws://127.0.0.1:17389` automatically when running.
 
+To verify the connection:
+
+- Open `chrome://extensions` → find this extension → "Service worker" → Inspect.
+- You should see `[MCP Bridge] connected` in the console shortly after `npm run dev:all` starts.
+
 ### Build all
 
 ```bash
@@ -135,6 +140,32 @@ Edit: `~/Library/Application Support/Claude/claude_desktop_config.json`
 ```
 
 See `mcp/search-server/README.md` for more details.
+
+### WebSocket bridge (127.0.0.1:17389)
+
+- The MCP server opens a local WebSocket bridge at `ws://127.0.0.1:17389`.
+- The extension’s background service worker connects out to it automatically and handles `search` and `visit_tool` calls.
+
+### Optional token authentication
+
+- You can secure the bridge with a shared token:
+  - Start MCP with `BRIDGE_TOKEN` set (env var).
+  - Set the same token in the extension storage under key `bridgeToken`.
+
+Quick way to set the token in the extension (DevTools console of the service worker):
+
+```js
+chrome.storage.sync.set({ bridgeToken: 'your-secret' })
+```
+
+Then reload the extension or wait for it to auto-reconnect.
+
+### Troubleshooting: `ERR_CONNECTION_REFUSED`
+
+- The MCP server isn’t running → start it via `npm run dev:all` or `npm run dev:mcp`.
+- Port 17389 is in use → free it: `lsof -iTCP:17389 -sTCP:LISTEN` then `kill -9 <PID>`.
+- Host/port overridden → ensure `BRIDGE_HOST=127.0.0.1` and `BRIDGE_PORT=17389` (default).
+- Firewall blocked → allow local loopback connections for Node.
 
 ## License
 

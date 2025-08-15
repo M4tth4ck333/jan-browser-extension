@@ -215,3 +215,17 @@ Notes:
 - Decide on side‑panel opening strategy (auto‑open vs explicit + cache‑bust) for your workflow.
 - Choose whether to expose reasoning streams (toggle) and/or strip them.
 - Prioritize the roadmap items above and create issues per task.
+
+## Changelog – 15 August 2025
+
+- Theme sync polish:
+  - Options theme changes now persist immediately to `chrome.storage.sync` and apply to `<html>` so the Side Panel updates live without Save.
+  - Side Panel root updated to use `ds-bg ds-text` for consistent theming with the Options UI.
+- MCP Bridge security hardening:
+  - Introduced `useBridgeToken` toggle (default Off) in `ui/options/App.jsx` to make browser token usage optional.
+  - `src/background.js` now includes the token in the WebSocket URL only if both `bridgeToken` is set and `useBridgeToken` is true.
+  - Background reconnects automatically when `bridgeToken` or `useBridgeToken` changes.
+  - `GET_BRIDGE_STATUS` reports `usingToken` accurately (true only when both token exists and toggle is On).
+- Bridge UI clarity:
+  - Server command copy adapts to the toggle: includes `BRIDGE_TOKEN=…` when On; plain `npm run dev[:mcp]` when Off.
+  - Button enable/disable logic updated accordingly; helper text clarifies whether a token will be used.

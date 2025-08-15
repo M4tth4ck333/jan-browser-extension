@@ -47,12 +47,20 @@ try {
 }
 
 // --- MCP Bridge (WebSocket client) ---
-const BRIDGE_URL = 'ws://127.0.0.1:17389';
+const BRIDGE_BASE = 'ws://127.0.0.1:17389';
 let bridgeSocket = null;
+let lastBridgeToken = null; // cached to detect changes
+let lastUseBridgeToken = false; // whether we should include the token
 
-function connectMcpBridge() {
+async function connectMcpBridge() {
   try {
-    const ws = new WebSocket(BRIDGE_URL);
+    // Read optional shared secret for the local bridge
+    const { bridgeToken, useBridgeToken } = await chrome.storage.sync.get(['bridgeToken', 'useBridgeToken']);
+    lastBridgeToken = bridgeToken || null;
+    lastUseBridgeToken = !!useBridgeToken;
+    const include = !!bridgeToken && !!useBridgeToken;
+    const url = include ? `${BRIDGE_BASE}?t=${encodeURIComponent(bridgeToken)}` : BRIDGE_BASE;
+    const ws = new WebSocket(url);
     bridgeSocket = ws;
     ws.addEventListener('open', () => {
       try { console.log('[MCP Bridge] connected'); } catch (_) {}
@@ -122,6 +130,31 @@ function connectMcpBridge() {
 
 // Establish the bridge connection on service worker startup
 connectMcpBridge();
+
+// Reconnect if the token changes in storage
+try {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'sync') return;
+    let shouldReconnect = false;
+    if (Object.prototype.hasOwnProperty.call(changes, 'bridgeToken')) {
+      const next = changes.bridgeToken?.newValue || null;
+      if (next !== lastBridgeToken) {
+        lastBridgeToken = next;
+        shouldReconnect = true;
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(changes, 'useBridgeToken')) {
+      const nextUse = !!changes.useBridgeToken?.newValue;
+      if (nextUse !== lastUseBridgeToken) {
+        lastUseBridgeToken = nextUse;
+        shouldReconnect = true;
+      }
+    }
+    if (shouldReconnect) {
+      try { bridgeSocket && bridgeSocket.close(); } catch (_) {}
+    }
+  });
+} catch (_) { /* ignore */ }
 
 async function chatCompletionsStream({ apiBase, apiKey, model, temperature, messages }, tabId, reqId) {
   const url = `${apiBase.replace(/\/$/, '')}/chat/completions`;
@@ -439,6 +472,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       const resp = await performGoogleSearchAndScrape(message?.payload || {});
       sendResponse(resp);
+    })();
+    return true;
+  }
+
+  if (message?.type === 'GET_BRIDGE_STATUS') {
+    try {
+      const connected = !!bridgeSocket && bridgeSocket.readyState === WebSocket.OPEN;
+      const usingToken = !!lastBridgeToken && !!lastUseBridgeToken;
+      sendResponse({ ok: true, connected, url: BRIDGE_BASE, usingToken });
+    } catch (e) {
+      sendResponse({ ok: false, error: String(e?.message || e) });
+    }
+    return true;
+  }
+
+  if (message?.type === 'RECONNECT_BRIDGE') {
+    (async () => {
+      try {
+        if (bridgeSocket) {
+          try { bridgeSocket.close(); } catch (_) {}
+        } else {
+          await connectMcpBridge();
+        }
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+      }
     })();
     return true;
   }
