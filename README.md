@@ -10,7 +10,7 @@ A Manifest V3 Chrome extension that summarizes the current page (or selected tex
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/your-repo/jan-browser-extension.git
+    git clone https://github.com/menloresearch/jan-browser-extension.git
     cd jan-browser-extension
     ```
 2.  **Install dependencies:**
@@ -150,7 +150,8 @@ See `mcp/search-server/README.md` for more details.
 
 - You can secure the bridge with a shared token:
   - Start MCP with `BRIDGE_TOKEN` set (env var).
-  - Set the same token in the extension storage under key `bridgeToken`.
+  - Set the same token in the extension (Options → Bridge) under key `bridgeToken`.
+  - Enable the toggle "Use token for bridge auth" (default: off). When enabled, the background appends `?t=…` to the WS URL.
 
 Quick way to set the token in the extension (DevTools console of the service worker):
 
@@ -160,12 +161,24 @@ chrome.storage.sync.set({ bridgeToken: 'your-secret' })
 
 Then reload the extension or wait for it to auto-reconnect.
 
+#### Adaptive server command copy (Options)
+
+- The Options page provides a "Copy server command" button for convenience.
+- With the token toggle Off → copies a plain `npm run dev[:mcp]`.
+- With the token toggle On (and a token present) → includes `BRIDGE_TOKEN='…'` in the copied command.
+
 ### Troubleshooting: `ERR_CONNECTION_REFUSED`
 
 - The MCP server isn’t running → start it via `npm run dev:all` or `npm run dev:mcp`.
 - Port 17389 is in use → free it: `lsof -iTCP:17389 -sTCP:LISTEN` then `kill -9 <PID>`.
 - Host/port overridden → ensure `BRIDGE_HOST=127.0.0.1` and `BRIDGE_PORT=17389` (default).
 - Firewall blocked → allow local loopback connections for Node.
+
+## Docs
+
+- ADR-004 (MCP Bridge Security – Optional Token): [docs/adr-004-mcp-bridge-security.md](./docs/adr-004-mcp-bridge-security.md)
+- SPEC v2 (Inline writing assistant tooltip): [docs/SPEC-v2.md](./docs/SPEC-v2.md)
+- MCP server details: [mcp/search-server/README.md](./mcp/search-server/README.md)
 
 ## License
 
