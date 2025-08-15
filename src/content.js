@@ -36,6 +36,126 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  function clampXY(x, y, w = 420, h = 160) {
+    const vx = Math.min(Math.max(8, Math.round(x)), Math.max(8, window.innerWidth - w - 8));
+    const vy = Math.min(Math.max(8, Math.round(y)), Math.max(8, window.innerHeight - h - 8));
+    return { x: vx, y: vy };
+  }
+
+  function showCustomPromptAt(x, y) {
+    ensureShadow();
+    if (overlayEl) overlayEl.remove();
+    overlayEl = document.createElement('div');
+    overlayEl.className = 'overlay';
+    const { x: vx, y: vy } = clampXY(x, y, 420, 220);
+    overlayEl.style.left = `${vx}px`;
+    overlayEl.style.top = `${vy}px`;
+    const header = document.createElement('div');
+    header.className = 'header';
+    const pill = document.createElement('div'); pill.className = 'pill'; pill.textContent = 'Jan • Custom';
+    const close = document.createElement('button'); close.className = 'close'; close.textContent = '✕'; close.addEventListener('click', () => clearUI());
+    header.appendChild(pill);
+    overlayEl.appendChild(close);
+    overlayEl.appendChild(header);
+    const ta = document.createElement('textarea');
+    ta.placeholder = 'Type your instruction... (e.g., "Summarize the selected text in 3 bullets")';
+    overlayEl.appendChild(ta);
+    const hint = document.createElement('div'); hint.className = 'hint'; hint.textContent = 'Enter to run • Shift+Enter for newline • Esc to close';
+    const actions = document.createElement('div'); actions.className = 'actions';
+    const runBtn = document.createElement('button'); runBtn.className = 'btn'; runBtn.textContent = 'Run';
+    const cancelBtn = document.createElement('button'); cancelBtn.className = 'btn secondary'; cancelBtn.textContent = 'Cancel';
+    actions.appendChild(cancelBtn);
+    actions.appendChild(runBtn);
+    overlayEl.appendChild(actions);
+    overlayEl.appendChild(hint);
+    shadowRoot.appendChild(overlayEl);
+    try { ta.focus(); } catch(_) {}
+
+    const setBusy = (busy) => {
+      runBtn.disabled = !!busy; cancelBtn.disabled = !!busy; ta.disabled = !!busy;
+      if (busy) { runBtn.textContent = 'Working…'; } else { runBtn.textContent = 'Run'; }
+    };
+
+    const doRun = async () => {
+      const prompt = String(ta.value || '').trim();
+      if (!prompt) { ta.focus(); return; }
+      // Snapshot context (prefer saved selection)
+      let ctx = lastSelCtx;
+      let ed = ctx?.ed || currentEditable();
+      if (!ctx || !ctx.ed) {
+        if (ed) {
+          const { text, range } = getSelectionInEditable(ed);
+          ctx = { ed, text, range };
+        } else {
+          ctx = { ed: null, text: getSelectionText(), range: null };
+        }
+      }
+      const selection = String(ctx?.text || getSelectionText() || '').trim();
+      const payload = {
+        prompt,
+        title: document.title || '',
+        url: location.href,
+        lang: document.documentElement?.lang || '',
+        metaDescription: getMetaDescription(),
+        selection,
+        content: getVisibleText()
+      };
+      setBusy(true);
+      try {
+        const resp = await chrome.runtime.sendMessage({ type: 'CUSTOM_PROMPT_RUN', payload });
+        if (!resp?.ok) {
+          setBusy(false);
+          hint.textContent = resp?.error || 'Error';
+          return;
+        }
+        const out = String(resp.text || '').trim();
+        const rect = ed ? getRectForSelection(ed, ctx) : overlayEl.getBoundingClientRect();
+        const rx = rect.left; const ry = rect.bottom + 6;
+        clearUI();
+        lastCustom = { prompt, ctx, x: rx, y: ry };
+        showResultAt(rx, ry, out, {
+          onApply: () => applyReplacement(ed || currentEditable(), ctx?.range || null, out),
+          onRegenerate: async () => {
+            // Re-run with same prompt and context
+            try {
+              const payload2 = { ...payload };
+              const resp2 = await chrome.runtime.sendMessage({ type: 'CUSTOM_PROMPT_RUN', payload: payload2 });
+              if (!resp2?.ok) return;
+              const out2 = String(resp2.text || '').trim();
+              showResultAt(rx, ry, out2, {
+                onApply: () => applyReplacement(ed || currentEditable(), ctx?.range || null, out2),
+                onRegenerate: () => {},
+                mode: 'custom'
+              });
+            } catch(_) {}
+          },
+          mode: 'custom'
+        });
+      } catch (e) {
+        setBusy(false);
+        hint.textContent = String(e?.message || e);
+      }
+    };
+
+    cancelBtn.addEventListener('click', () => clearUI());
+    runBtn.addEventListener('click', () => doRun());
+
+    if (overlayKeyHandler && shadowRoot) { try { shadowRoot.removeEventListener('keydown', overlayKeyHandler, true); } catch(_) {} }
+    overlayKeyHandler = (e) => {
+      try {
+        if (!overlayEl) return;
+        if (e.key === 'Escape') { e.preventDefault(); clearUI(); return; }
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'enter') { e.preventDefault(); doRun(); return; }
+        if (e.key === 'Enter' && !e.shiftKey) {
+          const target = e.target;
+          // Only trigger when focus is in textarea
+          if (target && target.tagName === 'TEXTAREA') { e.preventDefault(); doRun(); return; }
+        }
+      } catch(_) {}
+    };
+    try { shadowRoot.addEventListener('keydown', overlayKeyHandler, true); } catch(_) {}
+  }
+
   if (message?.type === 'SCRAPE_GOOGLE_SERP') {
     try {
       const url = new URL(location.href);
@@ -115,12 +235,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   let tooltipEl = null;
   let menuEl = null;
   let resultEl = null;
+  let overlayEl = null;
   let lastSelCtx = null; // { ed, text, range }
   let selectionTimer = null;
   let suppressSelectionChangeUntil = 0;
   let lastPointer = { x: 0, y: 0, t: 0 };
   let resultKeyHandler = null;
+  let overlayKeyHandler = null;
   let lastRun = null; // { mode, ctx, x, y }
+  let lastCustom = null; // { prompt, ctx, x, y }
 
   function ensureShadow() {
     if (shadowRoot) return;
@@ -155,12 +278,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .close{ position:absolute; top:8px; right:8px; background:transparent; border:1px solid transparent; color:#9ca3af; cursor:pointer; border-radius:8px; padding:2px 6px }
       .close:hover{ background: rgba(255,255,255,.06) }
       .pre{ white-space:pre-wrap; word-wrap:break-word; max-height: 240px; overflow:auto; }
+      .overlay{ position: fixed; width: 420px; max-width: calc(100vw - 16px); padding:12px; background: rgba(17,24,39,.97); color:white; border-radius:14px; border:1px solid rgba(255,255,255,.08); box-shadow: 0 22px 60px rgba(0,0,0,.5); font: 13px/1.35 system-ui,-apple-system,Segoe UI,Roboto; animation: jan-fade-in .12s ease-out; }
+      .overlay .header{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+      .overlay textarea{ width:100%; box-sizing:border-box; min-height: 96px; max-height: 240px; resize: vertical; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.03); color: inherit; font: inherit; }
+      .overlay .actions{ display:flex; gap:8px; margin-top:10px; justify-content:flex-end; }
+      .overlay .hint{ font-size:12px; color:#9ca3af; margin-top:6px; }
       @media (prefers-color-scheme: light) {
         .tip,.menu,.card{ background: rgba(255,255,255,.98); color:#0b1220; border-color: rgba(0,0,0,.06) }
         .pill{ color:#334155; background: rgba(2,6,23,.04); border-color: rgba(2,6,23,.06) }
         .btn.secondary{ background:#e5e7eb; color:#111827 }
         .muted{ color:#475569 }
         .close{ color:#64748b }
+        .overlay{ background: rgba(255,255,255,.98); color:#0b1220; border-color: rgba(0,0,0,.06) }
+        .overlay textarea{ background: rgba(2,6,23,.04); border-color: rgba(2,6,23,.08) }
       }
     `;
     shadowRoot.appendChild(style);
@@ -175,7 +305,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (tooltipEl) { tooltipEl.remove(); tooltipEl = null; }
     if (menuEl) { menuEl.remove(); menuEl = null; }
     if (resultEl) { resultEl.remove(); resultEl = null; }
+    if (overlayEl) { overlayEl.remove(); overlayEl = null; }
     if (resultKeyHandler && shadowRoot) { try { shadowRoot.removeEventListener('keydown', resultKeyHandler, true); } catch(_) {} resultKeyHandler = null; }
+    if (overlayKeyHandler && shadowRoot) { try { shadowRoot.removeEventListener('keydown', overlayKeyHandler, true); } catch(_) {} overlayKeyHandler = null; }
   }
 
   function isEditable(el) {
@@ -495,6 +627,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   function labelForMode(mode) {
     switch (mode) {
+      case 'custom': return 'Custom';
       case 'fix_grammar': return 'Fix grammar';
       case 'shorten': return 'Shorten';
       case 'expand': return 'Expand';
@@ -666,4 +799,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (Date.now() - lastPointer.t < 300) return;
     clearUI();
   });
+
+  // Listen for keyboard command-triggered custom prompt
+  try {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message?.type === 'SHOW_CUSTOM_PROMPT') {
+        // Anchor near current selection if available; else near last pointer; else center
+        let x = Math.round(window.innerWidth / 2 - 200);
+        let y = Math.round(window.innerHeight / 2 - 120);
+        let ed = currentEditable();
+        let ctx = lastSelCtx;
+        if ((!ctx || !ctx.ed) && ed) {
+          const { text, range } = getSelectionInEditable(ed);
+          ctx = { ed, text, range };
+        }
+        if (ctx && (ctx.text || '').trim()) {
+          const rect = getRectForSelection(ctx.ed, ctx);
+          x = rect.left; y = rect.bottom + 6;
+        } else if (Date.now() - lastPointer.t < 5000) {
+          x = lastPointer.x; y = lastPointer.y + 10;
+        }
+        showCustomPromptAt(x, y);
+        sendResponse({ ok: true });
+        return true;
+      }
+    });
+  } catch (_) {}
 })();

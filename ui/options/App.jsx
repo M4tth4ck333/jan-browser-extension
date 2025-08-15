@@ -1,6 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 
-const DEFAULTS = { provider: 'custom', apiBase: '', apiKey: '', model: '', temperature: 0.2, themePref: 'system', bridgeToken: '', useBridgeToken: false }
+const DEFAULTS = {
+  provider: 'custom', apiBase: '', apiKey: '', model: '', temperature: 0.2,
+  themePref: 'system', bridgeToken: '', useBridgeToken: false,
+  inlineAssistEnabled: true,
+  inlineAssistActions: ['rewrite','fix_grammar','shorten','expand','tone_formal','tone_friendly','summarize','translate']
+}
 
 export default function OptionsApp() {
   const [cfg, setCfg] = useState(DEFAULTS)
@@ -188,6 +193,45 @@ export default function OptionsApp() {
           <button className="btn" onClick={save}>Save</button>
           <button className="btn" onClick={test}>Test</button>
           <span className="text-sm ds-muted-text">{status}</span>
+        </div>
+
+        <div className="mt-6 border ds-border rounded-xl p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-base font-semibold">Inline Assistant (Tooltip)</div>
+              <div className="text-sm ds-muted-text">Show a small Jan button near text when selecting in inputs/contenteditable.</div>
+            </div>
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input type="checkbox" className="w-4 h-4" checked={!!cfg.inlineAssistEnabled} onChange={(e) => setCfg({ ...cfg, inlineAssistEnabled: !!e.target.checked })} />
+              <span>{cfg.inlineAssistEnabled ? 'On' : 'Off'}</span>
+            </label>
+          </div>
+
+          <div className="grid gap-2">
+            <label className="text-sm ds-muted-text">Actions</label>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              {[
+                { id: 'rewrite', label: 'Rewrite' },
+                { id: 'fix_grammar', label: 'Fix grammar' },
+                { id: 'shorten', label: 'Shorten' },
+                { id: 'expand', label: 'Expand' },
+                { id: 'tone_formal', label: 'Tone: Formal' },
+                { id: 'tone_friendly', label: 'Tone: Friendly' },
+                { id: 'summarize', label: 'Summarize' },
+                { id: 'translate', label: 'Translate' }
+              ].map(a => (
+                <label key={a.id} className="inline-flex items-center gap-2">
+                  <input type="checkbox" className="w-4 h-4" checked={cfg.inlineAssistActions?.includes(a.id)} onChange={(e) => {
+                    const next = new Set(cfg.inlineAssistActions || [])
+                    if (e.target.checked) next.add(a.id); else next.delete(a.id)
+                    setCfg({ ...cfg, inlineAssistActions: Array.from(next) })
+                  }} />
+                  <span>{a.label}</span>
+                </label>
+              ))}
+            </div>
+            <div className="text-xs ds-muted-text">Save to apply changes. Copy uses the page clipboard API; Apply replaces the current selection.</div>
+          </div>
         </div>
 
         <div className="mt-6 border ds-border rounded-xl p-4 space-y-4">

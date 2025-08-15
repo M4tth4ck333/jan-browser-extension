@@ -362,14 +362,13 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
-// Keyboard shortcut handler to open the side panel
+// Keyboard shortcut handler to open the side panel or custom prompt
 try {
   chrome.commands.onCommand.addListener(async (command) => {
-    if (command !== 'open_sidepanel') return;
     try {
       const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
       let targetTabId = active?.id || 0;
-      if (!active || !isSupportedUrl(active.url)) {
+      if (!active || !isSupportedUrl(active?.url)) {
         const inWindow = await chrome.tabs.query({ currentWindow: true });
         const alt = inWindow.find(t => isSupportedUrl(t.url));
         if (alt?.id) {
@@ -379,11 +378,22 @@ try {
           targetTabId = created.id;
         }
       }
-      try { await chrome.tabs.update(targetTabId, { active: true }); } catch (_) {}
-      await chrome.sidePanel.setOptions({ tabId: targetTabId, path: `dist/ui/sidepanel/index.html`, enabled: true });
-      try { if (chrome.sidePanel?.open) await chrome.sidePanel.open({ tabId: targetTabId }); } catch (_) {}
+
+      if (command === 'open_sidepanel') {
+        try { await chrome.tabs.update(targetTabId, { active: true }); } catch (_) {}
+        await chrome.sidePanel.setOptions({ tabId: targetTabId, path: `dist/ui/sidepanel/index.html`, enabled: true });
+        try { if (chrome.sidePanel?.open) await chrome.sidePanel.open({ tabId: targetTabId }); } catch (_) {}
+      } else if (command === 'open_custom_prompt') {
+        // Ask content script to show the custom prompt overlay
+        try {
+          await sendMessageWithRetry(targetTabId, { type: 'SHOW_CUSTOM_PROMPT' }, 2, 300);
+        } catch (e) {
+          // Best effort fallback (no retry helper available / first run)
+          try { await chrome.tabs.sendMessage(targetTabId, { type: 'SHOW_CUSTOM_PROMPT' }); } catch (_) {}
+        }
+      }
     } catch (err) {
-      console.warn('open_sidepanel command failed:', err);
+      console.warn(`${command} command failed:`, err);
     }
   });
 } catch (err) {
@@ -418,6 +428,92 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const messages = message.payload?.messages || [];
         const res = await chatCompletions({ apiBase, apiKey, model, temperature, messages });
         sendResponse(res);
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+      }
+    })();
+    return true;
+  }
+
+  // Inline Assistant (one-shot)
+  if (message?.type === 'INLINE_ASSIST_START') {
+    (async () => {
+      try {
+        const { apiBase, apiKey, model, temperature } = await getSettings();
+        if (!apiBase) return sendResponse({ ok: false, error: 'Missing API Base URL. Set it in Options.' });
+        if (!apiKey) return sendResponse({ ok: false, error: 'Missing API Key. Set it in Options.' });
+        if (!model) return sendResponse({ ok: false, error: 'Missing Model. Set it in Options.' });
+
+        const { mode, text, lang } = message?.payload || {};
+        const src = String(text || '').trim();
+        if (!src) return sendResponse({ ok: false, error: 'No text provided.' });
+
+        const maxChars = 8000;
+        const clipped = src.slice(0, maxChars);
+
+        const { system, user } = buildInlineAssistMessages({ mode, text: clipped, lang });
+        const messages = [
+          { role: 'system', content: system },
+          { role: 'user', content: user }
+        ];
+
+        const resp = await chatCompletions({ apiBase, apiKey, model, temperature, messages });
+        if (!resp?.ok) return sendResponse(resp);
+        const out = resp.data?.choices?.[0]?.message?.content || resp.data?.choices?.[0]?.text || '';
+        sendResponse({ ok: true, text: out });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+      }
+    })();
+    return true;
+  }
+
+  // Custom Prompt (one-shot)
+  if (message?.type === 'CUSTOM_PROMPT_RUN') {
+    (async () => {
+      try {
+        const { apiBase, apiKey, model, temperature } = await getSettings();
+        if (!apiBase) return sendResponse({ ok: false, error: 'Missing API Base URL. Set it in Options.' });
+        if (!apiKey) return sendResponse({ ok: false, error: 'Missing API Key. Set it in Options.' });
+        if (!model) return sendResponse({ ok: false, error: 'Missing Model. Set it in Options.' });
+
+        const { prompt, title, url, lang, metaDescription, selection, content } = message?.payload || {};
+        const userPrompt = String(prompt || '').trim();
+        if (!userPrompt) return sendResponse({ ok: false, error: 'Empty prompt.' });
+
+        const maxBody = 16000;
+        const maxSel = 6000;
+        const clippedContent = String(content || '').slice(0, maxBody);
+        const clippedSel = String(selection || '').slice(0, maxSel);
+
+        const system = [
+          'You are a helpful assistant. Follow the user\'s instruction precisely.',
+          '- If relevant context is provided (selection or page content), ground your answer in it and avoid fabrications.',
+          '- Be concise and directly useful. Use the requested format and language if specified.'
+        ].join('\n');
+
+        const ctxLines = [
+          title ? `Title: ${title}` : null,
+          url ? `URL: ${url}` : null,
+          lang ? `Detected Language: ${lang}` : null,
+          metaDescription ? `Meta: ${metaDescription}` : null,
+          clippedSel ? `\nSelection:\n${clippedSel}` : null,
+          clippedContent ? `\nPage Content (truncated):\n${clippedContent}` : null
+        ].filter(Boolean).join('\n');
+
+        const userMsg = ctxLines
+          ? `Instruction:\n${userPrompt}\n\nContext:\n${ctxLines}`
+          : `Instruction:\n${userPrompt}`;
+
+        const messages = [
+          { role: 'system', content: system },
+          { role: 'user', content: userMsg }
+        ];
+
+        const resp = await chatCompletions({ apiBase, apiKey, model, temperature, messages });
+        if (!resp?.ok) return sendResponse(resp);
+        const out = resp.data?.choices?.[0]?.message?.content || resp.data?.choices?.[0]?.text || '';
+        sendResponse({ ok: true, text: out });
       } catch (e) {
         sendResponse({ ok: false, error: String(e?.message || e) });
       }
@@ -572,6 +668,70 @@ async function getSettings() {
   if (merged.provider === 'cerebras' && !merged.apiBase) merged.apiBase = 'https://api.cerebras.ai/v1';
   if (merged.provider === 'jan' && !merged.apiBase) merged.apiBase = 'http://localhost:1337/v1';
   return merged;
+}
+
+function buildInlineAssistMessages({ mode, text, lang }) {
+  const m = String(mode || 'rewrite');
+  // Target language only used for translate; otherwise keep input language
+  const targetLang = (m === 'translate') ? (lang ? String(lang) : 'English') : null;
+
+  const system = [
+    'You are an inline writing assistant that edits short snippets.',
+    '- Preserve original meaning and key details; do not add new facts.',
+    '- Preserve existing formatting (Markdown/HTML), line breaks, mentions, emojis, URLs, and code fences.',
+    '- Keep proper nouns, product names, variables, and commands unchanged unless clearly incorrect.',
+    '- Prefer active voice, simple words, and clear structure.',
+    '- Output in the SAME LANGUAGE as the input unless the task is Translate. For Translate, output only in the target language.',
+    '- Return ONLY the revised text. Do not wrap in quotes, do not add explanations, prefixes, or code blocks.'
+  ].join('\n');
+
+  let instruction = '';
+  switch (m) {
+    case 'fix_grammar':
+      instruction = [
+        'Fix grammar, spelling, and punctuation while keeping the tone and wording as close as possible.',
+        'Do not change length by more than ~5%.'
+      ].join(' ');
+      break;
+    case 'shorten':
+      instruction = [
+        'Make it 20–40% shorter while fully preserving meaning and important details.',
+        'Remove filler and hedging, prefer active voice.'
+      ].join(' ');
+      break;
+    case 'expand':
+      instruction = [
+        'Slightly elaborate to improve clarity and flow (1–2 brief additions such as transitions or minor context).',
+        'Do not invent facts; avoid fluff; keep tone.'
+      ].join(' ');
+      break;
+    case 'tone_formal':
+      instruction = 'Rewrite in a formal, professional tone without changing meaning or length by more than ~10%.';
+      break;
+    case 'tone_friendly':
+      instruction = 'Rewrite in a friendly, approachable tone without changing meaning or length by more than ~10%.';
+      break;
+    case 'summarize':
+      instruction = 'Summarize in 1–3 sentences, keeping key details and names; plain text only.';
+      break;
+    case 'translate':
+      instruction = `Translate into ${targetLang}. Preserve names, brand terms, code, emojis, URLs, and formatting; no notes or brackets.`;
+      break;
+    case 'rewrite':
+    default:
+      instruction = [
+        'Improve clarity and flow; tighten phrasing; prefer active voice; remove hedging; keep meaning.',
+        'Retain formatting and structure.'
+      ].join(' ');
+      break;
+  }
+  const user = [
+    instruction,
+    '',
+    'Text:',
+    text,
+  ].join('\n');
+  return { system, user };
 }
 
 async function handleSummarize(payload) {

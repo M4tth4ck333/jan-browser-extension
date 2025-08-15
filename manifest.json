@@ -10,7 +10,8 @@
     "storage",
     "activeTab",
     "tabs",
-    "sidePanel"
+    "sidePanel",
+    "clipboardWrite"
   ],
   "host_permissions": [
     "https://*/*",
@@ -30,6 +31,27 @@
         "linux": "Ctrl+Shift+Y"
       },
       "description": "Open Jan side panel"
+    },
+    "open_custom_prompt": {
+      "suggested_key": {
+        "default": "Alt+Shift+P",
+        "mac": "Command+Shift+P",
+        "windows": "Ctrl+Shift+P",
+        "chromeos": "Ctrl+Shift+P",
+        "linux": "Ctrl+Shift+P"
+      },
+      "description": "Open custom prompt input"
+    }
+    ,
+    "toggle_autocomplete": {
+      "suggested_key": {
+        "default": "Alt+\\",
+        "mac": "Command+Shift+\\",
+        "windows": "Ctrl+Shift+\\",
+        "chromeos": "Ctrl+Shift+\\",
+        "linux": "Ctrl+Shift+\\"
+      },
+      "description": "Toggle Jan Autocomplete"
     }
   },
   "side_panel": {
@@ -40,7 +62,9 @@
     {
       "matches": ["<all_urls>"],
       "js": ["src/content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_about_blank": true
     }
   ]
 }
