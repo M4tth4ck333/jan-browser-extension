@@ -36,6 +36,99 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // --- Autocomplete helpers ---
+  function hideGhost() {
+    if (acGhostEl) { try { acGhostEl.remove(); } catch(_) {} acGhostEl = null; }
+  }
+
+  function showGhostAt(rect, text) {
+    ensureAcStyles();
+    hideGhost();
+    acGhostEl = document.createElement('div');
+    acGhostEl.className = 'ac-ghost';
+    acGhostEl.textContent = text || '';
+    const x = Math.max(8, Math.round((rect?.right ?? rect?.left ?? 16) + 1));
+    const y = Math.max(8, Math.round((rect?.top ?? 16) + 2));
+    acGhostEl.style.left = `${x}px`;
+    acGhostEl.style.top = `${y}px`;
+    shadowRoot.appendChild(acGhostEl);
+  }
+
+  function updateIndicator() {
+    ensureAcStyles();
+    if (!acEnabled) { if (acIndicatorEl) { acIndicatorEl.remove(); acIndicatorEl = null; } return; }
+    if (!acIndicatorEl) {
+      acIndicatorEl = document.createElement('div');
+      acIndicatorEl.className = 'ac-indicator';
+      acIndicatorEl.textContent = 'Jan Autocomplete: On (Tab accept, Esc dismiss)';
+      shadowRoot.appendChild(acIndicatorEl);
+    }
+  }
+
+  function getPrefixSuffix(ed) {
+    try {
+      if (!ed) return { prefix: '', suffix: '' };
+      if (ed.isContentEditable) {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return { prefix: '', suffix: '' };
+        const caret = sel.getRangeAt(0);
+        // Use element-wide range to measure before/after caret
+        const all = document.createRange();
+        all.selectNodeContents(ed);
+        const pre = all.cloneRange(); pre.setEnd(caret.endContainer, caret.endOffset);
+        const post = all.cloneRange(); post.setStart(caret.endContainer, caret.endOffset);
+        const prefix = String(pre.toString() || '');
+        const suffix = String(post.toString() || '');
+        return { prefix, suffix };
+      } else {
+        const t = (ed.tagName || '').toLowerCase();
+        if (t === 'textarea' || t === 'input') {
+          const v = String(ed.value || '');
+          const s = ed.selectionStart || 0;
+          const e = ed.selectionEnd || 0;
+          return { prefix: v.slice(0, s), suffix: v.slice(e) };
+        }
+      }
+    } catch (_) {}
+    return { prefix: '', suffix: '' };
+  }
+
+  function scheduleAutocomplete() {
+    if (!acEnabled) return;
+    if (acTimer) clearTimeout(acTimer);
+    acTimer = setTimeout(runAutocomplete, 120);
+  }
+
+  async function runAutocomplete() {
+    try {
+      if (!acEnabled) return hideGhost();
+      const ed = currentEditable();
+      if (!ed) { hideGhost(); return; }
+      // Ignore if selection has range > 0
+      const ctx = getSelectionInEditable(ed);
+      if (ctx && ctx.text && ctx.text.length > 0) { hideGhost(); return; }
+      // Avoid password inputs
+      if ((ed.tagName || '').toLowerCase() === 'input' && (ed.type || '').toLowerCase() === 'password') { hideGhost(); return; }
+
+      const { prefix, suffix } = getPrefixSuffix(ed);
+      const pref = String(prefix || '').slice(-1000);
+      const suff = String(suffix || '').slice(0, 300);
+      if (!pref || /\s$/.test(pref) === false && pref.length < 3) { hideGhost(); return; }
+
+      const myNonce = ++acNonce; acPendingNonce = myNonce;
+      const lang = document.documentElement?.lang || '';
+      let resp = null;
+      try {
+        resp = await chrome.runtime.sendMessage({ type: 'AUTOCOMPLETE_SUGGEST', payload: { prefix: pref, suffix: suff, lang } });
+      } catch (_) { resp = null; }
+      if (acPendingNonce !== myNonce) return; // stale
+      const text = String(resp?.text || '').trim();
+      if (!resp?.ok || !text) { hideGhost(); return; }
+      const rect = getRectForSelection(ed, ctx || { ed, range: null });
+      showGhostAt(rect, text);
+    } catch (_) { hideGhost(); }
+  }
+
   function clampXY(x, y, w = 420, h = 160) {
     const vx = Math.min(Math.max(8, Math.round(x)), Math.max(8, window.innerWidth - w - 8));
     const vy = Math.min(Math.max(8, Math.round(y)), Math.max(8, window.innerHeight - h - 8));
@@ -244,6 +337,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   let overlayKeyHandler = null;
   let lastRun = null; // { mode, ctx, x, y }
   let lastCustom = null; // { prompt, ctx, x, y }
+  // Autocomplete (Copilot-style)
+  let acEnabled = false;
+  let acIndicatorEl = null;
+  let acGhostEl = null;
+  let acTimer = null;
+  let acNonce = 0; // increments per request
+  let acPendingNonce = 0; // last fired request id
 
   function ensureShadow() {
     if (shadowRoot) return;
@@ -299,6 +399,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     shadowRoot.addEventListener('pointerdown', suppress, true);
     shadowRoot.addEventListener('mousedown', suppress, true);
     shadowRoot.addEventListener('click', suppress, true);
+  }
+
+  function ensureAcStyles() {
+    ensureShadow();
+    if (!shadowRoot) return;
+    if (shadowRoot.querySelector('style[data-jan-ac]')) return;
+    const st = document.createElement('style');
+    st.setAttribute('data-jan-ac', '');
+    st.textContent = `
+      .ac-indicator{ position: fixed; right: 10px; bottom: 10px; padding: 6px 10px; border-radius: 999px; font: 12px/1.2 system-ui,-apple-system,Segoe UI,Roboto; background: rgba(17,24,39,.92); color: #e5e7eb; border: 1px solid rgba(255,255,255,.08); box-shadow: 0 10px 30px rgba(0,0,0,.35) }
+      .ac-indicator.light{ background: rgba(255,255,255,.98); color:#0b1220; border-color: rgba(0,0,0,.06) }
+      .ac-ghost{ position: fixed; pointer-events: none; color: #9ca3af; background: transparent; white-space: pre; font: 13px/1.35 system-ui,-apple-system,Segoe UI,Roboto; opacity: .85; text-shadow: 0 0 0 rgba(0,0,0,0.01) }
+      @media (prefers-color-scheme: light) {
+        .ac-indicator{ background: rgba(255,255,255,.98); color:#0b1220; border-color: rgba(0,0,0,.06) }
+      }
+    `;
+    shadowRoot.appendChild(st);
   }
 
   function clearUI() {
@@ -773,12 +890,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (Date.now() < suppressSelectionChangeUntil) return;
     if (selectionTimer) clearTimeout(selectionTimer);
     selectionTimer = setTimeout(maybeShowTooltip, 100);
+    // Autocomplete: reposition or hide ghost if caret moved
+    if (acEnabled) {
+      if (acGhostEl) scheduleAutocomplete();
+    } else {
+      hideGhost();
+    }
   });
   document.addEventListener('keyup', (e) => {
     // For inputs/textarea, selection changes may happen without selectionchange in some cases
     if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Shift','Meta','Control','Alt'].includes(e.key)) return;
     if (selectionTimer) clearTimeout(selectionTimer);
     selectionTimer = setTimeout(maybeShowTooltip, 100);
+    if (acEnabled) scheduleAutocomplete();
   });
   // Native 'select' event fires on inputs/textareas when selection changes via mouse
   document.addEventListener('select', () => {
@@ -799,6 +923,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (Date.now() - lastPointer.t < 300) return;
     clearUI();
   });
+
+  // Autocomplete event hooks
+  document.addEventListener('input', () => { if (acEnabled) scheduleAutocomplete(); }, true);
+  document.addEventListener('keydown', (e) => {
+    if (!acEnabled) return;
+    const k = e.key;
+    if (k === 'Tab' && acGhostEl) {
+      e.preventDefault();
+      const ed = currentEditable();
+      if (!ed) { hideGhost(); return; }
+      const ctx = getSelectionInEditable(ed);
+      const rect = getRectForSelection(ed, ctx);
+      const text = acGhostEl?.textContent || '';
+      if (text) applyReplacement(ed, ctx?.range || null, text);
+      hideGhost();
+      // Schedule a follow-up suggestion after insertion
+      setTimeout(scheduleAutocomplete, 50);
+      return;
+    }
+    if (k === 'Escape' && acGhostEl) { e.preventDefault(); hideGhost(); return; }
+    // For most typing/navigation keys, hide current ghost to avoid visual mismatch; new one will appear after input
+    if (acGhostEl && (k.length === 1 || ['Backspace','Delete','Enter'].includes(k))) hideGhost();
+  }, true);
 
   // Listen for keyboard command-triggered custom prompt
   try {
@@ -821,6 +968,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         showCustomPromptAt(x, y);
         sendResponse({ ok: true });
+        return true;
+      } else if (message?.type === 'TOGGLE_AUTOCOMPLETE') {
+        acEnabled = !acEnabled;
+        if (!acEnabled) { hideGhost(); }
+        updateIndicator();
+        sendResponse({ ok: true, enabled: acEnabled });
         return true;
       }
     });

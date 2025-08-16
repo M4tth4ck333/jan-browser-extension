@@ -45,11 +45,11 @@
     ,
     "toggle_autocomplete": {
       "suggested_key": {
-        "default": "Alt+\\",
-        "mac": "Command+Shift+\\",
-        "windows": "Ctrl+Shift+\\",
-        "chromeos": "Ctrl+Shift+\\",
-        "linux": "Ctrl+Shift+\\"
+        "default": "Alt+K",
+        "mac": "Command+Shift+K",
+        "windows": "Ctrl+Shift+K",
+        "chromeos": "Ctrl+Shift+K",
+        "linux": "Ctrl+Shift+K"
       },
       "description": "Toggle Jan Autocomplete"
     }

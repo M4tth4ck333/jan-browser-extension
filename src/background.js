@@ -391,6 +391,13 @@ try {
           // Best effort fallback (no retry helper available / first run)
           try { await chrome.tabs.sendMessage(targetTabId, { type: 'SHOW_CUSTOM_PROMPT' }); } catch (_) {}
         }
+      } else if (command === 'toggle_autocomplete') {
+        // Ask content script to toggle autocomplete mode
+        try {
+          await sendMessageWithRetry(targetTabId, { type: 'TOGGLE_AUTOCOMPLETE' }, 2, 300);
+        } catch (e) {
+          try { await chrome.tabs.sendMessage(targetTabId, { type: 'TOGGLE_AUTOCOMPLETE' }); } catch (_) {}
+        }
       }
     } catch (err) {
       console.warn(`${command} command failed:`, err);
@@ -513,6 +520,60 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const resp = await chatCompletions({ apiBase, apiKey, model, temperature, messages });
         if (!resp?.ok) return sendResponse(resp);
         const out = resp.data?.choices?.[0]?.message?.content || resp.data?.choices?.[0]?.text || '';
+        sendResponse({ ok: true, text: out });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+      }
+    })();
+    return true;
+  }
+
+  // Autocomplete (quick next-words prediction)
+  if (message?.type === 'AUTOCOMPLETE_SUGGEST') {
+    (async () => {
+      try {
+        const { apiBase, apiKey, model } = await getSettings();
+        if (!apiBase) return sendResponse({ ok: false, error: 'Missing API Base URL. Set it in Options.' });
+        if (!apiKey) return sendResponse({ ok: false, error: 'Missing API Key. Set it in Options.' });
+        if (!model) return sendResponse({ ok: false, error: 'Missing Model. Set it in Options.' });
+
+        const { prefix, suffix, lang } = message?.payload || {};
+        const pref = String(prefix || '').slice(-1000);
+        const suff = String(suffix || '').slice(0, 300);
+
+        const system = [
+          'You are an autocomplete engine. Continue the user\'s current sentence by predicting the next few words only.',
+          'Rules:',
+          '- Output plain text continuation only (no quotes, no labels, no Markdown).',
+          '- Keep it short: 3–8 words max, ideally ≤ 30 characters.',
+          `- Respect the writing style and language of the prefix (lang: ${lang || 'unknown'}).`,
+          '- If the suffix already contains the likely continuation, return an empty string.',
+          '- Do not start a new sentence unless the prefix clearly completes one.',
+          '- Do not add explanations or punctuation unless clearly needed to complete the phrase.',
+          '- Avoid changing names, code symbols, or factual details present in the prefix.',
+          '- If unsure, return an empty string.'
+        ].join('\n');
+
+        const user = [
+          'Prefix:',
+          pref,
+          '',
+          'Suffix:',
+          suff,
+          '',
+          'Task: Predict the next few words to naturally continue the prefix so it fits before the suffix. Return ONLY the continuation text (no leading/trailing whitespace).'
+        ].join('\n');
+
+        const messages = [
+          { role: 'system', content: system },
+          { role: 'user', content: user }
+        ];
+
+        const resp = await chatCompletions({ apiBase, apiKey, model, temperature: 0.2, messages });
+        if (!resp?.ok) return sendResponse(resp);
+        let out = resp.data?.choices?.[0]?.message?.content || resp.data?.choices?.[0]?.text || '';
+        out = String(out || '').trim();
+        if (out.length > 40) out = out.slice(0, 40).replace(/\s+\S*$/, '').trim();
         sendResponse({ ok: true, text: out });
       } catch (e) {
         sendResponse({ ok: false, error: String(e?.message || e) });
