@@ -13,6 +13,7 @@ export default function OptionsApp() {
   const [bridgeInfo, setBridgeInfo] = useState({ connected: false, url: '', usingToken: false })
   const [cmdContext, setCmdContext] = useState('root') // 'root' | 'mcp'
   const [advOpen, setAdvOpen] = useState(false)
+  const [showApiKey, setShowApiKey] = useState(false)
   const mqRef = useRef(null)
 
   // Theme helpers
@@ -178,7 +179,24 @@ export default function OptionsApp() {
         </div>
         <div className="grid gap-1">
           <label className="text-sm ds-muted-text">API Key</label>
-          <input className="input" value={cfg.apiKey} onChange={onChange('apiKey')} placeholder="sk-…" />
+          <div className="flex gap-2 items-stretch">
+            <input
+              className="input flex-1"
+              type={showApiKey ? 'text' : 'password'}
+              value={cfg.apiKey}
+              onChange={onChange('apiKey')}
+              placeholder="sk-…"
+              autoComplete="off"
+            />
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setShowApiKey(v => !v)}
+              aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
+            >
+              {showApiKey ? 'Hide' : 'Show'}
+            </button>
+          </div>
         </div>
         <div className="grid gap-1">
           <label className="text-sm ds-muted-text">Model</label>
