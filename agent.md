@@ -229,3 +229,11 @@ Notes:
 - Bridge UI clarity:
   - Server command copy adapts to the toggle: includes `BRIDGE_TOKEN=…` when On; plain `npm run dev[:mcp]` when Off.
   - Button enable/disable logic updated accordingly; helper text clarifies whether a token will be used.
+
+- Inline Assistant UX:
+  - Implemented Shadow DOM inline assistant in `src/content.js` with tooltip → menu → result card flow near the selection.
+  - Draggable tooltip: users can drag to reposition; action menu opens relative to the tooltip’s current position (avoids dismissal during drag).
+  - Result card polish: header pill with mode, spinner, focus states; viewport clamping; keyboard shortcuts — Enter=Apply, Esc=Close, Cmd/Ctrl+C=Copy, Cmd/Ctrl+R=Regenerate.
+  - Regenerate action to rerun on the same selection context.
+  - Prompting improvements in `src/background.js` via `buildInlineAssistMessages`: clearer, mode-specific constraints with strict formatting and meaning preservation.
+  - Options: Inline Assistant settings to enable/disable feature and choose actions.

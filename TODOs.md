@@ -2,6 +2,17 @@
 
 A concise roadmap to finish and polish the unified Chrome extension + MCP Search bridge workflow.
 
+## 15 August 2025 – Inline Assistant Updates
+
+Completed:
+- Inline prompt improvements in `src/background.js` (`buildInlineAssistMessages`): clearer constraints, formatting preservation, language rules.
+- Polished inline UI in `src/content.js`: header pill, spinner, focus states, light/dark.
+- Added Regenerate action and keyboard shortcuts (Enter=Apply, Esc=Close, Cmd/Ctrl+C=Copy, Cmd/Ctrl+R=Regenerate).
+- Draggable tooltip that persists during drag; menu opens relative to tooltip position.
+
+Pending:
+- Detect page/input language heuristics and pass to background for smarter defaults (esp. translate).
+
 ## Immediate
 
 - [ ] Try unified dev: `npm run dev:all` (or `bun run dev:all`), load extension from `dist/`, confirm background connects to bridge.
