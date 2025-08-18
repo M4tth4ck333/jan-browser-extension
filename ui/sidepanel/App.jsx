@@ -660,8 +660,8 @@ export default function App() {
       let cache = { ...contextCache }
       const activeTab = await getActiveTab()
       const tabsToUse = (selectedTabIds && selectedTabIds.length) ? selectedTabIds : [activeTab?.id].filter(Boolean)
-      if (wantContext && tabsToUse.length) {
-        // Always re-scrape targeted tabs to keep content fresh
+      if (tabsToUse.length) {
+        // Always re-scrape targeted tabs to keep content fresh in cache
         const scraped = await scrapeSelectedTabs(tabsToUse)
         scraped.forEach(r => { cache[r.tabId] = r })
         setContextCache(cache)
@@ -672,7 +672,7 @@ export default function App() {
           nextSessions[idxCtx] = updated
           await saveSessions(nextSessions)
         }
-        contexts = tabsToUse.map(id => cache[id]).filter(Boolean)
+        if (wantContext) contexts = tabsToUse.map(id => cache[id]).filter(Boolean)
       }
       // Prefer streaming
       const active = nextSessions[sIdx]
@@ -731,8 +731,8 @@ export default function App() {
       let cache = { ...contextCache }
       const activeTab = await getActiveTab()
       const tabsToUse = (selectedTabIds && selectedTabIds.length) ? selectedTabIds : [activeTab?.id].filter(Boolean)
-      if (wantContext && tabsToUse.length) {
-        // Always re-scrape targeted tabs to keep content fresh
+      if (tabsToUse.length) {
+        // Always re-scrape targeted tabs to keep content fresh in cache
         const scraped = await scrapeSelectedTabs(tabsToUse)
         scraped.forEach(r => { cache[r.tabId] = r })
         setContextCache(cache)
@@ -743,7 +743,7 @@ export default function App() {
           nextSessions[idxCtx] = updated
           await saveSessions(nextSessions)
         }
-        contexts = tabsToUse.map(id => cache[id]).filter(Boolean)
+        if (wantContext) contexts = tabsToUse.map(id => cache[id]).filter(Boolean)
       }
       const active = nextSessions[sIdx]
       const baseMessages = active.messages
