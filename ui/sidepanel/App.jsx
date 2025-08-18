@@ -552,11 +552,18 @@ export default function App() {
         // Switch to the session mapped to this tab, if any
         const map = await loadTabSessionMap()
         const sid = map[t.id]
-        if (sid && sid !== activeSessionIdRef.current && sessionsRef.current.find(s => s.id === sid)) {
-          await switchSession(sid)
+        // Decide desired auto-follow based on the TARGET session (if switching),
+        // not the current session's stale state.
+        let wantAutoFollow = autoFollowActiveTab
+        if (sid && sid !== activeSessionIdRef.current) {
+          const targetSession = sessionsRef.current.find(s => s.id === sid)
+          if (targetSession) {
+            wantAutoFollow = targetSession?.context?.autoFollowActiveTab ?? true
+            await switchSession(sid)
+          }
         }
-        // If user hasn't manually chosen tabs, auto-follow the active tab
-        if (autoFollowActiveTab) {
+        // If user hasn't manually chosen tabs (i.e., wantAutoFollow), auto-follow the active tab
+        if (wantAutoFollow) {
           setSelectedTabIds([t.id])
         }
       } catch (_) {}
