@@ -116,6 +116,7 @@ export default function App() {
   const [selectedTabIds, setSelectedTabIds] = useState([]) // default to current tab later
   const [contextCache, setContextCache] = useState({}) // { [tabId]: pageData }
   const [tabSessionMap, setTabSessionMap] = useState({}) // { [tabId]: sessionId }
+  const [selectionText, setSelectionText] = useState('')
 
   // Sessions (history)
   const [sessions, setSessions] = useState([])
@@ -485,6 +486,9 @@ export default function App() {
           })
           await saveSessions(sessionsRef.current)
           setStreamingReqId(null)
+        } else if (msg.type === 'SELECTION_UPDATED') {
+          const s = String(msg.selection || '')
+          setSelectionText(s)
         }
       }
       p.onMessage.addListener(onMsg)
@@ -996,6 +1000,24 @@ export default function App() {
         </ScrollArea.Root>
 
         <footer className="p-3 sticky bottom-0 z-20 bg-transparent border-transparent composer">
+          {/* Current selection preview */}
+          {selectionText && selectionText.trim().length > 0 ? (
+            <div className="mb-2 p-2 rounded-lg border ds-border bg-card/70 backdrop-blur-sm text-xs">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-medium text-[11px] opacity-80">Selection</span>
+                <div className="flex items-center gap-1 opacity-70">
+                  <span title={`${selectionText.length} chars`} className="text-[10px]">{selectionText.length}</span>
+                  <Button variant="ghost" size="icon" aria-label="Clear selection preview" onClick={() => setSelectionText('')}>
+                    <XIcon size={12} />
+                  </Button>
+                </div>
+              </div>
+              <div className="max-h-28 overflow-y-auto whitespace-pre-wrap leading-5">
+                {selectionText}
+              </div>
+            </div>
+          ) : null}
+
           {/* Open tabs chips row */}
           <div className="mb-2 flex items-center gap-2 overflow-x-auto no-scrollbar">
             {tabs.map(t => {

@@ -661,6 +661,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     })();
     return true;
   }
+
+  // Forward selection updates to the side panel associated with the sender's tab
+  if (message?.type === 'SELECTION_UPDATED') {
+    try {
+      const tabId = sender?.tab?.id || null;
+      const payload = message?.payload || {};
+      const selection = String(payload?.selection || '');
+      const url = String(payload?.url || '');
+      const title = String(payload?.title || '');
+      const specific = tabId ? sidepanelPorts.get(tabId) : null;
+      const target = specific || sidepanelPorts.get(GLOBAL_KEY) || null;
+      if (target) {
+        try { target.postMessage({ type: 'SELECTION_UPDATED', tabId, selection, url, title }); } catch (_) {}
+      }
+      sendResponse({ ok: true });
+    } catch (e) {
+      sendResponse({ ok: false, error: String(e?.message || e) });
+    }
+    return true;
+  }
 });
 
 function delay(ms) { return new Promise(res => setTimeout(res, ms)); }

@@ -889,11 +889,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     showTooltipAt(x, y);
   }
 
+  // Debounced selection forwarding to background -> side panel
+  let selUpdateTimer = null;
+  let lastSelSent = null;
+  function scheduleSelectionForward() {
+    try { if (selUpdateTimer) clearTimeout(selUpdateTimer); } catch (_) {}
+    selUpdateTimer = setTimeout(() => {
+      try {
+        const sel = (getSelectionText() || '').slice(0, 4000);
+        if (sel === lastSelSent) return;
+        lastSelSent = sel;
+        try {
+          chrome.runtime.sendMessage({ type: 'SELECTION_UPDATED', payload: { selection: sel, url: location.href, title: document.title || '' } }).catch(() => {});
+        } catch (_) {}
+      } catch (_) {}
+    }, 250);
+  }
+
   // Events
   document.addEventListener('selectionchange', () => {
     if (Date.now() < suppressSelectionChangeUntil) return;
     if (selectionTimer) clearTimeout(selectionTimer);
     selectionTimer = setTimeout(maybeShowTooltip, 100);
+    // Forward selection to side panel via background (debounced)
+    scheduleSelectionForward();
     // Autocomplete: reposition or hide ghost if caret moved
     if (acEnabled) {
       if (acGhostEl) scheduleAutocomplete();
@@ -906,17 +925,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Shift','Meta','Control','Alt'].includes(e.key)) return;
     if (selectionTimer) clearTimeout(selectionTimer);
     selectionTimer = setTimeout(maybeShowTooltip, 100);
+    scheduleSelectionForward();
     if (acEnabled) scheduleAutocomplete();
   });
   // Native 'select' event fires on inputs/textareas when selection changes via mouse
   document.addEventListener('select', () => {
     if (selectionTimer) clearTimeout(selectionTimer);
     selectionTimer = setTimeout(maybeShowTooltip, 60);
+    scheduleSelectionForward();
   }, true);
   document.addEventListener('mouseup', (e) => {
     lastPointer = { x: e.clientX || 0, y: e.clientY || 0, t: Date.now() };
     if (selectionTimer) clearTimeout(selectionTimer);
     selectionTimer = setTimeout(maybeShowTooltip, 80);
+    scheduleSelectionForward();
   }, true);
   window.addEventListener('scroll', () => { clearUI(); }, true);
   document.addEventListener('click', (e) => {
