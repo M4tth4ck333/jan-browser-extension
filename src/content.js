@@ -36,6 +36,128 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // (moved autocomplete helpers into IIFE scope below)
+
+  function clampXY(x, y, w = 420, h = 160) {
+    const vx = Math.min(Math.max(8, Math.round(x)), Math.max(8, window.innerWidth - w - 8));
+    const vy = Math.min(Math.max(8, Math.round(y)), Math.max(8, window.innerHeight - h - 8));
+    return { x: vx, y: vy };
+  }
+
+  function showCustomPromptAt(x, y) {
+    ensureShadow();
+    if (overlayEl) overlayEl.remove();
+    overlayEl = document.createElement('div');
+    overlayEl.className = 'overlay';
+    const { x: vx, y: vy } = clampXY(x, y, 420, 220);
+    overlayEl.style.left = `${vx}px`;
+    overlayEl.style.top = `${vy}px`;
+    const header = document.createElement('div');
+    header.className = 'header';
+    const pill = document.createElement('div'); pill.className = 'pill'; pill.textContent = 'Jan • Custom';
+    const close = document.createElement('button'); close.className = 'close'; close.textContent = '✕'; close.addEventListener('click', () => clearUI());
+    header.appendChild(pill);
+    overlayEl.appendChild(close);
+    overlayEl.appendChild(header);
+    const ta = document.createElement('textarea');
+    ta.placeholder = 'Type your instruction... (e.g., "Summarize the selected text in 3 bullets")';
+    overlayEl.appendChild(ta);
+    const hint = document.createElement('div'); hint.className = 'hint'; hint.textContent = 'Enter to run • Shift+Enter for newline • Esc to close';
+    const actions = document.createElement('div'); actions.className = 'actions';
+    const runBtn = document.createElement('button'); runBtn.className = 'btn'; runBtn.textContent = 'Run';
+    const cancelBtn = document.createElement('button'); cancelBtn.className = 'btn secondary'; cancelBtn.textContent = 'Cancel';
+    actions.appendChild(cancelBtn);
+    actions.appendChild(runBtn);
+    overlayEl.appendChild(actions);
+    overlayEl.appendChild(hint);
+    shadowRoot.appendChild(overlayEl);
+    try { ta.focus(); } catch(_) {}
+
+    const setBusy = (busy) => {
+      runBtn.disabled = !!busy; cancelBtn.disabled = !!busy; ta.disabled = !!busy;
+      if (busy) { runBtn.textContent = 'Working…'; } else { runBtn.textContent = 'Run'; }
+    };
+
+    const doRun = async () => {
+      const prompt = String(ta.value || '').trim();
+      if (!prompt) { ta.focus(); return; }
+      // Snapshot context (prefer saved selection)
+      let ctx = lastSelCtx;
+      let ed = ctx?.ed || currentEditable();
+      if (!ctx || !ctx.ed) {
+        if (ed) {
+          const { text, range } = getSelectionInEditable(ed);
+          ctx = { ed, text, range };
+        } else {
+          ctx = { ed: null, text: getSelectionText(), range: null };
+        }
+      }
+      const selection = String(ctx?.text || getSelectionText() || '').trim();
+      const payload = {
+        prompt,
+        title: document.title || '',
+        url: location.href,
+        lang: document.documentElement?.lang || '',
+        metaDescription: getMetaDescription(),
+        selection,
+        content: getVisibleText()
+      };
+      setBusy(true);
+      try {
+        const resp = await chrome.runtime.sendMessage({ type: 'CUSTOM_PROMPT_RUN', payload });
+        if (!resp?.ok) {
+          setBusy(false);
+          hint.textContent = resp?.error || 'Error';
+          return;
+        }
+        const out = String(resp.text || '').trim();
+        const rect = ed ? getRectForSelection(ed, ctx) : overlayEl.getBoundingClientRect();
+        const rx = rect.left; const ry = rect.bottom + 6;
+        clearUI();
+        lastCustom = { prompt, ctx, x: rx, y: ry };
+        showResultAt(rx, ry, out, {
+          onApply: () => applyReplacement(ed || currentEditable(), ctx?.range || null, out),
+          onRegenerate: async () => {
+            // Re-run with same prompt and context
+            try {
+              const payload2 = { ...payload };
+              const resp2 = await chrome.runtime.sendMessage({ type: 'CUSTOM_PROMPT_RUN', payload: payload2 });
+              if (!resp2?.ok) return;
+              const out2 = String(resp2.text || '').trim();
+              showResultAt(rx, ry, out2, {
+                onApply: () => applyReplacement(ed || currentEditable(), ctx?.range || null, out2),
+                onRegenerate: () => {},
+                mode: 'custom'
+              });
+            } catch(_) {}
+          },
+          mode: 'custom'
+        });
+      } catch (e) {
+        setBusy(false);
+        hint.textContent = String(e?.message || e);
+      }
+    };
+
+    cancelBtn.addEventListener('click', () => clearUI());
+    runBtn.addEventListener('click', () => doRun());
+
+    if (overlayKeyHandler && shadowRoot) { try { shadowRoot.removeEventListener('keydown', overlayKeyHandler, true); } catch(_) {} }
+    overlayKeyHandler = (e) => {
+      try {
+        if (!overlayEl) return;
+        if (e.key === 'Escape') { e.preventDefault(); clearUI(); return; }
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'enter') { e.preventDefault(); doRun(); return; }
+        if (e.key === 'Enter' && !e.shiftKey) {
+          const target = e.target;
+          // Only trigger when focus is in textarea
+          if (target && target.tagName === 'TEXTAREA') { e.preventDefault(); doRun(); return; }
+        }
+      } catch(_) {}
+    };
+    try { shadowRoot.addEventListener('keydown', overlayKeyHandler, true); } catch(_) {}
+  }
+
   if (message?.type === 'SCRAPE_GOOGLE_SERP') {
     try {
       const url = new URL(location.href);
@@ -115,12 +237,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   let tooltipEl = null;
   let menuEl = null;
   let resultEl = null;
+  let overlayEl = null;
   let lastSelCtx = null; // { ed, text, range }
   let selectionTimer = null;
   let suppressSelectionChangeUntil = 0;
   let lastPointer = { x: 0, y: 0, t: 0 };
   let resultKeyHandler = null;
+  let overlayKeyHandler = null;
   let lastRun = null; // { mode, ctx, x, y }
+  let lastCustom = null; // { prompt, ctx, x, y }
+  // Autocomplete (Copilot-style)
+  let acEnabled = false;
+  let acIndicatorEl = null;
+  let acGhostEl = null;
+  let acTimer = null;
+  let acNonce = 0; // increments per request
+  let acPendingNonce = 0; // last fired request id
 
   function ensureShadow() {
     if (shadowRoot) return;
@@ -155,12 +287,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .close{ position:absolute; top:8px; right:8px; background:transparent; border:1px solid transparent; color:#9ca3af; cursor:pointer; border-radius:8px; padding:2px 6px }
       .close:hover{ background: rgba(255,255,255,.06) }
       .pre{ white-space:pre-wrap; word-wrap:break-word; max-height: 240px; overflow:auto; }
+      .overlay{ position: fixed; width: 420px; max-width: calc(100vw - 16px); padding:12px; background: rgba(17,24,39,.97); color:white; border-radius:14px; border:1px solid rgba(255,255,255,.08); box-shadow: 0 22px 60px rgba(0,0,0,.5); font: 13px/1.35 system-ui,-apple-system,Segoe UI,Roboto; animation: jan-fade-in .12s ease-out; }
+      .overlay .header{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+      .overlay textarea{ width:100%; box-sizing:border-box; min-height: 96px; max-height: 240px; resize: vertical; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.03); color: inherit; font: inherit; }
+      .overlay .actions{ display:flex; gap:8px; margin-top:10px; justify-content:flex-end; }
+      .overlay .hint{ font-size:12px; color:#9ca3af; margin-top:6px; }
       @media (prefers-color-scheme: light) {
         .tip,.menu,.card{ background: rgba(255,255,255,.98); color:#0b1220; border-color: rgba(0,0,0,.06) }
         .pill{ color:#334155; background: rgba(2,6,23,.04); border-color: rgba(2,6,23,.06) }
         .btn.secondary{ background:#e5e7eb; color:#111827 }
         .muted{ color:#475569 }
         .close{ color:#64748b }
+        .overlay{ background: rgba(255,255,255,.98); color:#0b1220; border-color: rgba(0,0,0,.06) }
+        .overlay textarea{ background: rgba(2,6,23,.04); border-color: rgba(2,6,23,.08) }
       }
     `;
     shadowRoot.appendChild(style);
@@ -171,11 +310,125 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     shadowRoot.addEventListener('click', suppress, true);
   }
 
+  function ensureAcStyles() {
+    ensureShadow();
+    if (!shadowRoot) return;
+    if (shadowRoot.querySelector('style[data-jan-ac]')) return;
+    const st = document.createElement('style');
+    st.setAttribute('data-jan-ac', '');
+    st.textContent = `
+      .ac-indicator{ position: fixed; right: 10px; bottom: 10px; padding: 6px 10px; border-radius: 999px; font: 12px/1.2 system-ui,-apple-system,Segoe UI,Roboto; background: rgba(17,24,39,.92); color: #e5e7eb; border: 1px solid rgba(255,255,255,.08); box-shadow: 0 10px 30px rgba(0,0,0,.35) }
+      .ac-indicator.light{ background: rgba(255,255,255,.98); color:#0b1220; border-color: rgba(0,0,0,.06) }
+      .ac-ghost{ position: fixed; pointer-events: none; color: #9ca3af; background: transparent; white-space: pre; font: 13px/1.35 system-ui,-apple-system,Segoe UI,Roboto; opacity: .85; text-shadow: 0 0 0 rgba(0,0,0,0.01) }
+      @media (prefers-color-scheme: light) {
+        .ac-indicator{ background: rgba(255,255,255,.98); color:#0b1220; border-color: rgba(0,0,0,.06) }
+      }
+    `;
+    shadowRoot.appendChild(st);
+  }
+
+  // --- Autocomplete helpers (IIFE scope) ---
+  function hideGhost() {
+    if (acGhostEl) { try { acGhostEl.remove(); } catch(_) {} acGhostEl = null; }
+  }
+
+  function showGhostAt(rect, text) {
+    ensureAcStyles();
+    hideGhost();
+    acGhostEl = document.createElement('div');
+    acGhostEl.className = 'ac-ghost';
+    acGhostEl.textContent = text || '';
+    const x = Math.max(8, Math.round((rect?.right ?? rect?.left ?? 16) + 1));
+    const y = Math.max(8, Math.round((rect?.top ?? 16) + 2));
+    acGhostEl.style.left = `${x}px`;
+    acGhostEl.style.top = `${y}px`;
+    shadowRoot.appendChild(acGhostEl);
+  }
+
+  function updateIndicator() {
+    ensureAcStyles();
+    if (!acEnabled) { if (acIndicatorEl) { acIndicatorEl.remove(); acIndicatorEl = null; } return; }
+    if (!acIndicatorEl) {
+      acIndicatorEl = document.createElement('div');
+      acIndicatorEl.className = 'ac-indicator';
+      acIndicatorEl.textContent = 'Jan Autocomplete: On (Tab accept, Esc dismiss)';
+      shadowRoot.appendChild(acIndicatorEl);
+    }
+  }
+
+  function setAutocompleteEnabled(next) {
+    acEnabled = !!next;
+    if (!acEnabled) { hideGhost(); }
+    updateIndicator();
+    if (acEnabled) scheduleAutocomplete();
+  }
+
+  function getPrefixSuffix(ed) {
+    try {
+      if (!ed) return { prefix: '', suffix: '' };
+      if (ed.isContentEditable) {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return { prefix: '', suffix: '' };
+        const caret = sel.getRangeAt(0);
+        const all = document.createRange();
+        all.selectNodeContents(ed);
+        const pre = all.cloneRange(); pre.setEnd(caret.endContainer, caret.endOffset);
+        const post = all.cloneRange(); post.setStart(caret.endContainer, caret.endOffset);
+        const prefix = String(pre.toString() || '');
+        const suffix = String(post.toString() || '');
+        return { prefix, suffix };
+      } else {
+        const t = (ed.tagName || '').toLowerCase();
+        if (t === 'textarea' || t === 'input') {
+          const v = String(ed.value || '');
+          const s = ed.selectionStart || 0;
+          const e = ed.selectionEnd || 0;
+          return { prefix: v.slice(0, s), suffix: v.slice(e) };
+        }
+      }
+    } catch (_) {}
+    return { prefix: '', suffix: '' };
+  }
+
+  function scheduleAutocomplete() {
+    if (!acEnabled) return;
+    if (acTimer) clearTimeout(acTimer);
+    acTimer = setTimeout(runAutocomplete, 120);
+  }
+
+  async function runAutocomplete() {
+    try {
+      if (!acEnabled) return hideGhost();
+      const ed = currentEditable();
+      if (!ed) { hideGhost(); return; }
+      const ctx = getSelectionInEditable(ed);
+      if (ctx && ctx.text && ctx.text.length > 0) { hideGhost(); return; }
+      if ((ed.tagName || '').toLowerCase() === 'input' && (ed.type || '').toLowerCase() === 'password') { hideGhost(); return; }
+      const { prefix, suffix } = getPrefixSuffix(ed);
+      const pref = String(prefix || '').slice(-1000);
+      const suff = String(suffix || '').slice(0, 300);
+      if (!pref || /\s$/.test(pref) === false && pref.length < 3) { hideGhost(); return; }
+      const myNonce = ++acNonce; acPendingNonce = myNonce;
+      const lang = document.documentElement?.lang || '';
+      let resp = null;
+      try {
+        resp = await chrome.runtime.sendMessage({ type: 'AUTOCOMPLETE_SUGGEST', payload: { prefix: pref, suffix: suff, lang } });
+      } catch (_) { resp = null; }
+      if (acPendingNonce !== myNonce) return; // stale
+      const text = String(resp?.text || '').trim();
+      if (!resp?.ok || !text) { hideGhost(); return; }
+      const rect = getRectForSelection(ed, ctx || { ed, range: null });
+      showGhostAt(rect, text);
+    } catch (_) { hideGhost(); }
+  }
+
   function clearUI() {
     if (tooltipEl) { tooltipEl.remove(); tooltipEl = null; }
     if (menuEl) { menuEl.remove(); menuEl = null; }
     if (resultEl) { resultEl.remove(); resultEl = null; }
+    if (overlayEl) { overlayEl.remove(); overlayEl = null; }
     if (resultKeyHandler && shadowRoot) { try { shadowRoot.removeEventListener('keydown', resultKeyHandler, true); } catch(_) {} resultKeyHandler = null; }
+    if (overlayKeyHandler && shadowRoot) { try { shadowRoot.removeEventListener('keydown', overlayKeyHandler, true); } catch(_) {} overlayKeyHandler = null; }
   }
 
   function isEditable(el) {
@@ -495,6 +748,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   function labelForMode(mode) {
     switch (mode) {
+      case 'custom': return 'Custom';
       case 'fix_grammar': return 'Fix grammar';
       case 'shorten': return 'Shorten';
       case 'expand': return 'Expand';
@@ -635,27 +889,56 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     showTooltipAt(x, y);
   }
 
+  // Debounced selection forwarding to background -> side panel
+  let selUpdateTimer = null;
+  let lastSelSent = null;
+  function scheduleSelectionForward() {
+    try { if (selUpdateTimer) clearTimeout(selUpdateTimer); } catch (_) {}
+    selUpdateTimer = setTimeout(() => {
+      try {
+        const sel = (getSelectionText() || '').slice(0, 4000);
+        if (sel === lastSelSent) return;
+        lastSelSent = sel;
+        try {
+          chrome.runtime.sendMessage({ type: 'SELECTION_UPDATED', payload: { selection: sel, url: location.href, title: document.title || '' } }).catch(() => {});
+        } catch (_) {}
+      } catch (_) {}
+    }, 250);
+  }
+
   // Events
   document.addEventListener('selectionchange', () => {
     if (Date.now() < suppressSelectionChangeUntil) return;
     if (selectionTimer) clearTimeout(selectionTimer);
     selectionTimer = setTimeout(maybeShowTooltip, 100);
+    // Forward selection to side panel via background (debounced)
+    scheduleSelectionForward();
+    // Autocomplete: reposition or hide ghost if caret moved
+    if (acEnabled) {
+      if (acGhostEl) scheduleAutocomplete();
+    } else {
+      hideGhost();
+    }
   });
   document.addEventListener('keyup', (e) => {
     // For inputs/textarea, selection changes may happen without selectionchange in some cases
     if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Shift','Meta','Control','Alt'].includes(e.key)) return;
     if (selectionTimer) clearTimeout(selectionTimer);
     selectionTimer = setTimeout(maybeShowTooltip, 100);
+    scheduleSelectionForward();
+    if (acEnabled) scheduleAutocomplete();
   });
   // Native 'select' event fires on inputs/textareas when selection changes via mouse
   document.addEventListener('select', () => {
     if (selectionTimer) clearTimeout(selectionTimer);
     selectionTimer = setTimeout(maybeShowTooltip, 60);
+    scheduleSelectionForward();
   }, true);
   document.addEventListener('mouseup', (e) => {
     lastPointer = { x: e.clientX || 0, y: e.clientY || 0, t: Date.now() };
     if (selectionTimer) clearTimeout(selectionTimer);
     selectionTimer = setTimeout(maybeShowTooltip, 80);
+    scheduleSelectionForward();
   }, true);
   window.addEventListener('scroll', () => { clearUI(); }, true);
   document.addEventListener('click', (e) => {
@@ -666,4 +949,70 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (Date.now() - lastPointer.t < 300) return;
     clearUI();
   });
+
+  // Autocomplete event hooks
+  document.addEventListener('input', () => { if (acEnabled) scheduleAutocomplete(); }, true);
+  document.addEventListener('keydown', (e) => {
+    if (!acEnabled) return;
+    const k = e.key;
+    if (k === 'Tab' && acGhostEl) {
+      e.preventDefault();
+      const ed = currentEditable();
+      if (!ed) { hideGhost(); return; }
+      const ctx = getSelectionInEditable(ed);
+      const rect = getRectForSelection(ed, ctx);
+      const text = acGhostEl?.textContent || '';
+      if (text) applyReplacement(ed, ctx?.range || null, text);
+      hideGhost();
+      // Schedule a follow-up suggestion after insertion
+      setTimeout(scheduleAutocomplete, 50);
+      return;
+    }
+    if (k === 'Escape' && acGhostEl) { e.preventDefault(); hideGhost(); return; }
+    // For most typing/navigation keys, hide current ghost to avoid visual mismatch; new one will appear after input
+    if (acGhostEl && (k.length === 1 || ['Backspace','Delete','Enter'].includes(k))) hideGhost();
+  }, true);
+
+  // In-page fallback hotkeys to toggle autocomplete
+  document.addEventListener('keydown', (e) => {
+    try {
+      const key = String(e.key || '').toLowerCase();
+      const altK = e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && key === 'k';
+      const modShiftK = (e.metaKey || e.ctrlKey) && e.shiftKey && key === 'k';
+      if (altK || modShiftK) {
+        e.preventDefault();
+        setAutocompleteEnabled(!acEnabled);
+      }
+    } catch(_) {}
+  }, true);
+
+  // Listen for keyboard command-triggered custom prompt
+  try {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message?.type === 'SHOW_CUSTOM_PROMPT') {
+        // Anchor near current selection if available; else near last pointer; else center
+        let x = Math.round(window.innerWidth / 2 - 200);
+        let y = Math.round(window.innerHeight / 2 - 120);
+        let ed = currentEditable();
+        let ctx = lastSelCtx;
+        if ((!ctx || !ctx.ed) && ed) {
+          const { text, range } = getSelectionInEditable(ed);
+          ctx = { ed, text, range };
+        }
+        if (ctx && (ctx.text || '').trim()) {
+          const rect = getRectForSelection(ctx.ed, ctx);
+          x = rect.left; y = rect.bottom + 6;
+        } else if (Date.now() - lastPointer.t < 5000) {
+          x = lastPointer.x; y = lastPointer.y + 10;
+        }
+        showCustomPromptAt(x, y);
+        sendResponse({ ok: true });
+        return true;
+      } else if (message?.type === 'TOGGLE_AUTOCOMPLETE') {
+        setAutocompleteEnabled(!acEnabled);
+        sendResponse({ ok: true, enabled: acEnabled });
+        return true;
+      }
+    });
+  } catch (_) {}
 })();

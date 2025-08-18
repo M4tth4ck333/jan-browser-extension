@@ -54,17 +54,36 @@
 - Side Panel (optional)
   - Can display full suggestions history and advanced prompts; not required for MVP.
 
+## Implementation Status vs Current Codebase
+
+- The summarizer side panel and OpenAI-compatible calls are implemented today in `src/background.js` (`CHAT_COMPLETION`, `CHAT_COMPLETION_STREAM_START`) and the side panel UI.
+- The Google Search + SERP scrape flow exists (`GOOGLE_SEARCH_AND_SCRAPE` in background and `SCRAPE_GOOGLE_SERP` in `src/content.js`).
+- Inline Assistant specific pieces are NOT implemented yet:
+  - No tooltip UI in the content script.
+  - No `INLINE_ASSIST_*` message handlers in the background.
+  - No Options toggles specific to Inline Assistant.
+- MVP will ship as one-shot (non-streaming) calls first; streaming can reuse the existing streaming infra later if needed.
+
+## Integration with MCP Bridge (context)
+
+- The MCP bridge (WebSocket from background to `ws://127.0.0.1:17389`) is used for tools like `search` and is orthogonal to the Inline Assistant.
+- Inline Assistant uses the same model provider settings as the side panel and does not require the MCP bridge.
+- See `docs/adr-004-mcp-bridge-security.md`: optional token (`useBridgeToken`, default Off). Options should expose the toggle consistently across features but Inline Assistant itself does not depend on it.
+
 ## Data Flow
 
 1) Content script captures selected text and the chosen action (e.g., Fix Grammar).
-2) Sends `{ type: 'INLINE_ASSIST', mode, text, context }` to background.
+2) Sends `{ type: 'INLINE_ASSIST_START', mode, text, context }` to background.
 3) Background crafts a prompt (system+user) based on mode and returns a result (streamed or single-shot).
 4) Content script displays the result in the tooltip; user can Apply/Copy/Dismiss.
 
 ## Permissions
 
-- `activeTab`, `storage`, `scripting` (for injecting UI as needed), `clipboardWrite` (copy to clipboard from tooltip).
-- No host permissions beyond what is necessary; prefer programmatic injection.
+- `storage`, `activeTab`, `tabs` (already present in `manifest.json`).
+- `clipboardWrite` (optional; only if copying without user gesture via `navigator.clipboard`/`execCommand`).
+- `scripting` (optional; only if we choose programmatic script injection instead of static `content_scripts`).
+- No extra host permissions needed beyond `<all_urls>` already used by the existing content script.
+- Note: current `manifest.json` includes `sidePanel` for the summarizer; Inline Assistant does not require it but can coexist.
 
 ## Privacy & Safety
 
@@ -85,14 +104,14 @@
 - Site Controls: per-site allow/deny list.
 - Provider: reuse existing provider/base/key/model/temperature + theme.
 
-## API: Message Shapes
+## API: Message Shapes (Proposed)
 
 - Content → Background
-  - `INLINE_ASSIST_START`: `{ mode: 'rewrite'|'shorten'|'expand'|'fix_grammar'|'tone_formal'|'tone_friendly'|'summarize'|'translate', text: string, lang?: string, tabId?: number }`
-  - Optional streaming variant: `INLINE_ASSIST_STREAM_START` with `reqId`.
+  - `INLINE_ASSIST_START` (MVP): `{ mode: 'rewrite'|'shorten'|'expand'|'fix_grammar'|'tone_formal'|'tone_friendly'|'summarize'|'translate', text: string, lang?: string, tabId?: number }`
+  - (Later) `INLINE_ASSIST_STREAM_START`: `{ reqId: string, ...INLINE_ASSIST_START }`
 - Background → Content
-  - For streaming: `INLINE_ASSIST_BEGIN`, `INLINE_ASSIST_DELTA`, `INLINE_ASSIST_DONE`, `INLINE_ASSIST_ERROR`.
-  - For one-shot: `{ ok: boolean, text?: string, error?: string }`.
+  - One-shot (MVP): response to sender `{ ok: boolean, text?: string, error?: string }`.
+  - (Later streaming): `INLINE_ASSIST_BEGIN`, `INLINE_ASSIST_DELTA`, `INLINE_ASSIST_DONE`, `INLINE_ASSIST_ERROR` to the originating tab via `chrome.tabs.sendMessage`.
 
 ## Prompting (Baseline)
 
@@ -112,6 +131,24 @@
 - One-shot flow (no streaming) for simpler UI.
 - Apply result back into the field; support Undo.
 - Options toggles + keyboard shortcut.
+
+## Implementation Plan (Actionable Tasks)
+
+- UI in page (`src/content.js`):
+  - Detect eligible fields and selection; render tooltip/toolbar in a shadow root.
+  - Wire quick actions to post `INLINE_ASSIST_START` to background; display result and offer Apply/Copy.
+  - Apply result using Selection/Range APIs to preserve undo (use InputEvent where available).
+- Background (`src/background.js`):
+  - Add handler for `INLINE_ASSIST_START` to craft prompts per mode and call existing `chatCompletions()` (one-shot).
+  - Enforce max text size and basic sanitization per this spec.
+- Options (`ui/options/App.jsx`):
+  - Add “Enable Inline Assistant”, shortcut config, and action toggles.
+  - Reuse provider/base/key/model settings.
+- Manifest (`manifest.json`):
+  - Keep static `content_scripts` for now. Add `clipboardWrite` only if needed.
+- Testing:
+  - Manual: focus/select flows, undo, per-site disable, and copy.
+  - Non-regression: ensure side panel summarizer and MCP bridge continue working.
 
 ## Roadmap
 
