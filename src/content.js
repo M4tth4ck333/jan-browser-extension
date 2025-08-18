@@ -18,20 +18,101 @@ function getVisibleText() {
   return t.replace(/[\t\r]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+ // --- Site-specific extractors ---
+ function isGmail() {
+   try { return /(^|\.)mail\.google\.com$/i.test(location.hostname); } catch (_) { return false; }
+ }
+
+ function extractGmailContent() {
+  try {
+    const main = document.querySelector('div[role="main"]') || document.body;
+    const subject = (document.querySelector('h2.hP')?.innerText || '').trim();
+    const pickBodies = (root) => Array.from(root.querySelectorAll('.a3s, div[data-message-id]'))
+      .map(n => (n.innerText || '').trim())
+      .filter(Boolean);
+    const pickHeaders = (root) => Array.from(root.querySelectorAll('.gD, .go')).slice(0, 5)
+      .map(n => (n.innerText || '').trim()).filter(Boolean);
+
+    let bodies = pickBodies(main);
+    let headerSnippets = pickHeaders(main);
+
+    // If empty, scan same-origin iframes (Gmail sometimes renders in internal frames)
+    if ((!bodies || bodies.length === 0)) {
+      const frames = Array.from(document.querySelectorAll('iframe'));
+      for (const f of frames) {
+        try {
+          const fd = f.contentDocument || f.contentWindow?.document;
+          if (!fd) continue;
+          // Same-origin will succeed
+          const fb = pickBodies(fd);
+          const fh = pickHeaders(fd);
+          if (fb && fb.length) bodies = bodies.concat(fb);
+          if (fh && fh.length) headerSnippets = headerSnippets.concat(fh.slice(0, 3));
+        } catch (_) { /* cross-origin or inaccessible */ }
+      }
+    }
+
+    // Dedup and join
+    const uniq = (arr) => Array.from(new Set((arr || []).map(s => s.trim()).filter(Boolean)));
+    const content = [subject, ...uniq(headerSnippets), ...uniq(bodies)].filter(Boolean).join('\n\n---\n\n');
+    return { title: subject || (document.title || ''), content };
+  } catch (_) {
+    return { title: document.title || '', content: getVisibleText() };
+  }
+}
+
+ function isYouTube() {
+   try { return /(^|\.)youtube\.com$|(^|\.)m\.youtube\.com$|(^|\.)youtu\.be$/i.test(location.hostname); } catch (_) { return false; }
+ }
+
+ function extractYouTubeContent() {
+   try {
+     const title =
+       (document.querySelector('h1.ytd-watch-metadata')?.innerText || '') ||
+       (document.querySelector('meta[property="og:title"]')?.getAttribute('content') || '') ||
+       (document.title || '');
+     // Prefer opened transcript panel if present
+     const segNodes = Array.from(document.querySelectorAll('ytd-transcript-renderer ytd-transcript-segment-renderer'));
+     const segments = segNodes.map(n => (n.innerText || '').trim()).filter(Boolean);
+     // Fallback to description if no transcript visible
+     const description =
+       (document.querySelector('#description')?.innerText || '') ||
+       (document.querySelector('meta[name="description"]')?.getAttribute('content') || '');
+     const transcript = segments.length ? segments.join('\n') : description;
+     return { title: title.trim(), content: transcript.trim() };
+   } catch (_) {
+     return { title: document.title || '', content: getVisibleText() };
+   }
+ }
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'GET_PAGE_CONTENT') {
+    // Only the top frame should respond; it will aggregate from same-origin iframes when needed
+    if (window.top !== window) { return false; }
     const maxChars = 100000; // safety cap
-    const content = getVisibleText().slice(0, maxChars);
-    const selection = getSelectionText().slice(0, maxChars / 4);
+    let title = document.title || '';
+    let content = '';
+    if (isGmail()) {
+      const g = extractGmailContent();
+      title = g.title || title;
+      content = g.content || '';
+    } else if (isYouTube()) {
+      const y = extractYouTubeContent();
+      title = y.title || title;
+      content = y.content || '';
+    } else {
+      content = getVisibleText();
+    }
+    const selection = getSelectionText();
 
     sendResponse({
       ok: true,
       url: location.href,
-      title: document.title || '',
+      title: String(title || '').slice(0, 500),
       lang: document.documentElement?.lang || '',
       metaDescription: getMetaDescription(),
-      content,
-      selection
+      content: String(content || '').slice(0, maxChars),
+      selection: String(selection || '').slice(0, maxChars / 4)
     });
     return true;
   }
