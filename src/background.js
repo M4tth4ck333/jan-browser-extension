@@ -23,11 +23,13 @@ chrome.runtime.onConnect.addListener((port) => {
   sidepanelPorts.set(GLOBAL_KEY, port);
   const initialTabId = port.sender?.tab?.id;
   if (initialTabId) sidepanelPorts.set(initialTabId, port);
+  try { console.log('[BG] port connected', { initialTabId }); } catch (_) {}
   // Allow the side panel to register/update its tabId explicitly
   try {
     port.onMessage.addListener((msg) => {
       if (msg && msg.type === 'REGISTER_PORT' && msg.tabId) {
         sidepanelPorts.set(msg.tabId, port);
+        try { console.log('[BG] REGISTER_PORT', { tabId: msg.tabId }); } catch (_) {}
       }
     });
   } catch (_) { /* ignore */ }

@@ -252,3 +252,31 @@
   cursor: pointer;
   border-style: dashed;
 }
+
+/* Typing indicator (assistant waiting for first token) */
+.typing { display: inline-flex; align-items: center; gap: 6px; }
+.typing .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--muted-foreground);
+  opacity: 0.6;
+  animation: typing-bounce 1s infinite ease-in-out;
+}
+.typing .dot:nth-child(2) { animation-delay: .15s; }
+.typing .dot:nth-child(3) { animation-delay: .3s; }
+@keyframes typing-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-3px); opacity: 1; }
+}
+
+/* Minimal spinner (used in header chip and inline) */
+.spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  border: 2px solid color-mix(in oklab, var(--foreground) 15%, transparent 85%);
+  border-top-color: var(--primary);
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }

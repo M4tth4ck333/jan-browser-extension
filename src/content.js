@@ -36,98 +36,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // --- Autocomplete helpers ---
-  function hideGhost() {
-    if (acGhostEl) { try { acGhostEl.remove(); } catch(_) {} acGhostEl = null; }
-  }
-
-  function showGhostAt(rect, text) {
-    ensureAcStyles();
-    hideGhost();
-    acGhostEl = document.createElement('div');
-    acGhostEl.className = 'ac-ghost';
-    acGhostEl.textContent = text || '';
-    const x = Math.max(8, Math.round((rect?.right ?? rect?.left ?? 16) + 1));
-    const y = Math.max(8, Math.round((rect?.top ?? 16) + 2));
-    acGhostEl.style.left = `${x}px`;
-    acGhostEl.style.top = `${y}px`;
-    shadowRoot.appendChild(acGhostEl);
-  }
-
-  function updateIndicator() {
-    ensureAcStyles();
-    if (!acEnabled) { if (acIndicatorEl) { acIndicatorEl.remove(); acIndicatorEl = null; } return; }
-    if (!acIndicatorEl) {
-      acIndicatorEl = document.createElement('div');
-      acIndicatorEl.className = 'ac-indicator';
-      acIndicatorEl.textContent = 'Jan Autocomplete: On (Tab accept, Esc dismiss)';
-      shadowRoot.appendChild(acIndicatorEl);
-    }
-  }
-
-  function getPrefixSuffix(ed) {
-    try {
-      if (!ed) return { prefix: '', suffix: '' };
-      if (ed.isContentEditable) {
-        const sel = window.getSelection();
-        if (!sel || sel.rangeCount === 0) return { prefix: '', suffix: '' };
-        const caret = sel.getRangeAt(0);
-        // Use element-wide range to measure before/after caret
-        const all = document.createRange();
-        all.selectNodeContents(ed);
-        const pre = all.cloneRange(); pre.setEnd(caret.endContainer, caret.endOffset);
-        const post = all.cloneRange(); post.setStart(caret.endContainer, caret.endOffset);
-        const prefix = String(pre.toString() || '');
-        const suffix = String(post.toString() || '');
-        return { prefix, suffix };
-      } else {
-        const t = (ed.tagName || '').toLowerCase();
-        if (t === 'textarea' || t === 'input') {
-          const v = String(ed.value || '');
-          const s = ed.selectionStart || 0;
-          const e = ed.selectionEnd || 0;
-          return { prefix: v.slice(0, s), suffix: v.slice(e) };
-        }
-      }
-    } catch (_) {}
-    return { prefix: '', suffix: '' };
-  }
-
-  function scheduleAutocomplete() {
-    if (!acEnabled) return;
-    if (acTimer) clearTimeout(acTimer);
-    acTimer = setTimeout(runAutocomplete, 120);
-  }
-
-  async function runAutocomplete() {
-    try {
-      if (!acEnabled) return hideGhost();
-      const ed = currentEditable();
-      if (!ed) { hideGhost(); return; }
-      // Ignore if selection has range > 0
-      const ctx = getSelectionInEditable(ed);
-      if (ctx && ctx.text && ctx.text.length > 0) { hideGhost(); return; }
-      // Avoid password inputs
-      if ((ed.tagName || '').toLowerCase() === 'input' && (ed.type || '').toLowerCase() === 'password') { hideGhost(); return; }
-
-      const { prefix, suffix } = getPrefixSuffix(ed);
-      const pref = String(prefix || '').slice(-1000);
-      const suff = String(suffix || '').slice(0, 300);
-      if (!pref || /\s$/.test(pref) === false && pref.length < 3) { hideGhost(); return; }
-
-      const myNonce = ++acNonce; acPendingNonce = myNonce;
-      const lang = document.documentElement?.lang || '';
-      let resp = null;
-      try {
-        resp = await chrome.runtime.sendMessage({ type: 'AUTOCOMPLETE_SUGGEST', payload: { prefix: pref, suffix: suff, lang } });
-      } catch (_) { resp = null; }
-      if (acPendingNonce !== myNonce) return; // stale
-      const text = String(resp?.text || '').trim();
-      if (!resp?.ok || !text) { hideGhost(); return; }
-      const rect = getRectForSelection(ed, ctx || { ed, range: null });
-      showGhostAt(rect, text);
-    } catch (_) { hideGhost(); }
-  }
+  // (moved autocomplete helpers into IIFE scope below)
 
   function clampXY(x, y, w = 420, h = 160) {
     const vx = Math.min(Math.max(8, Math.round(x)), Math.max(8, window.innerWidth - w - 8));
@@ -416,6 +325,101 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     `;
     shadowRoot.appendChild(st);
+  }
+
+  // --- Autocomplete helpers (IIFE scope) ---
+  function hideGhost() {
+    if (acGhostEl) { try { acGhostEl.remove(); } catch(_) {} acGhostEl = null; }
+  }
+
+  function showGhostAt(rect, text) {
+    ensureAcStyles();
+    hideGhost();
+    acGhostEl = document.createElement('div');
+    acGhostEl.className = 'ac-ghost';
+    acGhostEl.textContent = text || '';
+    const x = Math.max(8, Math.round((rect?.right ?? rect?.left ?? 16) + 1));
+    const y = Math.max(8, Math.round((rect?.top ?? 16) + 2));
+    acGhostEl.style.left = `${x}px`;
+    acGhostEl.style.top = `${y}px`;
+    shadowRoot.appendChild(acGhostEl);
+  }
+
+  function updateIndicator() {
+    ensureAcStyles();
+    if (!acEnabled) { if (acIndicatorEl) { acIndicatorEl.remove(); acIndicatorEl = null; } return; }
+    if (!acIndicatorEl) {
+      acIndicatorEl = document.createElement('div');
+      acIndicatorEl.className = 'ac-indicator';
+      acIndicatorEl.textContent = 'Jan Autocomplete: On (Tab accept, Esc dismiss)';
+      shadowRoot.appendChild(acIndicatorEl);
+    }
+  }
+
+  function setAutocompleteEnabled(next) {
+    acEnabled = !!next;
+    if (!acEnabled) { hideGhost(); }
+    updateIndicator();
+    if (acEnabled) scheduleAutocomplete();
+  }
+
+  function getPrefixSuffix(ed) {
+    try {
+      if (!ed) return { prefix: '', suffix: '' };
+      if (ed.isContentEditable) {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return { prefix: '', suffix: '' };
+        const caret = sel.getRangeAt(0);
+        const all = document.createRange();
+        all.selectNodeContents(ed);
+        const pre = all.cloneRange(); pre.setEnd(caret.endContainer, caret.endOffset);
+        const post = all.cloneRange(); post.setStart(caret.endContainer, caret.endOffset);
+        const prefix = String(pre.toString() || '');
+        const suffix = String(post.toString() || '');
+        return { prefix, suffix };
+      } else {
+        const t = (ed.tagName || '').toLowerCase();
+        if (t === 'textarea' || t === 'input') {
+          const v = String(ed.value || '');
+          const s = ed.selectionStart || 0;
+          const e = ed.selectionEnd || 0;
+          return { prefix: v.slice(0, s), suffix: v.slice(e) };
+        }
+      }
+    } catch (_) {}
+    return { prefix: '', suffix: '' };
+  }
+
+  function scheduleAutocomplete() {
+    if (!acEnabled) return;
+    if (acTimer) clearTimeout(acTimer);
+    acTimer = setTimeout(runAutocomplete, 120);
+  }
+
+  async function runAutocomplete() {
+    try {
+      if (!acEnabled) return hideGhost();
+      const ed = currentEditable();
+      if (!ed) { hideGhost(); return; }
+      const ctx = getSelectionInEditable(ed);
+      if (ctx && ctx.text && ctx.text.length > 0) { hideGhost(); return; }
+      if ((ed.tagName || '').toLowerCase() === 'input' && (ed.type || '').toLowerCase() === 'password') { hideGhost(); return; }
+      const { prefix, suffix } = getPrefixSuffix(ed);
+      const pref = String(prefix || '').slice(-1000);
+      const suff = String(suffix || '').slice(0, 300);
+      if (!pref || /\s$/.test(pref) === false && pref.length < 3) { hideGhost(); return; }
+      const myNonce = ++acNonce; acPendingNonce = myNonce;
+      const lang = document.documentElement?.lang || '';
+      let resp = null;
+      try {
+        resp = await chrome.runtime.sendMessage({ type: 'AUTOCOMPLETE_SUGGEST', payload: { prefix: pref, suffix: suff, lang } });
+      } catch (_) { resp = null; }
+      if (acPendingNonce !== myNonce) return; // stale
+      const text = String(resp?.text || '').trim();
+      if (!resp?.ok || !text) { hideGhost(); return; }
+      const rect = getRectForSelection(ed, ctx || { ed, range: null });
+      showGhostAt(rect, text);
+    } catch (_) { hideGhost(); }
   }
 
   function clearUI() {
@@ -947,6 +951,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (acGhostEl && (k.length === 1 || ['Backspace','Delete','Enter'].includes(k))) hideGhost();
   }, true);
 
+  // In-page fallback hotkeys to toggle autocomplete
+  document.addEventListener('keydown', (e) => {
+    try {
+      const key = String(e.key || '').toLowerCase();
+      const altK = e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && key === 'k';
+      const modShiftK = (e.metaKey || e.ctrlKey) && e.shiftKey && key === 'k';
+      if (altK || modShiftK) {
+        e.preventDefault();
+        setAutocompleteEnabled(!acEnabled);
+      }
+    } catch(_) {}
+  }, true);
+
   // Listen for keyboard command-triggered custom prompt
   try {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -970,9 +987,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: true });
         return true;
       } else if (message?.type === 'TOGGLE_AUTOCOMPLETE') {
-        acEnabled = !acEnabled;
-        if (!acEnabled) { hideGhost(); }
-        updateIndicator();
+        setAutocompleteEnabled(!acEnabled);
         sendResponse({ ok: true, enabled: acEnabled });
         return true;
       }

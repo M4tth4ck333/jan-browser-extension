@@ -49,32 +49,39 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
             <div className="whitespace-pre-wrap">{content}</div>
           ) : (
             <div className="max-w-none break-words ai-typography">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[[rehypeSanitize, sanitizeSchema], rehypeHighlight]}
-                components={{
-                  code({ node, inline, className, children, ...props }) {
-                    const text = String(children || '')
-                    if (inline) return <code className="px-1 py-0.5 rounded ds-muted-bg">{text}</code>
-                    const copyCode = async () => { try { await navigator.clipboard.writeText(text) } catch (_) {} }
-                    return (
-                      <div className="relative my-2">
-                        <Tooltip.Root>
-                          <Tooltip.Trigger asChild>
-                            <Button variant="ghost" size="icon" className="absolute top-1 right-1" onClick={copyCode} aria-label="Copy code">
-                              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 7a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2V7zm-4 4V6a2 2 0 0 1 2-2h7v2H7v5H5zm4 5h7V7h-7v9z"/></svg>
-                            </Button>
-                          </Tooltip.Trigger>
-                          <Tooltip.Content sideOffset={6} className="text-xs ds-card ds-text border ds-border rounded px-2 py-1">Copy code</Tooltip.Content>
-                        </Tooltip.Root>
-                        <pre className="overflow-auto bg-card border ds-border p-2 rounded"><code className={className} {...props}>{text}</code></pre>
-                      </div>
-                    )
-                  }
-                }}
-              >
-                {content || ''}
-              </ReactMarkdown>
+              {(content && String(content).trim().length > 0) ? (
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[[rehypeSanitize, sanitizeSchema], rehypeHighlight]}
+                  components={{
+                    code({ node, inline, className, children, ...props }) {
+                      const text = String(children || '')
+                      if (inline) return <code className="px-1 py-0.5 rounded ds-muted-bg">{text}</code>
+                      const copyCode = async () => { try { await navigator.clipboard.writeText(text) } catch (_) {} }
+                      return (
+                        <div className="relative my-2">
+                          <Tooltip.Root>
+                            <Tooltip.Trigger asChild>
+                              <Button variant="ghost" size="icon" className="absolute top-1 right-1" onClick={copyCode} aria-label="Copy code">
+                                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 7a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2V7zm-4 4V6a2 2 0 0 1 2-2h7v2H7v5H5zm4 5h7V7h-7v9z"/></svg>
+                              </Button>
+                            </Tooltip.Trigger>
+                            <Tooltip.Content sideOffset={6} className="text-xs ds-card ds-text border ds-border rounded px-2 py-1">Copy code</Tooltip.Content>
+                          </Tooltip.Root>
+                          <pre className="overflow-auto bg-card border ds-border p-2 rounded"><code className={className} {...props}>{text}</code></pre>
+                        </div>
+                      )
+                    }
+                  }}
+                >
+                  {content || ''}
+                </ReactMarkdown>
+              ) : (
+                <div className="inline-flex items-center gap-2 text-sm ds-muted-text">
+                  <span className="spinner" aria-hidden="true" />
+                  <span>Thinking…</span>
+                </div>
+              )}
             </div>
           )}
           {!isUser ? (
@@ -108,6 +115,7 @@ export default function App() {
   const [useContextThisMsg, setUseContextThisMsg] = useState(true) // Option B per message
   const [selectedTabIds, setSelectedTabIds] = useState([]) // default to current tab later
   const [contextCache, setContextCache] = useState({}) // { [tabId]: pageData }
+  const [tabSessionMap, setTabSessionMap] = useState({}) // { [tabId]: sessionId }
 
   // Sessions (history)
   const [sessions, setSessions] = useState([])
@@ -232,6 +240,26 @@ export default function App() {
   }, [])
 
   const delay = (ms) => new Promise(res => setTimeout(res, ms))
+
+  // Per-tab session mapping helpers
+  const loadTabSessionMap = useCallback(async () => {
+    try {
+      const { tabSessionMap: saved = {} } = await chrome.storage.local.get(['tabSessionMap'])
+      setTabSessionMap(saved || {})
+      return saved || {}
+    } catch (_) {
+      setTabSessionMap({})
+      return {}
+    }
+  }, [])
+
+  const setTabSessionForTab = useCallback(async (tabId, sessionId) => {
+    try {
+      const next = { ...(tabSessionMap || {}), [tabId]: sessionId }
+      setTabSessionMap(next)
+      await chrome.storage.local.set({ tabSessionMap: next })
+    } catch (_) {}
+  }, [tabSessionMap])
 
   const waitForTabComplete = async (tabId, attempts = 10, intervalMs = 300) => {
     for (let i = 0; i < attempts; i++) {
@@ -476,6 +504,9 @@ export default function App() {
     loadSessions()
   }, [refreshTabs, loadSessions])
 
+  // Load per-tab session map on mount
+  useEffect(() => { loadTabSessionMap() }, [loadTabSessionMap])
+
   // Persist on unload/close of the side panel
   useEffect(() => {
     const persist = () => {
@@ -490,6 +521,28 @@ export default function App() {
       window.removeEventListener('pagehide', persist)
     }
   }, [])
+
+  // Ensure the side panel follows the current tab: re-register port and switch to that tab's mapped session
+  useEffect(() => {
+    const onActivated = async (activeInfo) => {
+      try {
+        const t = await chrome.tabs.get(activeInfo.tabId)
+        if (!t?.id || !isSupportedUrl(t.url)) return
+        // Keep tabs list fresh
+        refreshTabs()
+        // Route streaming to the newly active tab
+        try { if (portRef.current) portRef.current.postMessage({ type: 'REGISTER_PORT', tabId: t.id }) } catch (_) {}
+        // Switch to the session mapped to this tab, if any
+        const map = await loadTabSessionMap()
+        const sid = map[t.id]
+        if (sid && sid !== activeSessionIdRef.current && sessionsRef.current.find(s => s.id === sid)) {
+          await switchSession(sid)
+        }
+      } catch (_) {}
+    }
+    try { chrome.tabs.onActivated.addListener(onActivated) } catch (_) {}
+    return () => { try { chrome.tabs.onActivated.removeListener(onActivated) } catch (_) {} }
+  }, [refreshTabs, loadTabSessionMap])
 
   const summarize = useCallback(async (useSelection) => {
     const pd = pageData || (await readPage())
@@ -605,12 +658,20 @@ export default function App() {
       const wantContext = useContextThisMsg || useContextDefault
       let contexts = []
       let cache = { ...contextCache }
-      const tabsToUse = (selectedTabIds && selectedTabIds.length) ? selectedTabIds : (pageData ? [ (await getActiveTab())?.id ].filter(Boolean) : [])
-      if (wantContext) {
-        // Always re-scrape selected tabs to keep content fresh
+      const activeTab = await getActiveTab()
+      const tabsToUse = (selectedTabIds && selectedTabIds.length) ? selectedTabIds : [activeTab?.id].filter(Boolean)
+      if (wantContext && tabsToUse.length) {
+        // Always re-scrape targeted tabs to keep content fresh
         const scraped = await scrapeSelectedTabs(tabsToUse)
         scraped.forEach(r => { cache[r.tabId] = r })
         setContextCache(cache)
+        // Persist the refreshed context into the active session
+        const idxCtx = nextSessions.findIndex(s => s.id === activeSessionId)
+        if (idxCtx >= 0) {
+          const updated = { ...nextSessions[idxCtx], context: { useContextDefault, selectedTabIds: tabsToUse, contextCache: cache } }
+          nextSessions[idxCtx] = updated
+          await saveSessions(nextSessions)
+        }
         contexts = tabsToUse.map(id => cache[id]).filter(Boolean)
       }
       // Prefer streaming
@@ -620,7 +681,7 @@ export default function App() {
       const reqId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now())
       setStreamingReqId(reqId)
       streamingReqIdRef.current = reqId
-      const tab = await getActiveTab()
+      const tab = activeTab || await getActiveTab()
       // Ensure background routes stream messages to this UI by re-registering the port with the active tab
       try { if (tab?.id && portRef.current) portRef.current.postMessage({ type: 'REGISTER_PORT', tabId: tab.id }) } catch (_) {}
       const ack = await chrome.runtime.sendMessage({ type: 'CHAT_COMPLETION_STREAM_START', payload: { messages: msgs, reqId, tabId: tab?.id } })
@@ -668,12 +729,20 @@ export default function App() {
       const wantContext = useContextThisMsg || useContextDefault
       let contexts = []
       let cache = { ...contextCache }
-      const tabsToUse = (selectedTabIds && selectedTabIds.length) ? selectedTabIds : (pageData ? [ (await getActiveTab())?.id ].filter(Boolean) : [])
-      if (wantContext) {
-        // Always re-scrape selected tabs to keep content fresh
+      const activeTab = await getActiveTab()
+      const tabsToUse = (selectedTabIds && selectedTabIds.length) ? selectedTabIds : [activeTab?.id].filter(Boolean)
+      if (wantContext && tabsToUse.length) {
+        // Always re-scrape targeted tabs to keep content fresh
         const scraped = await scrapeSelectedTabs(tabsToUse)
         scraped.forEach(r => { cache[r.tabId] = r })
         setContextCache(cache)
+        // Persist refreshed context into the active session
+        const idxCtx = nextSessions.findIndex(s => s.id === activeSessionId)
+        if (idxCtx >= 0) {
+          const updated = { ...nextSessions[idxCtx], context: { useContextDefault, selectedTabIds: tabsToUse, contextCache: cache } }
+          nextSessions[idxCtx] = updated
+          await saveSessions(nextSessions)
+        }
         contexts = tabsToUse.map(id => cache[id]).filter(Boolean)
       }
       const active = nextSessions[sIdx]
@@ -686,7 +755,7 @@ export default function App() {
       const reqId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now())
       setStreamingReqId(reqId)
       streamingReqIdRef.current = reqId
-      const tab = await getActiveTab()
+      const tab = activeTab || await getActiveTab()
       try { if (tab?.id && portRef.current) portRef.current.postMessage({ type: 'REGISTER_PORT', tabId: tab.id }) } catch (_) {}
       const ack = await chrome.runtime.sendMessage({ type: 'CHAT_COMPLETION_STREAM_START', payload: { messages: msgs, reqId, tabId: tab?.id } })
       if (!ack?.ok) {
@@ -729,6 +798,10 @@ export default function App() {
     }
     const next = [s, ...sessions]
     await saveSessions(next, newId)
+    try {
+      const t = await getActiveTab()
+      if (t?.id) await setTabSessionForTab(t.id, newId)
+    } catch (_) {}
   }
 
   const deleteChat = async (id) => {
@@ -764,6 +837,10 @@ export default function App() {
       setContextCache(s.context?.contextCache || {})
       setSessionTitle(s.title)
     }
+    try {
+      const t = await getActiveTab()
+      if (t?.id) await setTabSessionForTab(t.id, nextActive)
+    } catch (_) {}
   }
 
   const switchSession = async (id) => {
@@ -775,6 +852,10 @@ export default function App() {
     setContextCache(s.context?.contextCache || {})
     setSessionTitle(s.title)
     await chrome.storage.local.set({ activeSessionId: id })
+    try {
+      const t = await getActiveTab()
+      if (t?.id) await setTabSessionForTab(t.id, id)
+    } catch (_) {}
   }
 
   const persistContext = useCallback(async () => {
@@ -999,11 +1080,11 @@ export default function App() {
           <div className="flex items-stretch gap-2">
             <Textarea
               className="w-full flex-1 resize-none min-h-[72px] rounded-2xl text-base leading-6 shadow-lg bg-card/80 border-border/60 backdrop-blur-sm"
-              placeholder={busy ? 'Working…' : 'Ask anything…'}
+              placeholder={(busy || !!streamingReqId) ? 'Working…' : 'Ask anything…'}
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={onKeyDown}
-              disabled={busy}
+              disabled={busy || !!streamingReqId}
             />
             <div className="flex items-center">
               <Button
