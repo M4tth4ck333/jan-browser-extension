@@ -114,6 +114,7 @@ export default function App() {
   const [useContextDefault, setUseContextDefault] = useState(true) // Option A default
   const [useContextThisMsg, setUseContextThisMsg] = useState(true) // Option B per message
   const [selectedTabIds, setSelectedTabIds] = useState([]) // default to current tab later
+  const [autoFollowActiveTab, setAutoFollowActiveTab] = useState(true) // if true, auto-sync selectedTabIds to active tab until user manually selects
   const [contextCache, setContextCache] = useState({}) // { [tabId]: pageData }
   const [tabSessionMap, setTabSessionMap] = useState({}) // { [tabId]: sessionId }
   const [selectionText, setSelectionText] = useState('')
@@ -379,7 +380,7 @@ export default function App() {
         messages: [
           { role: 'assistant', content: 'Hi! I can summarize this page or chat about it. What would you like to do?', ts: Date.now() }
         ],
-        context: { useContextDefault: true, selectedTabIds: [], contextCache: {} },
+        context: { useContextDefault: true, selectedTabIds: [], contextCache: {}, autoFollowActiveTab: true },
       }
       setSessions([initial])
       setActiveSessionId(newId)
@@ -391,6 +392,7 @@ export default function App() {
       setUseContextDefault(!!s.context?.useContextDefault)
       setSelectedTabIds(s.context?.selectedTabIds || [])
       setContextCache(s.context?.contextCache || {})
+      setAutoFollowActiveTab(s.context?.autoFollowActiveTab ?? true)
       setSessionTitle(s.title)
     }
   }, [])
@@ -508,6 +510,17 @@ export default function App() {
     loadSessions()
   }, [refreshTabs, loadSessions])
 
+  // When auto-follow is ON, always sync to the current active tab (override any stale selection)
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!autoFollowActiveTab) return
+        const t = await getActiveTab()
+        if (t?.id && isSupportedUrl(t.url)) setSelectedTabIds([t.id])
+      } catch (_) {}
+    })()
+  }, [autoFollowActiveTab])
+
   // Load per-tab session map on mount
   useEffect(() => { loadTabSessionMap() }, [loadTabSessionMap])
 
@@ -542,11 +555,15 @@ export default function App() {
         if (sid && sid !== activeSessionIdRef.current && sessionsRef.current.find(s => s.id === sid)) {
           await switchSession(sid)
         }
+        // If user hasn't manually chosen tabs, auto-follow the active tab
+        if (autoFollowActiveTab) {
+          setSelectedTabIds([t.id])
+        }
       } catch (_) {}
     }
     try { chrome.tabs.onActivated.addListener(onActivated) } catch (_) {}
     return () => { try { chrome.tabs.onActivated.removeListener(onActivated) } catch (_) {} }
-  }, [refreshTabs, loadTabSessionMap])
+  }, [refreshTabs, loadTabSessionMap, autoFollowActiveTab])
 
   const summarize = useCallback(async (useSelection) => {
     const pd = pageData || (await readPage())
@@ -585,14 +602,24 @@ export default function App() {
 
   const buildContextMessages = (contexts) => {
     if (!contexts || contexts.length === 0) return []
-    const parts = contexts.map(c => {
+    const safe = Array.isArray(contexts) ? contexts : []
+    const count = safe.length
+    const parts = safe.map((c, i) => {
+      const idx = i + 1
       const head = [c.title ? `Title: ${c.title}` : null, c.url ? `URL: ${c.url}` : null].filter(Boolean).join(' | ')
       const meta = c.metaDescription ? `Meta: ${c.metaDescription}` : ''
       const snippet = (c.selection?.trim() || c.content?.trim() || '').slice(0, 2000)
-      return `[Tab] ${head}\n${[meta, snippet].filter(Boolean).join('\n')}`
+      const label = count === 1 ? 'Page' : `Tab ${idx}`
+      return `[${label}] ${head}\n${[meta, snippet].filter(Boolean).join('\n')}`
     }).join('\n\n----\n\n')
+    const guard = [
+      count === 1
+        ? 'You are given exactly one page context. Do not mention or imply multiple tabs/windows.'
+        : `You are given ${count} tab contexts. Do not assume any others beyond the ones listed.`,
+      'Only use information from the context listed below.'
+    ].join('\n')
     return [
-      { role: 'system', content: `You have additional context from selected browser tabs. Use it only if relevant.\n\n${parts}` }
+      { role: 'system', content: `${guard}\n\n${parts}` }
     ]
   }
 
@@ -663,7 +690,9 @@ export default function App() {
       let contexts = []
       let cache = { ...contextCache }
       const activeTab = await getActiveTab()
-      const tabsToUse = (selectedTabIds && selectedTabIds.length) ? selectedTabIds : [activeTab?.id].filter(Boolean)
+      const tabsToUse = autoFollowActiveTab
+        ? [activeTab?.id].filter(Boolean)
+        : ((selectedTabIds && selectedTabIds.length) ? selectedTabIds : [activeTab?.id].filter(Boolean))
       if (tabsToUse.length) {
         // Always re-scrape targeted tabs to keep content fresh in cache
         const scraped = await scrapeSelectedTabs(tabsToUse)
@@ -672,7 +701,7 @@ export default function App() {
         // Persist the refreshed context into the active session
         const idxCtx = nextSessions.findIndex(s => s.id === activeSessionId)
         if (idxCtx >= 0) {
-          const updated = { ...nextSessions[idxCtx], context: { useContextDefault, selectedTabIds: tabsToUse, contextCache: cache } }
+          const updated = { ...nextSessions[idxCtx], context: { useContextDefault, selectedTabIds: tabsToUse, contextCache: cache, autoFollowActiveTab } }
           nextSessions[idxCtx] = updated
           await saveSessions(nextSessions)
         }
@@ -704,7 +733,7 @@ export default function App() {
     } finally {
       setBusy(false)
     }
-  }, [input, sessions, activeSessionId, useContextThisMsg, useContextDefault, contextCache, pageData, selectedTabIds, saveSessions, scrapeSelectedTabs])
+  }, [input, sessions, activeSessionId, useContextThisMsg, useContextDefault, contextCache, selectedTabIds, saveSessions, scrapeSelectedTabs, autoFollowActiveTab])
 
   const askWithGoogle = useCallback(async () => {
     const text = input.trim()
@@ -734,7 +763,9 @@ export default function App() {
       let contexts = []
       let cache = { ...contextCache }
       const activeTab = await getActiveTab()
-      const tabsToUse = (selectedTabIds && selectedTabIds.length) ? selectedTabIds : [activeTab?.id].filter(Boolean)
+      const tabsToUse = autoFollowActiveTab
+        ? [activeTab?.id].filter(Boolean)
+        : ((selectedTabIds && selectedTabIds.length) ? selectedTabIds : [activeTab?.id].filter(Boolean))
       if (tabsToUse.length) {
         // Always re-scrape targeted tabs to keep content fresh in cache
         const scraped = await scrapeSelectedTabs(tabsToUse)
@@ -743,7 +774,7 @@ export default function App() {
         // Persist refreshed context into the active session
         const idxCtx = nextSessions.findIndex(s => s.id === activeSessionId)
         if (idxCtx >= 0) {
-          const updated = { ...nextSessions[idxCtx], context: { useContextDefault, selectedTabIds: tabsToUse, contextCache: cache } }
+          const updated = { ...nextSessions[idxCtx], context: { useContextDefault, selectedTabIds: tabsToUse, contextCache: cache, autoFollowActiveTab } }
           nextSessions[idxCtx] = updated
           await saveSessions(nextSessions)
         }
@@ -777,7 +808,7 @@ export default function App() {
     } finally {
       setBusy(false)
     }
-  }, [input, sessions, activeSessionId, sessionTitle, useContextThisMsg, useContextDefault, contextCache, pageData, selectedTabIds, saveSessions, scrapeSelectedTabs])
+  }, [input, sessions, activeSessionId, sessionTitle, useContextThisMsg, useContextDefault, contextCache, pageData, selectedTabIds, saveSessions, scrapeSelectedTabs, autoFollowActiveTab, buildGoogleMessages])
 
   const onKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -787,24 +818,38 @@ export default function App() {
   }
 
   const toggleTab = (id) => {
+    // Any manual toggle disables auto-follow
+    setAutoFollowActiveTab(false)
     setSelectedTabIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
   }
 
   const newChat = async () => {
     const newId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now())
+    // Prefer the current active tab for a fresh session
+    let activeId = null
+    try {
+      const t = await getActiveTab()
+      if (t?.id && isSupportedUrl(t.url)) activeId = t.id
+    } catch (_) {}
+    const selIds = activeId ? [activeId] : []
     const s = {
       id: newId,
       title: 'Jan',
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [],
-      context: { useContextDefault, selectedTabIds, contextCache },
+      context: { useContextDefault, selectedTabIds: selIds, contextCache, autoFollowActiveTab: true },
     }
     const next = [s, ...sessions]
     await saveSessions(next, newId)
+    // Update local state so the UI immediately reflects the latest active tab
+    setSelectedTabIds(selIds)
+    setAutoFollowActiveTab(true)
+    // Map the active tab to this new session for quick switching
     try {
-      const t = await getActiveTab()
-      if (t?.id) await setTabSessionForTab(t.id, newId)
+      if (activeId) await setTabSessionForTab(activeId, newId)
+      // Re-register long-lived port to active tab to avoid streaming misroutes
+      if (activeId && portRef.current) portRef.current.postMessage({ type: 'REGISTER_PORT', tabId: activeId })
     } catch (_) {}
   }
 
@@ -814,21 +859,32 @@ export default function App() {
     if (idx < 0) return
     const next = sessions.filter(s => s.id !== targetId)
     if (next.length === 0) {
-      // If no sessions remain, create a fresh one
+      // If no sessions remain, create a fresh one bound to the current active tab
       const newId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now())
+      let activeId = null
+      try {
+        const t = await getActiveTab()
+        if (t?.id && isSupportedUrl(t.url)) activeId = t.id
+      } catch (_) {}
+      const selIds = activeId ? [activeId] : []
       const initial = {
         id: newId,
         title: 'Jan',
         createdAt: Date.now(),
         updatedAt: Date.now(),
         messages: [],
-        context: { useContextDefault: true, selectedTabIds: [], contextCache: {} },
+        context: { useContextDefault: true, selectedTabIds: selIds, contextCache: {}, autoFollowActiveTab: true },
       }
       await saveSessions([initial], newId)
       setUseContextDefault(true)
-      setSelectedTabIds([])
+      setSelectedTabIds(selIds)
       setContextCache({})
+      setAutoFollowActiveTab(true)
       setSessionTitle(initial.title)
+      try {
+        if (activeId) await setTabSessionForTab(activeId, newId)
+        if (activeId && portRef.current) portRef.current.postMessage({ type: 'REGISTER_PORT', tabId: activeId })
+      } catch (_) {}
       return
     }
     const nextActive = targetId === activeSessionId ? next[0].id : activeSessionId
@@ -839,6 +895,7 @@ export default function App() {
       setUseContextDefault(!!s.context?.useContextDefault)
       setSelectedTabIds(s.context?.selectedTabIds || [])
       setContextCache(s.context?.contextCache || {})
+      setAutoFollowActiveTab(s.context?.autoFollowActiveTab ?? true)
       setSessionTitle(s.title)
     }
     try {
@@ -854,6 +911,7 @@ export default function App() {
     setUseContextDefault(!!s.context?.useContextDefault)
     setSelectedTabIds(s.context?.selectedTabIds || [])
     setContextCache(s.context?.contextCache || {})
+    setAutoFollowActiveTab(s.context?.autoFollowActiveTab ?? true)
     setSessionTitle(s.title)
     await chrome.storage.local.set({ activeSessionId: id })
     try {
@@ -868,13 +926,13 @@ export default function App() {
     const next = [...sessions]
     next[idx] = {
       ...next[idx],
-      context: { useContextDefault, selectedTabIds, contextCache },
+      context: { useContextDefault, selectedTabIds, contextCache, autoFollowActiveTab },
       updatedAt: Date.now(),
     }
     await saveSessions(next)
-  }, [sessions, activeSessionId, useContextDefault, selectedTabIds, contextCache, saveSessions])
+  }, [sessions, activeSessionId, useContextDefault, selectedTabIds, contextCache, autoFollowActiveTab, saveSessions])
 
-  useEffect(() => { persistContext() }, [useContextDefault, selectedTabIds, contextCache])
+  useEffect(() => { persistContext() }, [useContextDefault, selectedTabIds, contextCache, autoFollowActiveTab])
 
   return (
     <div className="h-screen ds-bg ds-text grid" style={{ gridTemplateColumns: sidebarOpen ? '220px 1fr' : '1fr' }}>
@@ -918,6 +976,7 @@ export default function App() {
             </div>
             <div className="mt-2 flex items-center gap-2 text-xs">
               <label className="flex items-center gap-2"><input type="checkbox" checked={useContextDefault} onChange={e => setUseContextDefault(e.target.checked)} /> Use context by default</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={autoFollowActiveTab} onChange={e => setAutoFollowActiveTab(e.target.checked)} /> Follow active tab</label>
             </div>
           </div>
         </aside>
@@ -1000,26 +1059,35 @@ export default function App() {
         </ScrollArea.Root>
 
         <footer className="p-3 sticky bottom-0 z-20 bg-transparent border-transparent composer">
-          {/* Current selection preview */}
-          {selectionText && selectionText.trim().length > 0 ? (
-            <div className="mb-2 p-2 rounded-lg border ds-border bg-card/70 backdrop-blur-sm text-xs">
-              <div className="flex items-center justify-between mb-1">
-                <span className="font-medium text-[11px] opacity-80">Selection</span>
-                <div className="flex items-center gap-1 opacity-70">
-                  <span title={`${selectionText.length} chars`} className="text-[10px]">{selectionText.length}</span>
-                  <Button variant="ghost" size="icon" aria-label="Clear selection preview" onClick={() => setSelectionText('')}>
-                    <XIcon size={12} />
-                  </Button>
-                </div>
-              </div>
-              <div className="max-h-28 overflow-y-auto whitespace-pre-wrap leading-5">
-                {selectionText}
-              </div>
-            </div>
-          ) : null}
-
-          {/* Open tabs chips row */}
+          {/* Chips row: selection chip + selected tabs */}
           <div className="mb-2 flex items-center gap-2 overflow-x-auto no-scrollbar">
+            {selectionText && selectionText.trim().length > 0 ? (
+              <Popover.Root>
+                <Popover.Trigger asChild>
+                  <button type="button" className="tab-chip" title="View selection">
+                    <span className="h-4 w-4 rounded bg-muted inline-flex items-center justify-center text-[10px] font-medium">AI</span>
+                    <span>Selected Text</span>
+                    <span className="chip-x" role="button" aria-label="Clear selection preview" onClick={(e) => { e.stopPropagation(); setSelectionText('') }}>
+                      <XIcon size={12} />
+                    </span>
+                  </button>
+                </Popover.Trigger>
+                <Popover.Content side="top" align="start" className="rounded-xl border ds-border bg-card/80 backdrop-blur-sm shadow-lg p-2 w-[86vw] sm:w-[460px] max-h-[60vh]">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-medium text-[11px] opacity-80">Selection</span>
+                    <div className="flex items-center gap-1 opacity-70">
+                      <span title={`${selectionText.length} chars`} className="text-[10px]">{selectionText.length}</span>
+                      <Button variant="ghost" size="icon" aria-label="Clear selection preview" onClick={() => setSelectionText('')}>
+                        <XIcon size={12} />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto whitespace-pre-wrap leading-5 text-sm">
+                    {selectionText}
+                  </div>
+                </Popover.Content>
+              </Popover.Root>
+            ) : null}
             {tabs.map(t => {
               const selected = selectedTabIds.includes(t.id)
               if (!selected) return null
@@ -1102,7 +1170,7 @@ export default function App() {
           <div className="flex items-stretch gap-2">
             <Textarea
               className="w-full flex-1 resize-none min-h-[72px] rounded-2xl text-base leading-6 shadow-lg bg-card/80 border-border/60 backdrop-blur-sm"
-              placeholder={(busy || !!streamingReqId) ? 'Working…' : 'Ask anything…'}
+              placeholder={(busy || !!streamingReqId) ? 'Working…' : 'Ask a question about this page…'}
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={onKeyDown}
