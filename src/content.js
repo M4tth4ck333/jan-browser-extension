@@ -247,6 +247,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             for (const h3 of h3s) {
               let a = h3.closest('a[href]') || h3.parentElement?.querySelector('a[href]');
               if (a && a.href && /^https?:/i.test(a.href)) good++;
+            }
+            return good;
+          };
       const collect = () => {
         const out = [];
         const seen = new Set();
@@ -360,8 +363,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } catch (e) {
       sendResponse({ ok: false, error: String(e?.message || e) });
     }
-    return true;
-  }
+  })();
+  return true;
+}
 });
 
 // --- Inline Assistant Tooltip (MVP) ---

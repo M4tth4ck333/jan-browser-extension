@@ -179,14 +179,15 @@
 
 /* Glowing status dot (used for bridge indicator) */
 .status-dot {
-  width: 10px;
-  height: 10px;
+  display: inline-block;
+  width: 12px;
+  height: 12px;
   border-radius: 9999px;
   background: var(--c, var(--status-connected));
   box-shadow:
     0 0 0 2px var(--card),
-    0 0 6px var(--c, var(--status-connected)),
-    0 0 12px var(--c, var(--status-connected));
+    0 0 8px var(--c, var(--status-connected)),
+    0 0 16px var(--c, var(--status-connected));
 }
 .status-yellow { --c: var(--status-connected); }
 .status-green { --c: var(--status-disconnected); }

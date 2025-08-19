@@ -179,6 +179,7 @@ export default function App() {
   const [contextCache, setContextCache] = useState({}) // { [tabId]: pageData }
   const [tabSessionMap, setTabSessionMap] = useState({}) // { [tabId]: sessionId }
   const [selectionText, setSelectionText] = useState('')
+  const [bridgeStatus, setBridgeStatus] = useState({ connected: false, usingToken: false, url: '' })
 
   // Sessions (history)
   const [sessions, setSessions] = useState([])
@@ -239,9 +240,29 @@ export default function App() {
     scrollToBottom()
   }, [messages])
 
+  // Poll MCP Bridge status
+  useEffect(() => {
+    let stopped = false
+    const get = async () => {
+      try {
+        const res = await chrome.runtime.sendMessage({ type: 'GET_BRIDGE_STATUS' })
+        if (res?.ok && !stopped) {
+          setBridgeStatus({ connected: !!res.connected, usingToken: !!res.usingToken, url: res.url || '' })
+        }
+      } catch (_) {}
+    }
+    get()
+    const id = setInterval(get, 2000)
+    return () => { stopped = true; clearInterval(id) }
+  }, [])
+
   
 
   const delay = (ms) => new Promise(res => setTimeout(res, ms))
+
+  const reconnectBridge = useCallback(async () => {
+    try { await chrome.runtime.sendMessage({ type: 'RECONNECT_BRIDGE' }) } catch (_) {}
+  }, [])
 
   // Per-tab session mapping helpers
   const loadTabSessionMap = useCallback(async () => {
@@ -1029,6 +1050,22 @@ export default function App() {
             >
               <SettingsIcon size={16} />
             </Button>
+            <Tooltip.Root>
+              <Tooltip.Trigger asChild>
+                <button
+                  type="button"
+                  className="p-1"
+                  aria-label={`MCP Bridge: ${bridgeStatus.connected ? 'Connected' : 'Disconnected'}`}
+                  title="MCP Bridge Status"
+                  onClick={() => { if (!bridgeStatus.connected) reconnectBridge() }}
+                >
+                  <span className={`status-dot ${bridgeStatus.connected ? 'status-yellow' : 'status-green'}`} />
+                </button>
+              </Tooltip.Trigger>
+              <Tooltip.Content side="bottom" align="end" className="text-xs ds-card ds-text border ds-border rounded px-2 py-1">
+                {bridgeStatus.connected ? 'Bridge Connected' : 'Bridge Disconnected'}{bridgeStatus.usingToken ? ' · Token' : ''}
+              </Tooltip.Content>
+            </Tooltip.Root>
           </div>
 
         </header>
