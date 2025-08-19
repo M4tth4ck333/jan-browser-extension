@@ -967,6 +967,9 @@ export default function App() {
 
   useEffect(() => { persistContext() }, [useContextDefault, selectedTabIds, contextCache, autoFollowActiveTab])
 
+  // Whether the current session has any user messages (used for layout tweaks)
+  const hasUserMessage = messages.some(m => m.role === 'user')
+
   return (
     <div className="h-screen ds-bg ds-text grid" style={{ gridTemplateColumns: sidebarOpen ? '220px 1fr' : '1fr' }}>
       {/* Sidebar */}
@@ -1071,14 +1074,13 @@ export default function App() {
         </header>
 
         <ScrollArea.Root className="flex-1">
-          <ScrollArea.Viewport ref={listRef} className="h-full w-full p-3 pb-28 min-w-0">
+          <ScrollArea.Viewport ref={listRef} className={`h-full w-full p-3 ${hasUserMessage ? 'pb-28' : 'pb-3'} min-w-0`}>
             {(() => {
               const visible = messages
                 .filter(m => m.role !== 'system' && !(m.role === 'assistant' && typeof m.content === 'string' && m.content.startsWith('New chat created')))
-              const hasUserMessage = messages.some(m => m.role === 'user')
               if (!hasUserMessage) {
                 return (
-                  <div className="h-full w-full flex items-center justify-center">
+                  <div className="w-full h-full grid place-items-center translate-y-2">
                     <div className="text-center">
                       <div className="font-arapey text-5xl md:text-6xl leading-tight">Hi, how are you?</div>
                       <div className="mt-3 ds-muted-text text-lg">How can I help you today?</div>

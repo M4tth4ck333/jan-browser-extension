@@ -238,138 +238,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Handle Google SERP readiness check for search flow
   if (message?.type === 'WAIT_FOR_SERP_READY') {
     (async () => {
-        try {
-          const timeoutMs = Math.max(1000, Number(message?.payload?.timeoutMs || 15000));
-          const minResults = Math.max(1, Number(message?.payload?.minResults || 4));
-          const start = Date.now();
-          const poll = () => {
-            const root = document.querySelector('#search') || document.querySelector('[role="main"]') || document.body;
-            const h3s = Array.from(root.querySelectorAll('h3')).filter(h => (h.textContent || '').trim().length > 0);
-            let good = 0;
-            for (const h3 of h3s) {
-              let a = h3.closest('a[href]') || h3.parentElement?.querySelector('a[href]');
-              if (a && a.href && /^https?:/i.test(a.href)) good++;
-            }
-            return good;
-          };
-      const collect = () => {
-        const out = [];
-        const seen = new Set();
-        const root = document.querySelector('#search') || document.querySelector('[role="main"]') || document.body;
-        // Grab all visible h3s under the root, not just those directly under anchors
-        const h3s = Array.from(root.querySelectorAll('h3')).filter(h => (h.textContent || '').trim().length > 0);
-        for (const h3 of h3s) {
-          // Find the primary link for this result
-          let a = h3.closest('a[href]');
-          if (!a) {
-            const p = h3.parentElement;
-            if (p && p.querySelector('a[href]') && p.querySelector('a[href]')?.contains(h3)) {
-              a = p.querySelector('a[href]');
-            }
+      try {
+        const timeoutMs = Math.max(1000, Number(message?.payload?.timeoutMs || 15000));
+        const minResults = Math.max(1, Number(message?.payload?.minResults || 4));
+        const start = Date.now();
+        const poll = () => {
+          const root = document.querySelector('#search') || document.querySelector('[role="main"]') || document.body;
+          const h3s = Array.from(root.querySelectorAll('h3')).filter(h => (h.textContent || '').trim().length > 0);
+          let good = 0;
+          for (const h3 of h3s) {
+            let a = h3.closest('a[href]') || h3.parentElement?.querySelector('a[href]');
+            if (a && a.href && /^https?:/i.test(a.href)) good++;
           }
-          if (!a) continue;
-
-          const href = a.href;
-          if (!href || seen.has(href)) continue;
-
-          // Identify the result container (Google changes these often)
-          const container = h3.closest('div.g, div.MjjYud, div[data-sokoban-container], div.yuRUbf, div[jscontroller]')
-            || a.closest('div.g, div.MjjYud, div[data-sokoban-container], div[jscontroller]')
-            || h3.parentElement?.parentElement
-            || null;
-
-          // Known snippet classnames (rotate through fallbacks)
-          const snippetEl = container?.querySelector('.VwiC3b, .yXK7lf, .MUxGbd, .UroMUd, .lyLwlc, .kno-rdesc, [data-content-feature="1"]');
-          const title = (h3.textContent || '').trim();
-          const snippet = (snippetEl?.innerText || '').trim();
-          const snippetHtml = (snippetEl?.innerHTML || '').trim();
-          const html = container ? container.outerHTML : '';
-
-          out.push({ title, url: href, snippet, snippetHtml, html });
-          seen.add(href);
-          if (out.length >= 8) break; // collect a few extra; we'll slice later
+          return good;
+        };
+        let good = poll();
+        while (good < minResults && (Date.now() - start) < timeoutMs) {
+          await new Promise(r => setTimeout(r, 250));
+          good = poll();
         }
-        return out;
-      };
-
-      let results = collect();
-      if (!results.length) {
-        // If hydration is slow and nothing found, wait briefly and try again
-        setTimeout(() => {
-          try {
-            let results2 = collect().slice(0, 5);
-            const debug = !!(message?.payload?.debug ?? message?.debug);
-            const answerBoxCandidates = [
-              '#kp-wp-tab-overview',
-              'div[data-attrid="wa:/description"]',
-              'div[data-attrid^="kc:/"]',
-              'div[data-tts]',
-              '#search .kp-blk',
-              '#search [role="complementary"]'
-            ];
-            let answerBox2 = '';
-            let answerBoxHtml2 = '';
-            for (const sel of answerBoxCandidates) {
-              const el = document.querySelector(sel);
-              if (el && (el.innerText || '').trim()) {
-                answerBox2 = el.innerText.trim();
-                try { answerBoxHtml2 = el.outerHTML; } catch (_) { answerBoxHtml2 = ''; }
-                break;
-              }
-            }
-            if (debug) {
-              const pageHtml = String(document.documentElement?.outerHTML || '').slice(0, 120000);
-              const allLinks = Array.from(document.querySelectorAll('a[href]')).slice(0, 500).map(a => ({ href: a.href, text: (a.textContent || '').trim().slice(0, 200) }));
-              const fallbackOrganic = Array.from(document.querySelectorAll('#search a[href] h3')).map(h3 => { const a = h3.closest('a[href]'); return a ? { title: (h3.textContent || '').trim(), url: a.href } : null; }).filter(Boolean).slice(0, 10);
-              const q = new URLSearchParams(location.search).get('q') || '';
-              sendResponse({ ok: true, query: q, pageTitle: document.title || '', answerBox: answerBox2, answerBoxHtml: answerBoxHtml2, results: results2, debug: { pageHtml, allLinks, fallbackOrganic } });
-            } else {
-              const q = new URLSearchParams(location.search).get('q') || '';
-              sendResponse({ ok: true, query: q, pageTitle: document.title || '', answerBox: answerBox2, answerBoxHtml: answerBoxHtml2, results: results2 });
-            }
-          } catch (err) {
-            sendResponse({ ok: false, error: String(err?.message || err) });
-          }
-        }, 600);
-        return true;
+        const elapsedMs = Date.now() - start;
+        const ready = good >= minResults;
+        const reason = ready ? 'enough_results' : 'timeout';
+        sendResponse({ ok: true, ready, counts: { good, minResults, elapsedMs }, reason });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
       }
-
-      // Trim to top 5 results
-      results = results.slice(0, 5);
-
-      // Attempt to capture the answer box / knowledge panel
-      const answerBoxCandidates = [
-        '#kp-wp-tab-overview',
-        'div[data-attrid="wa:/description"]',
-        'div[data-attrid^="kc:/"]',
-        'div[data-tts]',
-        '#search .kp-blk',
-        '#search [role="complementary"]'
-      ];
-      let answerBox = '';
-      let answerBoxHtml = '';
-      for (const sel of answerBoxCandidates) {
-        const el = document.querySelector(sel);
-        if (el && (el.innerText || '').trim()) {
-          answerBox = el.innerText.trim();
-          try { answerBoxHtml = el.outerHTML; } catch (_) { answerBoxHtml = ''; }
-          break;
-        }
-      }
-
-      const debug = !!(message?.payload?.debug ?? message?.debug);
-      const q = new URLSearchParams(location.search).get('q') || '';
-      if (debug) {
-        const pageHtml = String(document.documentElement?.outerHTML || '').slice(0, 120000);
-        const allLinks = Array.from(document.querySelectorAll('a[href]')).slice(0, 500).map(a => ({ href: a.href, text: (a.textContent || '').trim().slice(0, 200) }));
-        const fallbackOrganic = Array.from(document.querySelectorAll('#search a[href] h3')).map(h3 => { const a = h3.closest('a[href]'); return a ? { title: (h3.textContent || '').trim(), url: a.href } : null; }).filter(Boolean).slice(0, 10);
-        sendResponse({ ok: true, query: q, pageTitle: document.title || '', answerBox, answerBoxHtml, results, debug: { pageHtml, allLinks, fallbackOrganic } });
-      } else {
-        sendResponse({ ok: true, query: q, pageTitle: document.title || '', answerBox, answerBoxHtml, results });
-      }
-    } catch (e) {
-      sendResponse({ ok: false, error: String(e?.message || e) });
-    }
     })();
     return true;
   }
