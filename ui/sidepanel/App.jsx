@@ -9,7 +9,7 @@ import { Button } from '../components/ui/button.jsx'
 import { Textarea } from '../components/ui/textarea.jsx'
 import * as ScrollArea from '@radix-ui/react-scroll-area'
 import * as Popover from '@radix-ui/react-popover'
-import { User as UserIcon, Send, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Search as SearchIcon, Settings as SettingsIcon, Trash2 as TrashIcon } from 'lucide-react'
+import { User as UserIcon, Send, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Search as SearchIcon, Settings as SettingsIcon, Trash2 as TrashIcon, Plug as PlugIcon } from 'lucide-react'
 import { Input } from '../components/ui/input.jsx'
 
 function Message({ role, content, ts, isFirst, isLast, onCopy }) {
@@ -27,6 +27,15 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
       code: [...(defaultSchema.attributes?.code || []), ['className']],
       pre: [...(defaultSchema.attributes?.pre || []), ['className']],
       span: [...(defaultSchema.attributes?.span || []), ['className']],
+      div: [...(defaultSchema.attributes?.div || []), ['className']],
+      table: [...(defaultSchema.attributes?.table || []), ['className']],
+      thead: [...(defaultSchema.attributes?.thead || []), ['className']],
+      tbody: [...(defaultSchema.attributes?.tbody || []), ['className']],
+      tr: [...(defaultSchema.attributes?.tr || []), ['className']],
+      th: [...(defaultSchema.attributes?.th || []), ['className']],
+      td: [...(defaultSchema.attributes?.td || []), ['className']],
+      hr: [...(defaultSchema.attributes?.hr || []), ['className']],
+      blockquote: [...(defaultSchema.attributes?.blockquote || []), ['className']],
       a: [ ...(defaultSchema.attributes?.a || []), ['target'], ['rel'] ],
     },
   }), [])
@@ -36,6 +45,36 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
       const d = new Date(t)
       return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     } catch { return '' }
+  }
+
+  // Local renderer for Markdown code elements with copy feedback
+  function CodeBlock({ inline, className, children, ...props }) {
+    const [copied, setCopied] = useState(false)
+    const text = String(children || '')
+    if (inline) return <code className="px-1 py-0.5 rounded ds-muted-bg">{text}</code>
+    const langMatch = /language-([\w-]+)/.exec(className || '')
+    const lang = (langMatch && langMatch[1]) ? langMatch[1] : ''
+    const copyCode = async () => {
+      try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1200) } catch (_) {}
+    }
+    return (
+      <div className="relative my-2">
+        {lang ? (
+          <div className="absolute top-1 left-2 text-[10px] uppercase tracking-wide ds-muted-text bg-card/70 px-1.5 py-0.5 rounded border ds-border">
+            {lang}
+          </div>
+        ) : null}
+        <Tooltip.Root>
+          <Tooltip.Trigger asChild>
+            <Button variant="ghost" size="icon" className="code-copy-btn absolute top-1 right-1" onClick={copyCode} aria-label="Copy code">
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 7a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2V7zm-4 4V6a2 2 0 0 1 2-2h7v2H7v5H5zm4 5h7V7h-7v9z"/></svg>
+            </Button>
+          </Tooltip.Trigger>
+          <Tooltip.Content sideOffset={6} className="text-xs ds-card ds-text border ds-border rounded px-2 py-1">{copied ? 'Copied!' : 'Copy code'}</Tooltip.Content>
+        </Tooltip.Root>
+        <pre className="overflow-auto bg-card border ds-border p-2 pt-6 rounded"><code className={className} {...props}>{text}</code></pre>
+      </div>
+    )
   }
 
   return (
@@ -54,24 +93,48 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
                   remarkPlugins={[remarkGfm]}
                   rehypePlugins={[[rehypeSanitize, sanitizeSchema], rehypeHighlight]}
                   components={{
-                    code({ node, inline, className, children, ...props }) {
-                      const text = String(children || '')
-                      if (inline) return <code className="px-1 py-0.5 rounded ds-muted-bg">{text}</code>
-                      const copyCode = async () => { try { await navigator.clipboard.writeText(text) } catch (_) {} }
+                    code: (props) => <CodeBlock {...props} />,
+                    blockquote({ children, ...props }) {
+                      const fullText = React.Children.toArray(children).map(c => {
+                        if (typeof c === 'string') return c
+                        if (c && typeof c === 'object' && 'props' in c && c.props?.children) {
+                          return Array.isArray(c.props.children)
+                            ? c.props.children.join(' ')
+                            : String(c.props.children)
+                        }
+                        return ''
+                      }).join(' ').trim()
+                      let kind = ''
+                      if (/^(note|info)\s*:/i.test(fullText)) kind = 'note'
+                      else if (/^(tip|pro tip)\s*:/i.test(fullText)) kind = 'tip'
+                      else if (/^(warn|warning|caution)\s*:/i.test(fullText)) kind = 'warn'
+                      if (kind) {
+                        return (
+                          <div className={`callout callout-${kind}`} {...props}>
+                            <div className="callout-body">{children}</div>
+                          </div>
+                        )
+                      }
+                      return <blockquote {...props}>{children}</blockquote>
+                    },
+                    hr() { return <hr className="my-4" /> },
+                    a({ href, children, ...props }) {
+                      const url = String(href || '')
                       return (
-                        <div className="relative my-2">
-                          <Tooltip.Root>
-                            <Tooltip.Trigger asChild>
-                              <Button variant="ghost" size="icon" className="absolute top-1 right-1" onClick={copyCode} aria-label="Copy code">
-                                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 7a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2V7zm-4 4V6a2 2 0 0 1 2-2h7v2H7v5H5zm4 5h7V7h-7v9z"/></svg>
-                              </Button>
-                            </Tooltip.Trigger>
-                            <Tooltip.Content sideOffset={6} className="text-xs ds-card ds-text border ds-border rounded px-2 py-1">Copy code</Tooltip.Content>
-                          </Tooltip.Root>
-                          <pre className="overflow-auto bg-card border ds-border p-2 rounded"><code className={className} {...props}>{text}</code></pre>
+                        <a href={url} target="_blank" rel="noopener noreferrer" {...props}>
+                          {children}
+                        </a>
+                      )
+                    },
+                    table({ children }) {
+                      return (
+                        <div className="my-2 overflow-x-auto">
+                          <table className="w-full">
+                            {children}
+                          </table>
                         </div>
                       )
-                    }
+                    },
                   }}
                 >
                   {content || ''}
@@ -116,6 +179,11 @@ export default function App() {
   const [contextCache, setContextCache] = useState({}) // { [tabId]: pageData }
   const [tabSessionMap, setTabSessionMap] = useState({}) // { [tabId]: sessionId }
   const [selectionText, setSelectionText] = useState('')
+  // Bridge MCP status
+  const [bridgeConnected, setBridgeConnected] = useState(false)
+  const [bridgeUsingToken, setBridgeUsingToken] = useState(false)
+  const [bridgeUrl, setBridgeUrl] = useState('')
+  const [bridgeChecking, setBridgeChecking] = useState(false)
 
   // Sessions (history)
   const [sessions, setSessions] = useState([])
@@ -179,6 +247,38 @@ export default function App() {
   
 
   const delay = (ms) => new Promise(res => setTimeout(res, ms))
+
+  // Bridge helpers
+  const fetchBridgeStatus = useCallback(async () => {
+    try {
+      setBridgeChecking(true)
+      const resp = await chrome.runtime.sendMessage({ type: 'GET_BRIDGE_STATUS' })
+      if (resp?.ok) {
+        setBridgeConnected(!!resp.connected)
+        setBridgeUsingToken(!!resp.usingToken)
+        setBridgeUrl(String(resp.url || ''))
+      }
+    } catch (_) {
+      setBridgeConnected(false)
+      setBridgeUsingToken(false)
+      setBridgeUrl('')
+    } finally {
+      setBridgeChecking(false)
+    }
+  }, [])
+
+  const reconnectBridge = useCallback(async () => {
+    try {
+      setBridgeChecking(true)
+      await chrome.runtime.sendMessage({ type: 'RECONNECT_BRIDGE' })
+      await delay(200)
+      await fetchBridgeStatus()
+    } catch (_) {
+      // noop
+    } finally {
+      setBridgeChecking(false)
+    }
+  }, [fetchBridgeStatus])
 
   // Per-tab session mapping helpers
   const loadTabSessionMap = useCallback(async () => {
@@ -329,7 +429,7 @@ export default function App() {
       setUseContextDefault(!!s.context?.useContextDefault)
       setSelectedTabIds(s.context?.selectedTabIds || [])
       setContextCache(s.context?.contextCache || {})
-      setAutoFollowActiveTab(s.context?.autoFollowActiveTab ?? true)
+      setAutoFollowActiveTab(true)
       setSessionTitle(s.title)
     }
   }, [])
@@ -445,18 +545,21 @@ export default function App() {
     // Do not auto-scrape on mount to avoid errors on restricted pages
     refreshTabs()
     loadSessions()
+    // Initial bridge status + light polling
+    fetchBridgeStatus()
+    const id = setInterval(fetchBridgeStatus, 8000)
+    return () => { try { clearInterval(id) } catch (_) {} }
   }, [refreshTabs, loadSessions])
 
   // When auto-follow is ON, always sync to the current active tab (override any stale selection)
   useEffect(() => {
     (async () => {
       try {
-        if (!autoFollowActiveTab) return
         const t = await getActiveTab()
         if (t?.id && isSupportedUrl(t.url)) setSelectedTabIds([t.id])
       } catch (_) {}
     })()
-  }, [autoFollowActiveTab])
+  }, [])
 
   // Load per-tab session map on mount
   useEffect(() => { loadTabSessionMap() }, [loadTabSessionMap])
@@ -489,25 +592,20 @@ export default function App() {
         // Switch to the session mapped to this tab, if any
         const map = await loadTabSessionMap()
         const sid = map[t.id]
-        // Decide desired auto-follow based on the TARGET session (if switching),
-        // not the current session's stale state.
-        let wantAutoFollow = autoFollowActiveTab
+        // Always follow active tab and switch to mapped session if present
         if (sid && sid !== activeSessionIdRef.current) {
           const targetSession = sessionsRef.current.find(s => s.id === sid)
           if (targetSession) {
-            wantAutoFollow = targetSession?.context?.autoFollowActiveTab ?? true
             await switchSession(sid)
           }
         }
         // If user hasn't manually chosen tabs (i.e., wantAutoFollow), auto-follow the active tab
-        if (wantAutoFollow) {
-          setSelectedTabIds([t.id])
-        }
+        setSelectedTabIds([t.id])
       } catch (_) {}
     }
     try { chrome.tabs.onActivated.addListener(onActivated) } catch (_) {}
     return () => { try { chrome.tabs.onActivated.removeListener(onActivated) } catch (_) {} }
-  }, [refreshTabs, loadTabSessionMap, autoFollowActiveTab])
+  }, [refreshTabs, loadTabSessionMap])
 
   const summarize = useCallback(async (useSelection) => {
     const pd = pageData || (await readPage())
@@ -548,22 +646,40 @@ export default function App() {
     if (!contexts || contexts.length === 0) return []
     const safe = Array.isArray(contexts) ? contexts : []
     const count = safe.length
+    const MAX_PER_TAB = 1500 // characters per tab snippet
+
     const parts = safe.map((c, i) => {
       const idx = i + 1
-      const head = [c.title ? `Title: ${c.title}` : null, c.url ? `URL: ${c.url}` : null].filter(Boolean).join(' | ')
-      const meta = c.metaDescription ? `Meta: ${c.metaDescription}` : ''
-      const snippet = (c.selection?.trim() || c.content?.trim() || '').slice(0, 2000)
-      const label = count === 1 ? 'Page' : `Tab ${idx}`
-      return `[${label}] ${head}\n${[meta, snippet].filter(Boolean).join('\n')}`
+      const tabId = c?.tabId != null ? String(c.tabId) : String(idx)
+      const title = (c?.title || '').trim()
+      const url = (c?.url || '').trim()
+      const meta = (c?.metaDescription || '').trim()
+      const raw = (c?.selection?.trim() || c?.content?.trim() || '')
+      const snippet = String(raw).slice(0, MAX_PER_TAB)
+      const headerLines = [
+        `[Source: Tab ${tabId}]${title ? ` ${title}` : ''}`.trim(),
+        url ? `URL: ${url}` : null,
+        meta ? `Meta: ${meta}` : null,
+      ].filter(Boolean)
+      return [
+        headerLines.join('\n'),
+        'Content:',
+        snippet,
+      ].join('\n')
     }).join('\n\n----\n\n')
+
     const guard = [
       count === 1
-        ? 'You are given exactly one page context. Do not mention or imply multiple tabs/windows.'
+        ? 'You are given exactly one tab context. Do not mention or imply multiple tabs/windows.'
         : `You are given ${count} tab contexts. Do not assume any others beyond the ones listed.`,
-      'Only use information from the context listed below.'
+      'Only use information from the context listed below. If an answer depends on information not present here, say so briefly.',
     ].join('\n')
+
+    // Important: many providers downweight/ignore long content in system role.
+    // Keep the short guard as system, and place the actual tab content in a user message.
     return [
-      { role: 'system', content: `${guard}\n\n${parts}` }
+      { role: 'system', content: guard },
+      { role: 'user', content: `Context from your browser tabs:\n\n${parts}` }
     ]
   }
 
@@ -583,7 +699,8 @@ export default function App() {
     })
     if (!lines.length) return []
     const header = data.query ? `Fresh Google results for: "${data.query}"` : 'Fresh Google results'
-    return [{ role: 'system', content: `${header}\n\n${lines.join('\n\n')}` }]
+    // Provide SERP data as user message so models reliably see and use it
+    return [{ role: 'user', content: `${header}\n\n${lines.join('\n\n')}` }]
   }
 
   const scrapeSelectedTabs = useCallback(async (tabIds) => {
@@ -630,13 +747,13 @@ export default function App() {
     await saveSessions(nextSessions)
     try {
       // Determine contexts
+      // Include context if either default or this-message toggle is on
       const wantContext = useContextThisMsg || useContextDefault
       let contexts = []
       let cache = { ...contextCache }
       const activeTab = await getActiveTab()
-      const tabsToUse = autoFollowActiveTab
-        ? [activeTab?.id].filter(Boolean)
-        : ((selectedTabIds && selectedTabIds.length) ? selectedTabIds : [activeTab?.id].filter(Boolean))
+      // If chips are selected, honor them; otherwise fall back to the active tab
+      const tabsToUse = (selectedTabIds && selectedTabIds.length ? selectedTabIds : [activeTab?.id]).filter(Boolean)
       if (tabsToUse.length) {
         // Always re-scrape targeted tabs to keep content fresh in cache
         const scraped = await scrapeSelectedTabs(tabsToUse)
@@ -645,7 +762,7 @@ export default function App() {
         // Persist the refreshed context into the active session
         const idxCtx = nextSessions.findIndex(s => s.id === activeSessionId)
         if (idxCtx >= 0) {
-          const updated = { ...nextSessions[idxCtx], context: { useContextDefault, selectedTabIds: tabsToUse, contextCache: cache, autoFollowActiveTab } }
+          const updated = { ...nextSessions[idxCtx], context: { useContextDefault, selectedTabIds: tabsToUse, contextCache: cache, autoFollowActiveTab: true } }
           nextSessions[idxCtx] = updated
           await saveSessions(nextSessions)
         }
@@ -675,9 +792,11 @@ export default function App() {
         await saveSessions(next)
       }
     } finally {
+      // Reset per-message toggle to default ON so users don't get stuck
+      setUseContextThisMsg(true)
       setBusy(false)
     }
-  }, [input, sessions, activeSessionId, useContextThisMsg, useContextDefault, contextCache, selectedTabIds, saveSessions, scrapeSelectedTabs, autoFollowActiveTab])
+  }, [input, sessions, activeSessionId, useContextThisMsg, useContextDefault, contextCache, selectedTabIds, saveSessions, scrapeSelectedTabs])
 
   const askWithGoogle = useCallback(async () => {
     const text = input.trim()
@@ -703,13 +822,13 @@ export default function App() {
       } catch (_) { serp = null }
       const googleMsgs = buildGoogleMessages(serp)
       // Determine contexts (tabs)
+      // Include context if either default or this-message toggle is on
       const wantContext = useContextThisMsg || useContextDefault
       let contexts = []
       let cache = { ...contextCache }
       const activeTab = await getActiveTab()
-      const tabsToUse = autoFollowActiveTab
-        ? [activeTab?.id].filter(Boolean)
-        : ((selectedTabIds && selectedTabIds.length) ? selectedTabIds : [activeTab?.id].filter(Boolean))
+      // If chips are selected, honor them; otherwise fall back to the active tab
+      const tabsToUse = (selectedTabIds && selectedTabIds.length ? selectedTabIds : [activeTab?.id]).filter(Boolean)
       if (tabsToUse.length) {
         // Always re-scrape targeted tabs to keep content fresh in cache
         const scraped = await scrapeSelectedTabs(tabsToUse)
@@ -718,7 +837,7 @@ export default function App() {
         // Persist refreshed context into the active session
         const idxCtx = nextSessions.findIndex(s => s.id === activeSessionId)
         if (idxCtx >= 0) {
-          const updated = { ...nextSessions[idxCtx], context: { useContextDefault, selectedTabIds: tabsToUse, contextCache: cache, autoFollowActiveTab } }
+          const updated = { ...nextSessions[idxCtx], context: { useContextDefault, selectedTabIds: tabsToUse, contextCache: cache, autoFollowActiveTab: true } }
           nextSessions[idxCtx] = updated
           await saveSessions(nextSessions)
         }
@@ -750,9 +869,11 @@ export default function App() {
         await saveSessions(next)
       }
     } finally {
+      // Reset one-shot context toggle after sending
+      setUseContextThisMsg(true)
       setBusy(false)
     }
-  }, [input, sessions, activeSessionId, sessionTitle, useContextThisMsg, useContextDefault, contextCache, pageData, selectedTabIds, saveSessions, scrapeSelectedTabs, autoFollowActiveTab, buildGoogleMessages])
+  }, [input, sessions, activeSessionId, sessionTitle, useContextThisMsg, useContextDefault, contextCache, pageData, selectedTabIds, saveSessions, scrapeSelectedTabs])
 
   const onKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -762,8 +883,6 @@ export default function App() {
   }
 
   const toggleTab = (id) => {
-    // Any manual toggle disables auto-follow
-    setAutoFollowActiveTab(false)
     setSelectedTabIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
   }
 
@@ -788,7 +907,6 @@ export default function App() {
     await saveSessions(next, newId)
     // Update local state so the UI immediately reflects the latest active tab
     setSelectedTabIds(selIds)
-    setAutoFollowActiveTab(true)
     // Map the active tab to this new session for quick switching
     try {
       if (activeId) await setTabSessionForTab(activeId, newId)
@@ -823,7 +941,6 @@ export default function App() {
       setUseContextDefault(true)
       setSelectedTabIds(selIds)
       setContextCache({})
-      setAutoFollowActiveTab(true)
       setSessionTitle(initial.title)
       try {
         if (activeId) await setTabSessionForTab(activeId, newId)
@@ -839,7 +956,6 @@ export default function App() {
       setUseContextDefault(!!s.context?.useContextDefault)
       setSelectedTabIds(s.context?.selectedTabIds || [])
       setContextCache(s.context?.contextCache || {})
-      setAutoFollowActiveTab(s.context?.autoFollowActiveTab ?? true)
       setSessionTitle(s.title)
     }
     try {
@@ -855,7 +971,6 @@ export default function App() {
     setUseContextDefault(!!s.context?.useContextDefault)
     setSelectedTabIds(s.context?.selectedTabIds || [])
     setContextCache(s.context?.contextCache || {})
-    setAutoFollowActiveTab(s.context?.autoFollowActiveTab ?? true)
     setSessionTitle(s.title)
     await chrome.storage.local.set({ activeSessionId: id })
     try {
@@ -920,7 +1035,7 @@ export default function App() {
             </div>
             <div className="mt-2 flex items-center gap-2 text-xs">
               <label className="flex items-center gap-2"><input type="checkbox" checked={useContextDefault} onChange={e => setUseContextDefault(e.target.checked)} /> Use context by default</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={autoFollowActiveTab} onChange={e => setAutoFollowActiveTab(e.target.checked)} /> Follow active tab</label>
+              <span className="ds-muted-text" title="Auto-follow is always on for fresh context">Following active tab</span>
             </div>
           </div>
         </aside>
@@ -961,32 +1076,58 @@ export default function App() {
             >
               <SettingsIcon size={16} />
             </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`${bridgeConnected ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'}`}
+              onClick={(e) => { if (e.altKey || e.metaKey) reconnectBridge(); else fetchBridgeStatus() }}
+              aria-label="Bridge status"
+              title={`Bridge ${bridgeConnected ? 'Connected' : 'Disconnected'}${bridgeUrl ? ` • ${bridgeUrl}` : ''}${bridgeUsingToken ? ' (token)' : ''}. ${bridgeChecking ? 'Checking…' : 'Click to refresh; Alt/⌘-click to reconnect.'}`}
+            >
+              <PlugIcon size={16} />
+            </Button>
           </div>
+
         </header>
 
         <ScrollArea.Root className="flex-1">
           <ScrollArea.Viewport ref={listRef} className="h-full w-full p-3 pb-28 min-w-0">
-            <div className="space-y-6 md:space-y-7">
-              {messages
+            {(() => {
+              const visible = messages
                 .filter(m => m.role !== 'system' && !(m.role === 'assistant' && typeof m.content === 'string' && m.content.startsWith('New chat created')))
-                .map((m, i, arr) => {
-                  const prevRole = arr[i - 1]?.role
-                  const nextRole = arr[i + 1]?.role
-                  const isFirst = prevRole !== m.role
-                  const isLast = nextRole !== m.role
-                  return (
-                    <Message
-                      key={i}
-                      role={m.role}
-                      content={m.content}
-                      ts={m.ts}
-                      isFirst={isFirst}
-                      isLast={isLast}
-                      onCopy={copyToClipboard}
-                    />
-                  )
-                })}
-            </div>
+              const hasUserMessage = messages.some(m => m.role === 'user')
+              if (!hasUserMessage) {
+                return (
+                  <div className="h-full w-full flex items-center justify-center">
+                    <div className="text-center">
+                      <div className="font-arapey text-5xl md:text-6xl leading-tight">Hi, how are you?</div>
+                      <div className="mt-3 ds-muted-text text-lg">How can I help you today?</div>
+                    </div>
+                  </div>
+                )
+              }
+              return (
+                <div className="space-y-6 md:space-y-7">
+                  {visible.map((m, i, arr) => {
+                    const prevRole = arr[i - 1]?.role
+                    const nextRole = arr[i + 1]?.role
+                    const isFirst = prevRole !== m.role
+                    const isLast = nextRole !== m.role
+                    return (
+                      <Message
+                        key={i}
+                        role={m.role}
+                        content={m.content}
+                        ts={m.ts}
+                        isFirst={isFirst}
+                        isLast={isLast}
+                        onCopy={copyToClipboard}
+                      />
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </ScrollArea.Viewport>
           <ScrollArea.Scrollbar orientation="vertical" className="flex select-none touch-none p-0.5 bg-transparent">
             <ScrollArea.Thumb className="flex-1 rounded-full bg-muted-foreground/30" />
@@ -1111,7 +1252,16 @@ export default function App() {
               onKeyDown={onKeyDown}
               disabled={busy || !!streamingReqId}
             />
-            <div className="flex items-center">
+            <div className="flex items-center gap-1">
+              <Button
+                variant={useContextThisMsg ? 'secondary' : 'ghost'}
+                size="sm"
+                aria-pressed={useContextThisMsg}
+                onClick={() => setUseContextThisMsg(v => !v)}
+                title={useContextThisMsg ? 'Using page context for this message' : 'Not using page context for this message'}
+              >
+                Context{useContextThisMsg ? '' : ' (off)'}
+              </Button>
               <Button
                 variant="ghost"
                 size="icon"

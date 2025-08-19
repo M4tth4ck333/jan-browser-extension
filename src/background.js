@@ -555,6 +555,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const targetTabId = tabId || sender?.tab?.id || null;
         if (!targetTabId) return sendResponse({ ok: false, error: 'No target tab for streaming.' });
 
+        // Structured, compact logging of the inbound payload (no full content)
+        try {
+          const roles = { system: 0, user: 0, assistant: 0, other: 0 };
+          let systemChars = 0;
+          let contextSources = 0;
+          const arr = Array.isArray(messages) ? messages : [];
+          for (const m of arr) {
+            const r = m?.role || 'other';
+            if (Object.prototype.hasOwnProperty.call(roles, r)) roles[r]++; else roles.other++;
+            let content = m?.content;
+            if (Array.isArray(content)) {
+              content = content.map(p => (typeof p === 'string' ? p : (p?.text || p?.content || ''))).join('');
+            }
+            content = String(content ?? '');
+            if (r === 'system') {
+              systemChars += content.length;
+              // Count context blocks produced by buildContextMessages (marked with [Source: Tab ...])
+              try { contextSources += (content.match(/\[Source:\s*Tab\s+/g) || []).length; } catch (_) {}
+            }
+          }
+          console.log('[BG] STREAM_START payload summary', {
+            reqId,
+            tabId: targetTabId,
+            totalMessages: arr.length,
+            roles,
+            systemChars,
+            contextSources,
+          });
+        } catch (_) { /* ignore logging errors */ }
+
         // Acknowledge start so UI can show placeholder
         sendResponse({ ok: true, started: true });
 

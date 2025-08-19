@@ -3,9 +3,9 @@ import { cn } from '../../lib/utils'
 
 export function Button({ className, variant = 'default', size = 'default', asChild = false, ...props }) {
   const Comp = asChild ? 'span' : 'button'
-  const base = 'inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:pointer-events-none disabled:opacity-50'
+  const base = 'inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[--brand-blue] disabled:pointer-events-none disabled:opacity-50'
   const variants = {
-    default: 'bg-blue-600 text-white hover:bg-blue-700',
+    default: 'bg-[--brand-amber] text-white hover:bg-[--brand-amber-2]',
     secondary: 'bg-neutral-100 text-neutral-900 hover:bg-neutral-200',
     ghost: 'bg-transparent hover:bg-black/5',
     outline: 'border border-neutral-300 hover:bg-black/5',
@@ -20,4 +20,3 @@ export function Button({ className, variant = 'default', size = 'default', asChi
   }
   return <Comp className={cn(base, variants[variant] || variants.default, sizes[size] || sizes.default, className)} {...props} />
 }
-

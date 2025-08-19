@@ -339,8 +339,8 @@ export default function OptionsApp() {
         </div>
 
         <div className="flex items-center gap-2 pt-2">
-          <button className="btn" onClick={save}>Save</button>
-          <button className="btn" onClick={test}>Test</button>
+          <button className="btn btn-brand" onClick={save}>Save</button>
+          <button className="btn btn-brand" onClick={test}>Test</button>
           <span className="text-sm ds-muted-text">{status}</span>
         </div>
 
