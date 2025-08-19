@@ -2,11 +2,13 @@
 
 A concise roadmap to finish and polish the unified Chrome extension + MCP Search bridge workflow.
 
-## 15 August 2025 – Inline Assistant Updates
+## 18 August 2025 – Side Panel Enhancements
 
 Completed:
-- Inline prompt improvements in `src/background.js` (`buildInlineAssistMessages`): clearer constraints, formatting preservation, language rules.
-- Polished inline UI in `src/content.js`: header pill, spinner, focus states, light/dark.
+- Auto-follow fix in `ui/sidepanel/App.jsx`: on tab activation, derive `autoFollowActiveTab` from the target session to avoid stale selection state.
+- Add small Google search icon button on the input composer that triggers `performGoogleSearchAndScrape()` with the composer text (and inserts results or opens a results panel).
+- Show open tabs above the input bar as small, selectable chips. Chips reflect `selectedTabIds`, can be toggled, and remain in sync with `autoFollowActiveTab`.
+
 - Added Regenerate action and keyboard shortcuts (Enter=Apply, Esc=Close, Cmd/Ctrl+C=Copy, Cmd/Ctrl+R=Regenerate).
 - Draggable tooltip that persists during drag; menu opens relative to tooltip position.
 
@@ -22,6 +24,8 @@ Pending:
   - [ ] `_meta.urls` also present.
   - [ ] `visit_tool` works on a result URL and falls back to HTTP fetch if needed.
 - [ ] Document quick troubleshooting in README (port in use, extension not connected, etc.).
+
+- [ ] Side panel (polish): use Google “G” brand icon for the Search button and add tooltip copy.
 
 ## MCP Search Server
 

@@ -1,12 +1,11 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
 @plugin "tailwindcss-animate";
 
 /* Theme variables using system preference */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -51,16 +50,7 @@
   --pastel-grad-rev: linear-gradient(90deg, var(--pastel-6) 0%, var(--pastel-5) 20%, var(--pastel-4) 40%, var(--pastel-3) 60%, var(--pastel-2) 80%, var(--pastel-1) 100%);
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --background: #ffffff;
-    --foreground: #0b0f14;
-    --card: #f7f9fc;
-    --muted: #516173;
-    --primary: #3b82f6;
-    --border: #e5e7eb;
-  }
-}
+/* No prefers-color-scheme overrides; extension is light-only */
 
 /* Design-system helpers (avoid Tailwind-like names to prevent parsing errors) */
 .ds-bg { background-color: var(--background); }
@@ -77,18 +67,6 @@
 .pastel-hover:hover { filter: brightness(1.05); }
 .pastel-fore { color: #0b0f14; }
 .pastel-fore a { color: #0b0f14; }
-
-/* Dark mode: replace gradient with translucent glass and fix foreground */
-.dark .pastel-grad {
-  background-image: none !important;
-  background-color: oklch(1 0 0 / 0.06); /* subtle translucent light on dark */
-  -webkit-backdrop-filter: saturate(1.1) blur(10px);
-  backdrop-filter: saturate(1.1) blur(10px);
-}
-.dark .pastel-fore,
-.dark .pastel-fore a {
-  color: var(--foreground) !important;
-}
 
 /* Gradient buttons (consumed by Button component) */
 .btn-pastel {

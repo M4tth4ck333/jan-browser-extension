@@ -349,39 +349,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     style.textContent = `
       @keyframes jan-fade-in { from { opacity: 0; transform: translateY(-2px) } to { opacity: 1; transform: translateY(0) } }
       @keyframes jan-spin { to { transform: rotate(360deg) } }
-      .tip{ position: fixed; display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; background: rgba(17,24,39,.95); color: white; font: 12px/1.2 system-ui,-apple-system,Segoe UI,Roboto; border: 1px solid rgba(255,255,255,.08); box-shadow: 0 10px 30px rgba(0,0,0,.35); backdrop-filter: saturate(140%) blur(6px); animation: jan-fade-in .12s ease-out; }
+      .tip{ position: fixed; display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; background: rgba(255,255,255,.98); color:#0b1220; font: 12px/1.2 system-ui,-apple-system,Segoe UI,Roboto; border: 1px solid rgba(0,0,0,.06); box-shadow: 0 10px 30px rgba(0,0,0,.15); backdrop-filter: saturate(140%) blur(6px); animation: jan-fade-in .12s ease-out; }
       .tip button{ background: transparent; color: inherit; border: none; cursor: pointer; font: inherit; padding: 2px 8px; border-radius:999px; }
-      .tip button:hover{ background: rgba(255,255,255,.08) }
-      .menu{ position: fixed; margin-top:6px; padding:6px; background: rgba(17,24,39,.97); color: white; border-radius:12px; border:1px solid rgba(255,255,255,.08); box-shadow: 0 18px 48px rgba(0,0,0,.45); min-width: 180px; animation: jan-fade-in .12s ease-out; }
+      .tip button:hover{ background: rgba(2,6,23,.06) }
+      .menu{ position: fixed; margin-top:6px; padding:6px; background: rgba(255,255,255,.98); color:#0b1220; border-radius:12px; border:1px solid rgba(0,0,0,.06); box-shadow: 0 18px 48px rgba(0,0,0,.2); min-width: 180px; animation: jan-fade-in .12s ease-out; }
       .menu .item{ display:block; padding:8px 10px; border-radius:8px; cursor:pointer; }
-      .menu .item:hover{ background: rgba(255,255,255,.08) }
-      .card{ position: fixed; max-width: 420px; padding:12px 12px 10px; background: rgba(17,24,39,.97); color:white; border-radius:14px; border:1px solid rgba(255,255,255,.08); box-shadow: 0 22px 60px rgba(0,0,0,.5); font: 13px/1.35 system-ui,-apple-system,Segoe UI,Roboto; animation: jan-fade-in .12s ease-out; }
+      .menu .item:hover{ background: rgba(2,6,23,.06) }
+      .card{ position: fixed; max-width: 420px; padding:12px 12px 10px; background: rgba(255,255,255,.98); color:#0b1220; border-radius:14px; border:1px solid rgba(0,0,0,.06); box-shadow: 0 22px 60px rgba(0,0,0,.25); font: 13px/1.35 system-ui,-apple-system,Segoe UI,Roboto; animation: jan-fade-in .12s ease-out; }
       .card .header{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
-      .pill{ display:inline-flex; align-items:center; gap:6px; font-size:11px; color:#d1d5db; background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.06); padding:3px 8px; border-radius:999px; }
-      .spinner{ width:14px; height:14px; border:2px solid rgba(255,255,255,.25); border-top-color:#fff; border-radius:50%; animation: jan-spin .8s linear infinite; }
+      .pill{ display:inline-flex; align-items:center; gap:6px; font-size:11px; color:#334155; background: rgba(2,6,23,.04); border:1px solid rgba(2,6,23,.06); padding:3px 8px; border-radius:999px; }
+      .spinner{ width:14px; height:14px; border:2px solid rgba(2,6,23,.15); border-top-color:#0b1220; border-radius:50%; animation: jan-spin .8s linear infinite; }
       .card .actions{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
       .btn{ background:#2563eb; color:white; border:none; padding:6px 10px; border-radius:8px; cursor:pointer; font: inherit; box-shadow: 0 6px 18px rgba(37,99,235,.25) }
-      .btn.secondary{ background:#374151 }
-      .btn.ghost{ background:transparent; color:#cbd5e1; }
+      .btn.secondary{ background:#e5e7eb; color:#111827 }
+      .btn.ghost{ background:transparent; color:#334155; }
       .btn:focus{ outline:2px solid rgba(37,99,235,.6); outline-offset:2px }
-      .muted{ color:#9ca3af }
-      .close{ position:absolute; top:8px; right:8px; background:transparent; border:1px solid transparent; color:#9ca3af; cursor:pointer; border-radius:8px; padding:2px 6px }
-      .close:hover{ background: rgba(255,255,255,.06) }
+      .muted{ color:#475569 }
+      .close{ position:absolute; top:8px; right:8px; background:transparent; border:1px solid transparent; color:#64748b; cursor:pointer; border-radius:8px; padding:2px 6px }
+      .close:hover{ background: rgba(2,6,23,.06) }
       .pre{ white-space:pre-wrap; word-wrap:break-word; max-height: 240px; overflow:auto; }
-      .overlay{ position: fixed; width: 420px; max-width: calc(100vw - 16px); padding:12px; background: rgba(17,24,39,.97); color:white; border-radius:14px; border:1px solid rgba(255,255,255,.08); box-shadow: 0 22px 60px rgba(0,0,0,.5); font: 13px/1.35 system-ui,-apple-system,Segoe UI,Roboto; animation: jan-fade-in .12s ease-out; }
+      .overlay{ position: fixed; width: 420px; max-width: calc(100vw - 16px); padding:12px; background: rgba(255,255,255,.98); color:#0b1220; border-radius:14px; border:1px solid rgba(0,0,0,.06); box-shadow: 0 22px 60px rgba(0,0,0,.25); font: 13px/1.35 system-ui,-apple-system,Segoe UI,Roboto; animation: jan-fade-in .12s ease-out; }
       .overlay .header{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
-      .overlay textarea{ width:100%; box-sizing:border-box; min-height: 96px; max-height: 240px; resize: vertical; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.03); color: inherit; font: inherit; }
+      .overlay textarea{ width:100%; box-sizing:border-box; min-height: 96px; max-height: 240px; resize: vertical; padding:8px 10px; border-radius:10px; border:1px solid rgba(2,6,23,.08); background: rgba(2,6,23,.04); color: inherit; font: inherit; }
       .overlay .actions{ display:flex; gap:8px; margin-top:10px; justify-content:flex-end; }
-      .overlay .hint{ font-size:12px; color:#9ca3af; margin-top:6px; }
-      @media (prefers-color-scheme: light) {
-        .tip,.menu,.card{ background: rgba(255,255,255,.98); color:#0b1220; border-color: rgba(0,0,0,.06) }
-        .pill{ color:#334155; background: rgba(2,6,23,.04); border-color: rgba(2,6,23,.06) }
-        .btn.secondary{ background:#e5e7eb; color:#111827 }
-        .muted{ color:#475569 }
-        .close{ color:#64748b }
-        .overlay{ background: rgba(255,255,255,.98); color:#0b1220; border-color: rgba(0,0,0,.06) }
-        .overlay textarea{ background: rgba(2,6,23,.04); border-color: rgba(2,6,23,.08) }
-      }
+      .overlay .hint{ font-size:12px; color:#475569; margin-top:6px; }
     `;
     shadowRoot.appendChild(style);
     // While interacting with our UI, ignore selectionchange-triggered hides
@@ -398,12 +389,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const st = document.createElement('style');
     st.setAttribute('data-jan-ac', '');
     st.textContent = `
-      .ac-indicator{ position: fixed; right: 10px; bottom: 10px; padding: 6px 10px; border-radius: 999px; font: 12px/1.2 system-ui,-apple-system,Segoe UI,Roboto; background: rgba(17,24,39,.92); color: #e5e7eb; border: 1px solid rgba(255,255,255,.08); box-shadow: 0 10px 30px rgba(0,0,0,.35) }
-      .ac-indicator.light{ background: rgba(255,255,255,.98); color:#0b1220; border-color: rgba(0,0,0,.06) }
+      .ac-indicator{ position: fixed; right: 10px; bottom: 10px; padding: 6px 10px; border-radius: 999px; font: 12px/1.2 system-ui,-apple-system,Segoe UI,Roboto; background: rgba(255,255,255,.98); color:#0b1220; border: 1px solid rgba(0,0,0,.06); box-shadow: 0 10px 30px rgba(0,0,0,.2) }
       .ac-ghost{ position: fixed; pointer-events: none; color: #9ca3af; background: transparent; white-space: pre; font: 13px/1.35 system-ui,-apple-system,Segoe UI,Roboto; opacity: .85; text-shadow: 0 0 0 rgba(0,0,0,0.01) }
-      @media (prefers-color-scheme: light) {
-        .ac-indicator{ background: rgba(255,255,255,.98); color:#0b1220; border-color: rgba(0,0,0,.06) }
-      }
     `;
     shadowRoot.appendChild(st);
   }

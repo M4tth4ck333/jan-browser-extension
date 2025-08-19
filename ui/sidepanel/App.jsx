@@ -9,7 +9,7 @@ import { Button } from '../components/ui/button.jsx'
 import { Textarea } from '../components/ui/textarea.jsx'
 import * as ScrollArea from '@radix-ui/react-scroll-area'
 import * as Popover from '@radix-ui/react-popover'
-import { User as UserIcon, Send, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Search as SearchIcon, Settings as SettingsIcon, Sun as SunIcon, Moon as MoonIcon, Laptop as LaptopIcon, Trash2 as TrashIcon } from 'lucide-react'
+import { User as UserIcon, Send, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Search as SearchIcon, Settings as SettingsIcon, Trash2 as TrashIcon } from 'lucide-react'
 import { Input } from '../components/ui/input.jsx'
 
 function Message({ role, content, ts, isFirst, isLast, onCopy }) {
@@ -104,9 +104,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [tabPickerOpen, setTabPickerOpen] = useState(false)
   const [tabQuery, setTabQuery] = useState('')
-  // Theme: 'system' | 'light' | 'dark'
-  const [themePref, setThemePref] = useState('system')
-  const mqRef = useRef(null)
+  
 
   // Page/context state
   const [pageData, setPageData] = useState(null)
@@ -178,68 +176,7 @@ export default function App() {
     scrollToBottom()
   }, [messages])
 
-  // Theme application helpers
-  const getSystemDark = () => {
-    try { return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches } catch { return false }
-  }
-  const applyTheme = useCallback((pref) => {
-    const root = document.documentElement
-    const effectiveDark = pref === 'dark' ? true : (pref === 'light' ? false : getSystemDark())
-    try {
-      if (effectiveDark) root.classList.add('dark')
-      else root.classList.remove('dark')
-    } catch (_) {}
-  }, [])
-
-  // Load theme pref and react to changes
-  useEffect(() => {
-    (async () => {
-      try {
-        const { themePref: saved } = await chrome.storage.sync.get(['themePref'])
-        const pref = saved || 'system'
-        setThemePref(pref)
-        applyTheme(pref)
-      } catch (_) {
-        applyTheme('system')
-      }
-    })()
-  }, [applyTheme])
-
-  // Respond to system theme changes when on 'system'
-  useEffect(() => {
-    try {
-      if (mqRef.current) { mqRef.current.onchange = null; mqRef.current = null }
-      if (themePref === 'system' && window.matchMedia) {
-        const mq = window.matchMedia('(prefers-color-scheme: dark)')
-        mqRef.current = mq
-        mq.onchange = () => applyTheme('system')
-      }
-    } catch (_) {}
-    applyTheme(themePref)
-    return () => { try { if (mqRef.current) mqRef.current.onchange = null } catch (_) {} }
-  }, [themePref, applyTheme])
-
-  const cycleTheme = () => {
-    const order = ['system', 'light', 'dark']
-    const idx = order.indexOf(themePref)
-    const next = order[(idx + 1) % order.length]
-    setThemePref(next)
-    try { chrome.storage.sync.set({ themePref: next }) } catch (_) {}
-  }
-
-  // React live to changes from Options page
-  useEffect(() => {
-    const handler = (changes, area) => {
-      try {
-        if (area === 'sync' && changes?.themePref) {
-          const next = changes.themePref.newValue || 'system'
-          setThemePref(next)
-        }
-      } catch (_) {}
-    }
-    try { chrome.storage.onChanged.addListener(handler) } catch (_) {}
-    return () => { try { chrome.storage.onChanged.removeListener(handler) } catch (_) {} }
-  }, [])
+  
 
   const delay = (ms) => new Promise(res => setTimeout(res, ms))
 
@@ -1014,15 +951,6 @@ export default function App() {
               title="Delete Chat"
             >
               <TrashIcon size={16} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={cycleTheme}
-              aria-label={`Theme: ${themePref}`}
-              title={`Theme: ${themePref}`}
-            >
-              {themePref === 'system' ? <LaptopIcon size={16} /> : themePref === 'light' ? <SunIcon size={16} /> : <MoonIcon size={16} />}
             </Button>
             <Button
               variant="ghost"

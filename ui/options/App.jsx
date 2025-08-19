@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 
 const DEFAULTS = {
   provider: 'custom', apiBase: '', apiKey: '', model: '', temperature: 0.2,
-  themePref: 'system', bridgeToken: '', useBridgeToken: false,
+  bridgeToken: '', useBridgeToken: false,
   inlineAssistEnabled: true,
   inlineAssistActions: ['rewrite','fix_grammar','shorten','expand','tone_formal','tone_friendly','summarize','translate']
 }
@@ -16,25 +16,12 @@ export default function OptionsApp() {
   const [showApiKey, setShowApiKey] = useState(false)
   const mqRef = useRef(null)
 
-  // Theme helpers
-  const getSystemDark = () => {
-    try { return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches } catch { return false }
-  }
-
   // Toggle whether the browser sends the bridge token when connecting (default off)
   const onToggleUseBridge = (e) => {
     const val = !!e.target.checked
     setCfg({ ...cfg, useBridgeToken: val })
     try { chrome.storage.sync.set({ useBridgeToken: val }) } catch (_) {}
   }
-  const applyTheme = useCallback((pref) => {
-    const root = document.documentElement
-    const effectiveDark = pref === 'dark' ? true : (pref === 'light' ? false : getSystemDark())
-    try {
-      if (effectiveDark) root.classList.add('dark')
-      else root.classList.remove('dark')
-    } catch (_) {}
-  }, [])
 
   useEffect(() => {
     ;(async () => {
@@ -43,29 +30,7 @@ export default function OptionsApp() {
     })()
   }, [])
 
-  // React to theme changes and system changes
-  useEffect(() => {
-    applyTheme(cfg.themePref)
-    try {
-      if (mqRef.current) { mqRef.current.onchange = null; mqRef.current = null }
-      if (cfg.themePref === 'system' && window.matchMedia) {
-        const mq = window.matchMedia('(prefers-color-scheme: dark)')
-        mqRef.current = mq
-        mq.onchange = () => applyTheme('system')
-      }
-    } catch (_) {}
-    return () => { try { if (mqRef.current) mqRef.current.onchange = null } catch (_) {} }
-  }, [cfg.themePref, applyTheme])
-
   const onChange = (k) => (e) => setCfg({ ...cfg, [k]: k === 'temperature' ? Number(e.target.value) : e.target.value })
-
-  // Persist theme immediately so the side panel follows without needing Save
-  const onThemeChange = (e) => {
-    const pref = e.target.value
-    setCfg({ ...cfg, themePref: pref })
-    applyTheme(pref)
-    try { chrome.storage.sync.set({ themePref: pref }) } catch (_) {}
-  }
 
   const onProviderChange = (e) => {
     const provider = e.target.value
@@ -158,14 +123,6 @@ export default function OptionsApp() {
       </header>
       <main className="p-4 max-w-xl mx-auto space-y-4">
         <div className="grid gap-1">
-          <label className="text-sm ds-muted-text">Theme</label>
-          <select value={cfg.themePref} onChange={onThemeChange} className="input">
-            <option value="system">System (default)</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
-        </div>
-        <div className="grid gap-1">
           <label className="text-sm ds-muted-text">Provider Preset</label>
           <select value={cfg.provider} onChange={onProviderChange} className="input">
             <option value="custom">Custom</option>
@@ -256,12 +213,12 @@ export default function OptionsApp() {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-base font-semibold flex items-center gap-2">Bridge (MCP)
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/5 dark:bg-white/10 ds-muted-text">safer</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/5 ds-muted-text">safer</span>
               </div>
               <div className="text-sm ds-muted-text">Token and connection</div>
             </div>
-            <div className={`inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full ${bridgeInfo.connected ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
-              <span className={`inline-block w-2 h-2 rounded-full ${bridgeInfo.connected ? 'bg-green-600 dark:bg-green-400' : 'bg-red-600 dark:bg-red-400'}`}></span>
+            <div className={`inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full ${bridgeInfo.connected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+              <span className={`inline-block w-2 h-2 rounded-full ${bridgeInfo.connected ? 'bg-green-600' : 'bg-red-600'}`}></span>
               {bridgeInfo.connected ? 'Connected' : 'Disconnected'}
             </div>
           </div>
@@ -290,8 +247,8 @@ export default function OptionsApp() {
             <label className="text-sm ds-muted-text">Server command</label>
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
               <div className="inline-flex rounded-lg overflow-hidden border ds-border">
-                <button className={`px-3 py-1.5 text-sm ${cmdContext==='root' ? 'bg-black/5 dark:bg-white/10 font-semibold' : ''}`} onClick={() => setCmdContext('root')}>From root</button>
-                <button className={`px-3 py-1.5 text-sm ${cmdContext==='mcp' ? 'bg-black/5 dark:bg-white/10 font-semibold' : ''}`} onClick={() => setCmdContext('mcp')}>In mcp/</button>
+                <button className={`px-3 py-1.5 text-sm ${cmdContext==='root' ? 'bg-black/5 font-semibold' : ''}`} onClick={() => setCmdContext('root')}>From root</button>
+                <button className={`px-3 py-1.5 text-sm ${cmdContext==='mcp' ? 'bg-black/5 font-semibold' : ''}`} onClick={() => setCmdContext('mcp')}>In mcp/</button>
               </div>
               <button className="btn" onClick={copyServerCmd} disabled={!!cfg.useBridgeToken && !cfg.bridgeToken}>Copy server command</button>
             </div>
