@@ -54,6 +54,10 @@
   --pastel-6: #BFE2F5; /* soft pastel blue */
   --pastel-grad: linear-gradient(90deg, var(--pastel-1) 0%, var(--pastel-2) 20%, var(--pastel-3) 40%, var(--pastel-4) 60%, var(--pastel-5) 80%, var(--pastel-6) 100%);
   --pastel-grad-rev: linear-gradient(90deg, var(--pastel-6) 0%, var(--pastel-5) 20%, var(--pastel-4) 40%, var(--pastel-3) 60%, var(--pastel-2) 80%, var(--pastel-1) 100%);
+
+  /* Status colors for bridge indicator */
+  --status-connected: #FDE68A;    /* pastel yellow (amber-200-ish) */
+  --status-disconnected: #16a34a; /* green-600 */
 }
 
 /* No prefers-color-scheme overrides; extension is light-only */
@@ -172,6 +176,20 @@
 .btn-brand:hover {
   background-color: var(--brand-amber-2);
 }
+
+/* Glowing status dot (used for bridge indicator) */
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: var(--c, var(--status-connected));
+  box-shadow:
+    0 0 0 2px var(--card),
+    0 0 6px var(--c, var(--status-connected)),
+    0 0 12px var(--c, var(--status-connected));
+}
+.status-yellow { --c: var(--status-connected); }
+.status-green { --c: var(--status-disconnected); }
 
 /* Horizontal rules spacing */
 .ai-typography hr { margin: 1rem 0; }

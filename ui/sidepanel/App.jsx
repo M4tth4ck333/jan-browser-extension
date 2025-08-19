@@ -9,7 +9,7 @@ import { Button } from '../components/ui/button.jsx'
 import { Textarea } from '../components/ui/textarea.jsx'
 import * as ScrollArea from '@radix-ui/react-scroll-area'
 import * as Popover from '@radix-ui/react-popover'
-import { User as UserIcon, Send, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Search as SearchIcon, Settings as SettingsIcon, Trash2 as TrashIcon, Plug as PlugIcon } from 'lucide-react'
+import { User as UserIcon, Send, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Search as SearchIcon, Settings as SettingsIcon, Trash2 as TrashIcon } from 'lucide-react'
 import { Input } from '../components/ui/input.jsx'
 
 function Message({ role, content, ts, isFirst, isLast, onCopy }) {
@@ -179,11 +179,6 @@ export default function App() {
   const [contextCache, setContextCache] = useState({}) // { [tabId]: pageData }
   const [tabSessionMap, setTabSessionMap] = useState({}) // { [tabId]: sessionId }
   const [selectionText, setSelectionText] = useState('')
-  // Bridge MCP status
-  const [bridgeConnected, setBridgeConnected] = useState(false)
-  const [bridgeUsingToken, setBridgeUsingToken] = useState(false)
-  const [bridgeUrl, setBridgeUrl] = useState('')
-  const [bridgeChecking, setBridgeChecking] = useState(false)
 
   // Sessions (history)
   const [sessions, setSessions] = useState([])
@@ -247,38 +242,6 @@ export default function App() {
   
 
   const delay = (ms) => new Promise(res => setTimeout(res, ms))
-
-  // Bridge helpers
-  const fetchBridgeStatus = useCallback(async () => {
-    try {
-      setBridgeChecking(true)
-      const resp = await chrome.runtime.sendMessage({ type: 'GET_BRIDGE_STATUS' })
-      if (resp?.ok) {
-        setBridgeConnected(!!resp.connected)
-        setBridgeUsingToken(!!resp.usingToken)
-        setBridgeUrl(String(resp.url || ''))
-      }
-    } catch (_) {
-      setBridgeConnected(false)
-      setBridgeUsingToken(false)
-      setBridgeUrl('')
-    } finally {
-      setBridgeChecking(false)
-    }
-  }, [])
-
-  const reconnectBridge = useCallback(async () => {
-    try {
-      setBridgeChecking(true)
-      await chrome.runtime.sendMessage({ type: 'RECONNECT_BRIDGE' })
-      await delay(200)
-      await fetchBridgeStatus()
-    } catch (_) {
-      // noop
-    } finally {
-      setBridgeChecking(false)
-    }
-  }, [fetchBridgeStatus])
 
   // Per-tab session mapping helpers
   const loadTabSessionMap = useCallback(async () => {
@@ -545,10 +508,6 @@ export default function App() {
     // Do not auto-scrape on mount to avoid errors on restricted pages
     refreshTabs()
     loadSessions()
-    // Initial bridge status + light polling
-    fetchBridgeStatus()
-    const id = setInterval(fetchBridgeStatus, 8000)
-    return () => { try { clearInterval(id) } catch (_) {} }
   }, [refreshTabs, loadSessions])
 
   // When auto-follow is ON, always sync to the current active tab (override any stale selection)
@@ -675,11 +634,8 @@ export default function App() {
       'Only use information from the context listed below. If an answer depends on information not present here, say so briefly.',
     ].join('\n')
 
-    // Important: many providers downweight/ignore long content in system role.
-    // Keep the short guard as system, and place the actual tab content in a user message.
     return [
-      { role: 'system', content: guard },
-      { role: 'user', content: `Context from your browser tabs:\n\n${parts}` }
+      { role: 'system', content: `${guard}\n\n${parts}` }
     ]
   }
 
@@ -699,8 +655,7 @@ export default function App() {
     })
     if (!lines.length) return []
     const header = data.query ? `Fresh Google results for: "${data.query}"` : 'Fresh Google results'
-    // Provide SERP data as user message so models reliably see and use it
-    return [{ role: 'user', content: `${header}\n\n${lines.join('\n\n')}` }]
+    return [{ role: 'system', content: `${header}\n\n${lines.join('\n\n')}` }]
   }
 
   const scrapeSelectedTabs = useCallback(async (tabIds) => {
@@ -752,8 +707,7 @@ export default function App() {
       let contexts = []
       let cache = { ...contextCache }
       const activeTab = await getActiveTab()
-      // If chips are selected, honor them; otherwise fall back to the active tab
-      const tabsToUse = (selectedTabIds && selectedTabIds.length ? selectedTabIds : [activeTab?.id]).filter(Boolean)
+      const tabsToUse = [activeTab?.id].filter(Boolean)
       if (tabsToUse.length) {
         // Always re-scrape targeted tabs to keep content fresh in cache
         const scraped = await scrapeSelectedTabs(tabsToUse)
@@ -827,8 +781,7 @@ export default function App() {
       let contexts = []
       let cache = { ...contextCache }
       const activeTab = await getActiveTab()
-      // If chips are selected, honor them; otherwise fall back to the active tab
-      const tabsToUse = (selectedTabIds && selectedTabIds.length ? selectedTabIds : [activeTab?.id]).filter(Boolean)
+      const tabsToUse = [activeTab?.id].filter(Boolean)
       if (tabsToUse.length) {
         // Always re-scrape targeted tabs to keep content fresh in cache
         const scraped = await scrapeSelectedTabs(tabsToUse)
@@ -1075,16 +1028,6 @@ export default function App() {
               title="Settings"
             >
               <SettingsIcon size={16} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={`${bridgeConnected ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'}`}
-              onClick={(e) => { if (e.altKey || e.metaKey) reconnectBridge(); else fetchBridgeStatus() }}
-              aria-label="Bridge status"
-              title={`Bridge ${bridgeConnected ? 'Connected' : 'Disconnected'}${bridgeUrl ? ` • ${bridgeUrl}` : ''}${bridgeUsingToken ? ' (token)' : ''}. ${bridgeChecking ? 'Checking…' : 'Click to refresh; Alt/⌘-click to reconnect.'}`}
-            >
-              <PlugIcon size={16} />
             </Button>
           </div>
 

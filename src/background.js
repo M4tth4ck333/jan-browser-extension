@@ -871,7 +871,7 @@ async function performGoogleSearchAndScrape(payload) {
     await waitForTabComplete(tabId, 15000);
     console.log('[SearchFlow] tab load complete', { tabId });
     // Small settle delay for dynamic SERP hydration
-    await delay(700);
+    await delay(1200);
     console.log('[SearchFlow] sending SCRAPE_GOOGLE_SERP to content script', { tabId });
     const data = await sendMessageWithRetry(tabId, { type: 'SCRAPE_GOOGLE_SERP' }, 3, 500);
     console.log('[SearchFlow] scrape response received', { ok: !!data, keys: data ? Object.keys(data) : [] });
