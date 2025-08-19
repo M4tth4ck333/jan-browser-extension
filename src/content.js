@@ -287,14 +287,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 ;(function() {
   // Config (live-updated from storage)
   let inlineEnabled = true;
-  let allowedActions = ['rewrite','fix_grammar','shorten','expand','tone_formal','tone_friendly','summarize','translate'];
+  // Restrict to only the simplified set
+  const ALLOWED_SET = ['rewrite','translate','custom'];
+  let allowedActions = ['rewrite','translate','custom'];
 
   // Load initial settings
   try {
     chrome.storage.sync.get(['inlineAssistEnabled','inlineAssistActions'], (s) => {
       if (typeof s.inlineAssistEnabled === 'boolean') inlineEnabled = s.inlineAssistEnabled;
       if (Array.isArray(s.inlineAssistActions) && s.inlineAssistActions.length) {
-        allowedActions = s.inlineAssistActions;
+        const next = s.inlineAssistActions.filter(id => ALLOWED_SET.includes(id));
+        if (next.length) {
+          const set = new Set(next);
+          set.add('custom');
+          allowedActions = Array.from(set);
+        }
       }
     });
   } catch (_) {}
@@ -307,7 +314,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       if (Object.prototype.hasOwnProperty.call(changes, 'inlineAssistActions')) {
         const v = changes.inlineAssistActions.newValue;
-        if (Array.isArray(v) && v.length) allowedActions = v;
+        if (Array.isArray(v) && v.length) {
+          const next = v.filter(id => ALLOWED_SET.includes(id));
+          if (next.length) {
+            const set = new Set(next);
+            set.add('custom');
+            allowedActions = Array.from(set);
+          }
+        }
       }
     });
   } catch (_) {}
@@ -661,13 +675,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     menuEl.style.top = `${vy}px`;
     const items = [
       { id: 'rewrite', label: 'Rewrite' },
-      { id: 'fix_grammar', label: 'Fix grammar' },
-      { id: 'shorten', label: 'Shorten' },
-      { id: 'expand', label: 'Expand' },
-      { id: 'tone_formal', label: 'Tone: Formal' },
-      { id: 'tone_friendly', label: 'Tone: Friendly' },
-      { id: 'summarize', label: 'Summarize' },
-      { id: 'translate', label: 'Translate → English' }
+      { id: 'translate', label: 'Translate → English' },
+      { id: 'custom', label: 'Custom Prompt…' }
     ].filter(i => allowedActions.includes(i.id));
     for (const it of items) {
       const el = document.createElement('div');
@@ -677,7 +686,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         e.stopPropagation();
         menuEl?.remove();
         menuEl = null;
-        startInline(it.id);
+        if (it.id === 'custom') {
+          try {
+            let ed = currentEditable();
+            let ctx = lastSelCtx;
+            if (!ctx || !ctx.ed) {
+              if (ed) {
+                const s = getSelectionInEditable(ed);
+                ctx = { ed, ...s };
+              }
+            }
+            const rect = ed ? getRectForSelection(ed, ctx) : menuEl?.getBoundingClientRect() || { left: 20, bottom: 20 };
+            const rx = rect.left; const ry = rect.bottom + 6;
+            showCustomPromptAt(rx, ry);
+          } catch (_) {
+            // Fallback: center-ish
+            showCustomPromptAt(32, 48);
+          }
+        } else {
+          startInline(it.id);
+        }
       });
       menuEl.appendChild(el);
     }
@@ -817,15 +845,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   function labelForMode(mode) {
     switch (mode) {
       case 'custom': return 'Custom';
-      case 'fix_grammar': return 'Fix grammar';
-      case 'shorten': return 'Shorten';
-      case 'expand': return 'Expand';
-      case 'tone_formal': return 'Formal tone';
-      case 'tone_friendly': return 'Friendly tone';
-      case 'summarize': return 'Summarize';
+      case 'rewrite': return 'Rewrite';
       case 'translate': return 'Translate';
-      case 'rewrite':
-      default: return 'Rewrite';
+      default: return 'Jan';
     }
   }
 

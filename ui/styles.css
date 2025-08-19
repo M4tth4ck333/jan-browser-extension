@@ -56,7 +56,7 @@
 .ds-bg { background-color: var(--background); }
 .ds-text { color: var(--foreground); }
 .ds-card { background-color: var(--card); }
-.ds-muted-text { color: var(--muted); }
+.ds-muted-text { color: var(--muted-foreground); }
 .ds-border { border-color: var(--border); }
 .ds-muted-bg { background-color: color-mix(in oklab, var(--card) 85%, var(--foreground) 15%); }
 .ds-primary-bg { background-color: var(--primary); }

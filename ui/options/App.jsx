@@ -1,10 +1,18 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 
 const DEFAULTS = {
   provider: 'custom', apiBase: '', apiKey: '', model: '', temperature: 0.2,
   bridgeToken: '', useBridgeToken: false,
   inlineAssistEnabled: true,
-  inlineAssistActions: ['rewrite','fix_grammar','shorten','expand','tone_formal','tone_friendly','summarize','translate']
+  // Only the supported actions; Custom Prompt is always available from the tooltip/shortcut.
+  inlineAssistActions: ['rewrite','translate'],
+  useModelList: false,
+  useApiKey: true,
+  // Custom full completions URL support (for provider: custom)
+  useCustomCompletionsUrl: false,
+  customCompletionsUrl: '',
 }
 
 export default function OptionsApp() {
@@ -15,6 +23,7 @@ export default function OptionsApp() {
   const [advOpen, setAdvOpen] = useState(false)
   const [showApiKey, setShowApiKey] = useState(false)
   const mqRef = useRef(null)
+  const [modelsState, setModelsState] = useState({ loading: false, error: '', items: [] })
 
   // Toggle whether the browser sends the bridge token when connecting (default off)
   const onToggleUseBridge = (e) => {
@@ -30,13 +39,59 @@ export default function OptionsApp() {
     })()
   }, [])
 
+  // Fetch models when toggled on, or when provider/base/key changes while toggled on
+  useEffect(() => {
+    if (!cfg.useModelList) return
+    let cancelled = false
+    const fetchModels = async () => {
+      setModelsState({ loading: true, error: '', items: [] })
+      const res = await chrome.runtime.sendMessage({ type: 'LIST_MODELS' }).catch(e => ({ ok: false, error: e.message }))
+      if (cancelled) return
+      if (!res?.ok) {
+        setModelsState({ loading: false, error: res?.error || 'Failed to fetch models', items: [] })
+      } else {
+        const items = Array.isArray(res.models) ? res.models : []
+        // Normalize display: prefer id, fallback to name
+        const normalized = items.map(m => ({ id: m?.id || m?.name || '', name: m?.id || m?.name || '' })).filter(m => m.id)
+        setModelsState({ loading: false, error: '', items: normalized })
+      }
+    }
+    fetchModels()
+    return () => { cancelled = true }
+  }, [cfg.useModelList, cfg.provider, cfg.apiBase, cfg.apiKey])
+
   const onChange = (k) => (e) => setCfg({ ...cfg, [k]: k === 'temperature' ? Number(e.target.value) : e.target.value })
+
+  // Known provider defaults (locked endpoints)
+  const getDefaultBase = useCallback((provider) => {
+    switch (provider) {
+      case 'jan-server':
+        // Hidden until public release
+        return 'https://comingsoon.ai'
+      case 'openai':
+        return 'https://api.openai.com/v1'
+      case 'anthropic':
+        // Note: Anthropic's native API is not OpenAI-compatible for chat completions.
+        // Use only if your endpoint implements an OpenAI-compatible shim.
+        return 'https://api.anthropic.com/v1'
+      case 'openrouter':
+        return 'https://openrouter.ai/api/v1'
+      case 'cerebras':
+        return 'https://api.cerebras.ai/v1'
+      case 'jan':
+        return 'http://localhost:1337/v1'
+      default:
+        return ''
+    }
+  }, [])
+
+  const isLockedProvider = useCallback((provider) => (
+    provider === 'jan-server' || provider === 'openai' || provider === 'anthropic' || provider === 'openrouter' || provider === 'cerebras' || provider === 'jan'
+  ), [])
 
   const onProviderChange = (e) => {
     const provider = e.target.value
-    let apiBase = cfg.apiBase
-    if (provider === 'cerebras' && !apiBase) apiBase = 'https://api.cerebras.ai/v1'
-    if (provider === 'jan' && !apiBase) apiBase = 'http://localhost:1337/v1'
+    const apiBase = isLockedProvider(provider) ? getDefaultBase(provider) : (cfg.apiBase || '')
     setCfg({ ...cfg, provider, apiBase })
   }
 
@@ -125,17 +180,77 @@ export default function OptionsApp() {
         <div className="grid gap-1">
           <label className="text-sm ds-muted-text">Provider Preset</label>
           <select value={cfg.provider} onChange={onProviderChange} className="input">
-            <option value="custom">Custom</option>
+            <option value="jan-server">Jan Server (Cloud)</option>
+            <option value="jan">Jan (Local)</option>
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic (shim required)</option>
+            <option value="openrouter">OpenRouter</option>
             <option value="cerebras">Cerebras (OpenAI-compatible)</option>
-            <option value="jan">Jan Server (Local)</option>
+            <option value="custom">Custom</option>
           </select>
         </div>
         <div className="grid gap-1">
           <label className="text-sm ds-muted-text">API Base URL</label>
-          <input className="input" value={cfg.apiBase} onChange={onChange('apiBase')} placeholder="https://api.cerebras.ai/v1 or http://localhost:1337/v1" />
+          <input
+            className="input"
+            value={cfg.apiBase}
+            onChange={onChange('apiBase')}
+            placeholder="https://comingsoon.ai, https://api.openai.com/v1, https://openrouter.ai/api/v1, http://localhost:1337/v1"
+            disabled={isLockedProvider(cfg.provider)}
+            readOnly={isLockedProvider(cfg.provider)}
+          />
+          {isLockedProvider(cfg.provider) && (
+            <div className="text-xs ds-muted-text">Endpoint locked for preset. Switch to Custom to edit.</div>
+          )}
         </div>
+        {cfg.provider === 'custom' && (
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-medium text-foreground">Use full completions URL</Label>
+              <div className="flex items-center gap-3 text-sm text-foreground">
+                <Label htmlFor="use-custom-url" className="text-foreground/80 cursor-pointer">Off</Label>
+                <Switch
+                  id="use-custom-url"
+                  checked={!!cfg.useCustomCompletionsUrl}
+                  onCheckedChange={(v) => {
+                    const useCustomCompletionsUrl = !!v
+                    setCfg({ ...cfg, useCustomCompletionsUrl })
+                    try { chrome.storage.sync.set({ useCustomCompletionsUrl }) } catch (_) {}
+                  }}
+                  aria-label="Toggle using full completions URL"
+                />
+                <Label htmlFor="use-custom-url" className="text-foreground/80 cursor-pointer">On</Label>
+              </div>
+            </div>
+            <input
+              className="input"
+              value={cfg.customCompletionsUrl}
+              onChange={onChange('customCompletionsUrl')}
+              placeholder="e.g. https://your-endpoint.example.com/v1/chat/completions"
+              disabled={!cfg.useCustomCompletionsUrl}
+              readOnly={!cfg.useCustomCompletionsUrl}
+            />
+            <div className="text-xs ds-muted-text">When On, the extension will call this URL directly for chat completions (streaming and non-streaming). API Base above is still used for model listing.</div>
+          </div>
+        )}
         <div className="grid gap-1">
-          <label className="text-sm ds-muted-text">API Key</label>
+          <div className="flex items-center justify-between">
+            <label className="text-sm ds-muted-text">API Key</label>
+            <div className="flex items-center gap-3 text-sm text-foreground">
+              <Label htmlFor="use-api-key" className="text-foreground/80 cursor-pointer">Off</Label>
+              <Switch
+                id="use-api-key"
+                checked={!!cfg.useApiKey}
+                onCheckedChange={(v) => {
+                  const useApiKey = !!v
+                  setCfg({ ...cfg, useApiKey })
+                  try { chrome.storage.sync.set({ useApiKey }) } catch (_) {}
+                }}
+                aria-label="Toggle using API key"
+              />
+              <Label htmlFor="use-api-key" className="text-foreground/80 cursor-pointer">On</Label>
+            </div>
+          </div>
           <div className="flex gap-2 items-stretch">
             <input
               className="input flex-1"
@@ -144,20 +259,79 @@ export default function OptionsApp() {
               onChange={onChange('apiKey')}
               placeholder="sk-…"
               autoComplete="off"
+              disabled={!cfg.useApiKey}
             />
             <button
               type="button"
               className="btn"
               onClick={() => setShowApiKey(v => !v)}
               aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
+              disabled={!cfg.useApiKey}
             >
               {showApiKey ? 'Hide' : 'Show'}
             </button>
           </div>
         </div>
-        <div className="grid gap-1">
-          <label className="text-sm ds-muted-text">Model</label>
-          <input className="input" value={cfg.model} onChange={onChange('model')} placeholder="e.g. llama3.1-8b, mixtral, etc." />
+        <div className="grid gap-2">
+          <div className="flex items-center justify-between">
+            <Label className="text-sm font-medium text-foreground">Model</Label>
+            <div className="flex items-center gap-3 text-sm text-foreground">
+              <Label htmlFor="use-model-list" className="text-foreground/80 cursor-pointer">Manual</Label>
+              <Switch
+                id="use-model-list"
+                checked={!!cfg.useModelList}
+                onCheckedChange={(v) => {
+                  const useModelList = !!v
+                  setCfg({ ...cfg, useModelList })
+                  try { chrome.storage.sync.set({ useModelList }) } catch (_) {}
+                }}
+                aria-label="Toggle model list dropdown"
+              />
+              <Label htmlFor="use-model-list" className="text-foreground/80 cursor-pointer">Dropdown</Label>
+            </div>
+          </div>
+          {!cfg.useModelList ? (
+            <input
+              className="input"
+              value={cfg.model}
+              onChange={onChange('model')}
+              placeholder="e.g. llama3.1-8b, mixtral, etc."
+            />
+          ) : (
+            <div className="flex gap-2 items-stretch">
+              <select
+                className="input flex-1"
+                value={cfg.model}
+                onChange={onChange('model')}
+              >
+                <option value="">{modelsState.loading ? 'Loading…' : 'Select a model'}</option>
+                {modelsState.items.map(m => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="btn"
+                onClick={async () => {
+                  setModelsState(s => ({ ...s, loading: true, error: '' }))
+                  const res = await chrome.runtime.sendMessage({ type: 'LIST_MODELS' }).catch(e => ({ ok: false, error: e.message }))
+                  if (!res?.ok) setModelsState({ loading: false, error: res?.error || 'Failed to fetch models', items: [] })
+                  else {
+                    const items = Array.isArray(res.models) ? res.models : []
+                    const normalized = items.map(m => ({ id: m?.id || m?.name || '', name: m?.id || m?.name || '' })).filter(m => m.id)
+                    setModelsState({ loading: false, error: '', items: normalized })
+                  }
+                }}
+                disabled={modelsState.loading}
+                aria-label="Refresh model list"
+              >
+                {modelsState.loading ? '…' : 'Refresh'}
+              </button>
+            </div>
+          )}
+          {cfg.useModelList && modelsState.error && (
+            <div className="text-xs text-red-600">{modelsState.error}</div>
+          )}
         </div>
         <div className="grid gap-1">
           <label className="text-sm ds-muted-text">Temperature</label>
@@ -187,12 +361,6 @@ export default function OptionsApp() {
             <div className="grid grid-cols-2 gap-2 text-sm">
               {[
                 { id: 'rewrite', label: 'Rewrite' },
-                { id: 'fix_grammar', label: 'Fix grammar' },
-                { id: 'shorten', label: 'Shorten' },
-                { id: 'expand', label: 'Expand' },
-                { id: 'tone_formal', label: 'Tone: Formal' },
-                { id: 'tone_friendly', label: 'Tone: Friendly' },
-                { id: 'summarize', label: 'Summarize' },
                 { id: 'translate', label: 'Translate' }
               ].map(a => (
                 <label key={a.id} className="inline-flex items-center gap-2">
@@ -205,7 +373,7 @@ export default function OptionsApp() {
                 </label>
               ))}
             </div>
-            <div className="text-xs ds-muted-text">Save to apply changes. Copy uses the page clipboard API; Apply replaces the current selection.</div>
+            <div className="text-xs ds-muted-text">Custom Prompt is always available from the tooltip menu and keyboard shortcut. Save to apply changes. Copy uses the page clipboard API; Apply replaces the current selection.</div>
           </div>
         </div>
 

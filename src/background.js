@@ -2,11 +2,15 @@
 // Handles side panel activation and summary requests via an OpenAI-compatible API
 
 const DEFAULT_SETTINGS = {
-  provider: "custom", // 'cerebras' | 'jan' | 'custom'
-  apiBase: "", // e.g. https://api.cerebras.ai/v1 or http://localhost:1337/v1
+  provider: "custom", // 'jan-server' | 'openai' | 'anthropic' | 'openrouter' | 'cerebras' | 'jan' | 'custom'
+  apiBase: "", // e.g. https://comingsoon.ai, https://api.openai.com/v1, https://openrouter.ai/api/v1, https://api.cerebras.ai/v1, http://localhost:1337/v1
   apiKey: "",
+  useApiKey: true,
   model: "",
-  temperature: 0.2
+  temperature: 0.2,
+  // For provider: 'custom', allow specifying a full chat completions URL (non-stream and stream)
+  useCustomCompletionsUrl: false,
+  customCompletionsUrl: "",
 };
 
 const isSupportedUrl = (url) => /^https?:\/\//.test(url || '');
@@ -158,8 +162,19 @@ try {
   });
 } catch (_) { /* ignore */ }
 
-async function chatCompletionsStream({ apiBase, apiKey, model, temperature, messages }, tabId, reqId) {
-  const url = `${apiBase.replace(/\/$/, '')}/chat/completions`;
+async function chatCompletionsStream({ apiBase, apiKey, useApiKey, model, temperature, messages }, tabId, reqId) {
+  // Route Anthropic bases to the Anthropic streaming shim
+  if (isAnthropicBase(apiBase)) {
+    return await chatCompletionsStreamAnthropic({ apiBase, apiKey, useApiKey, model, temperature, messages }, tabId, reqId);
+  }
+  // If using a full custom completions URL (custom provider), prefer it
+  let url = `${apiBase.replace(/\/$/, '')}/chat/completions`;
+  try {
+    const { provider, useCustomCompletionsUrl, customCompletionsUrl } = await getSettings();
+    if (provider === 'custom' && useCustomCompletionsUrl && isSupportedUrl(customCompletionsUrl)) {
+      url = String(customCompletionsUrl);
+    }
+  } catch (_) { /* ignore */ }
   const controller = new AbortController();
   const to = setTimeout(() => controller.abort(), 120_000);
   // Register the controller so UI can cancel
@@ -174,13 +189,14 @@ async function chatCompletionsStream({ apiBase, apiKey, model, temperature, mess
     }
   };
   try {
+    const headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream'
+    };
+    if (useApiKey && apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
     const resp = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'Accept': 'text/event-stream'
-      },
+      headers,
       body: JSON.stringify({ model, messages, temperature, stream: true }),
       signal: controller.signal
     });
@@ -296,12 +312,13 @@ chrome.runtime.onInstalled.addListener(async () => {
   const merged = { ...DEFAULT_SETTINGS, ...existing };
 
   // Provide sensible presets if provider chosen but fields empty
-  if (merged.provider === 'cerebras' && !merged.apiBase) {
-    merged.apiBase = 'https://api.cerebras.ai/v1';
-  }
-  if (merged.provider === 'jan' && !merged.apiBase) {
-    // Common Jan OpenAI-compatible server default
-    merged.apiBase = 'http://localhost:1337/v1';
+  if (!merged.apiBase) {
+    if (merged.provider === 'jan-server') merged.apiBase = 'https://comingsoon.ai';
+    else if (merged.provider === 'openai') merged.apiBase = 'https://api.openai.com/v1';
+    else if (merged.provider === 'anthropic') merged.apiBase = 'https://api.anthropic.com/v1'; // Requires OpenAI-compatible shim
+    else if (merged.provider === 'openrouter') merged.apiBase = 'https://openrouter.ai/api/v1';
+    else if (merged.provider === 'cerebras') merged.apiBase = 'https://api.cerebras.ai/v1';
+    else if (merged.provider === 'jan') merged.apiBase = 'http://localhost:1337/v1';
   }
 
   await chrome.storage.sync.set(merged);
@@ -426,16 +443,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === 'CHAT_COMPLETION') {
+  // List available models from the configured provider (OpenAI-compatible /models)
+  if (message?.type === 'LIST_MODELS') {
     (async () => {
       try {
-        const { apiBase, apiKey, model, temperature } = await getSettings();
+        const { apiBase, apiKey, useApiKey } = await getSettings();
         if (!apiBase) return sendResponse({ ok: false, error: 'Missing API Base URL. Set it in Options.' });
-        if (!apiKey) return sendResponse({ ok: false, error: 'Missing API Key. Set it in Options.' });
-        if (!model) return sendResponse({ ok: false, error: 'Missing Model. Set it in Options.' });
-
-        const messages = message.payload?.messages || [];
-        const res = await chatCompletions({ apiBase, apiKey, model, temperature, messages });
+        if (useApiKey && !apiKey) return sendResponse({ ok: false, error: 'Missing API Key. Enable or provide one in Options.' });
+        const res = await pingModels({ apiBase, apiKey, useApiKey });
         sendResponse(res);
       } catch (e) {
         sendResponse({ ok: false, error: String(e?.message || e) });
@@ -444,82 +459,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // Inline Assistant (one-shot)
-  if (message?.type === 'INLINE_ASSIST_START') {
+  if (message?.type === 'CHAT_COMPLETION') {
     (async () => {
       try {
-        const { apiBase, apiKey, model, temperature } = await getSettings();
+        const { apiBase, apiKey, useApiKey, model, temperature } = await getSettings();
         if (!apiBase) return sendResponse({ ok: false, error: 'Missing API Base URL. Set it in Options.' });
-        if (!apiKey) return sendResponse({ ok: false, error: 'Missing API Key. Set it in Options.' });
+        if (useApiKey && !apiKey) return sendResponse({ ok: false, error: 'Missing API Key. Enable or provide one in Options.' });
         if (!model) return sendResponse({ ok: false, error: 'Missing Model. Set it in Options.' });
 
-        const { mode, text, lang } = message?.payload || {};
-        const src = String(text || '').trim();
-        if (!src) return sendResponse({ ok: false, error: 'No text provided.' });
+        const { messages: payloadMsgs, system, user } = message?.payload || {};
+        let messages = Array.isArray(payloadMsgs) && payloadMsgs.length
+          ? payloadMsgs
+          : [
+              ...(system ? [{ role: 'system', content: String(system) }] : []),
+              ...(user ? [{ role: 'user', content: String(user) }] : [])
+            ];
+        if (!Array.isArray(messages) || messages.length === 0) {
+          return sendResponse({ ok: false, error: 'Missing messages payload.' });
+        }
 
-        const maxChars = 8000;
-        const clipped = src.slice(0, maxChars);
-
-        const { system, user } = buildInlineAssistMessages({ mode, text: clipped, lang });
-        const messages = [
-          { role: 'system', content: system },
-          { role: 'user', content: user }
-        ];
-
-        const resp = await chatCompletions({ apiBase, apiKey, model, temperature, messages });
-        if (!resp?.ok) return sendResponse(resp);
-        const out = resp.data?.choices?.[0]?.message?.content || resp.data?.choices?.[0]?.text || '';
-        sendResponse({ ok: true, text: out });
-      } catch (e) {
-        sendResponse({ ok: false, error: String(e?.message || e) });
-      }
-    })();
-    return true;
-  }
-
-  // Custom Prompt (one-shot)
-  if (message?.type === 'CUSTOM_PROMPT_RUN') {
-    (async () => {
-      try {
-        const { apiBase, apiKey, model, temperature } = await getSettings();
-        if (!apiBase) return sendResponse({ ok: false, error: 'Missing API Base URL. Set it in Options.' });
-        if (!apiKey) return sendResponse({ ok: false, error: 'Missing API Key. Set it in Options.' });
-        if (!model) return sendResponse({ ok: false, error: 'Missing Model. Set it in Options.' });
-
-        const { prompt, title, url, lang, metaDescription, selection, content } = message?.payload || {};
-        const userPrompt = String(prompt || '').trim();
-        if (!userPrompt) return sendResponse({ ok: false, error: 'Empty prompt.' });
-
-        const maxBody = 16000;
-        const maxSel = 6000;
-        const clippedContent = String(content || '').slice(0, maxBody);
-        const clippedSel = String(selection || '').slice(0, maxSel);
-
-        const system = [
-          'You are a helpful assistant. Follow the user\'s instruction precisely.',
-          '- If relevant context is provided (selection or page content), ground your answer in it and avoid fabrications.',
-          '- Be concise and directly useful. Use the requested format and language if specified.'
-        ].join('\n');
-
-        const ctxLines = [
-          title ? `Title: ${title}` : null,
-          url ? `URL: ${url}` : null,
-          lang ? `Detected Language: ${lang}` : null,
-          metaDescription ? `Meta: ${metaDescription}` : null,
-          clippedSel ? `\nSelection:\n${clippedSel}` : null,
-          clippedContent ? `\nPage Content (truncated):\n${clippedContent}` : null
-        ].filter(Boolean).join('\n');
-
-        const userMsg = ctxLines
-          ? `Instruction:\n${userPrompt}\n\nContext:\n${ctxLines}`
-          : `Instruction:\n${userPrompt}`;
-
-        const messages = [
-          { role: 'system', content: system },
-          { role: 'user', content: userMsg }
-        ];
-
-        const resp = await chatCompletions({ apiBase, apiKey, model, temperature, messages });
+        const resp = await chatCompletions({ apiBase, apiKey, useApiKey, model, temperature, messages });
         if (!resp?.ok) return sendResponse(resp);
         const out = resp.data?.choices?.[0]?.message?.content || resp.data?.choices?.[0]?.text || '';
         sendResponse({ ok: true, text: out });
@@ -534,9 +493,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'AUTOCOMPLETE_SUGGEST') {
     (async () => {
       try {
-        const { apiBase, apiKey, model } = await getSettings();
+        const { apiBase, apiKey, useApiKey, model, provider, useCustomCompletionsUrl, customCompletionsUrl } = await getSettings();
         if (!apiBase) return sendResponse({ ok: false, error: 'Missing API Base URL. Set it in Options.' });
-        if (!apiKey) return sendResponse({ ok: false, error: 'Missing API Key. Set it in Options.' });
+        if (useApiKey && !apiKey) return sendResponse({ ok: false, error: 'Missing API Key. Enable or provide one in Options.' });
         if (!model) return sendResponse({ ok: false, error: 'Missing Model. Set it in Options.' });
 
         const { prefix, suffix, lang } = message?.payload || {};
@@ -571,7 +530,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           { role: 'user', content: user }
         ];
 
-        const resp = await chatCompletions({ apiBase, apiKey, model, temperature: 0.2, messages });
+        const resp = await chatCompletions({ apiBase, apiKey, useApiKey, model, temperature: 0.2, messages, provider, useCustomCompletionsUrl, customCompletionsUrl });
         if (!resp?.ok) return sendResponse(resp);
         let out = resp.data?.choices?.[0]?.message?.content || resp.data?.choices?.[0]?.text || '';
         out = String(out || '').trim();
@@ -587,9 +546,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'CHAT_COMPLETION_STREAM_START') {
     (async () => {
       try {
-        const { apiBase, apiKey, model, temperature } = await getSettings();
+        const { apiBase, apiKey, useApiKey, model, temperature } = await getSettings();
         if (!apiBase) return sendResponse({ ok: false, error: 'Missing API Base URL. Set it in Options.' });
-        if (!apiKey) return sendResponse({ ok: false, error: 'Missing API Key. Set it in Options.' });
+        if (useApiKey && !apiKey) return sendResponse({ ok: false, error: 'Missing API Key. Enable or provide one in Options.' });
         if (!model) return sendResponse({ ok: false, error: 'Missing Model. Set it in Options.' });
 
         const { messages, reqId, tabId } = message.payload || {};
@@ -599,7 +558,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Acknowledge start so UI can show placeholder
         sendResponse({ ok: true, started: true });
 
-        await chatCompletionsStream({ apiBase, apiKey, model, temperature, messages }, targetTabId, reqId);
+        await chatCompletionsStream({ apiBase, apiKey, useApiKey, model, temperature, messages }, targetTabId, reqId);
       } catch (e) {
         const t = sender?.tab?.id;
         if (t && sidepanelPorts.has(t)) {
@@ -711,6 +670,161 @@ async function sendMessageWithRetry(tabId, msg, retries = 2, backoffMs = 400) {
   throw lastErr || new Error('sendMessage failed');
 }
 
+// Detect if the configured API base appears to be Anthropic
+function isAnthropicBase(apiBase) {
+  try { return /anthropic\.com\/?/i.test(String(apiBase || '')); } catch (_) { return false; }
+}
+
+// Convert OpenAI-style chat messages to Anthropic's messages/system fields
+function convertToAnthropicMessages(messages) {
+  const sys = [];
+  const out = [];
+  for (const m of (messages || [])) {
+    const role = m?.role;
+    let content = m?.content;
+    if (Array.isArray(content)) {
+      content = content.map(p => (typeof p === 'string' ? p : (p?.text || p?.content || ''))).join('');
+    }
+    content = String(content ?? '');
+    if (role === 'system') {
+      if (content) sys.push(content);
+    } else if (role === 'user' || role === 'assistant') {
+      out.push({ role, content });
+    }
+  }
+  const system = sys.length ? sys.join('\n') : undefined;
+  return { system, messages: out };
+}
+
+// Anthropic streaming implementation (maps Anthropic SSE to our sidepanel stream events)
+async function chatCompletionsStreamAnthropic({ apiBase, apiKey, useApiKey, model, temperature, messages }, tabId, reqId) {
+  const url = `${apiBase.replace(/\/$/, '')}/messages`;
+  const controller = new AbortController();
+  const to = setTimeout(() => controller.abort(), 120_000);
+  try { streamingControllers.set(reqId, controller) } catch (_) {}
+
+  const post = (msg) => {
+    const specific = sidepanelPorts.get(tabId);
+    const global = sidepanelPorts.get(GLOBAL_KEY);
+    const targets = specific ? [specific] : (global ? [global] : Array.from(new Set(sidepanelPorts.values())));
+    for (const p of targets) {
+      try { p.postMessage({ reqId, ...msg }); } catch (_) {}
+    }
+  };
+
+  try {
+    const { system, messages: aMsgs } = convertToAnthropicMessages(messages);
+    const body = { model, messages: aMsgs, temperature, max_tokens: 1024, stream: true };
+    if (system) body.system = system;
+    const headers = {
+      'Content-Type': 'application/json',
+      'anthropic-version': '2023-06-01',
+      'Accept': 'text/event-stream'
+    };
+    if (useApiKey && apiKey) headers['x-api-key'] = apiKey;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      post({ type: 'CHAT_STREAM_ERROR', error: `API error ${resp.status}: ${text || resp.statusText}` });
+      clearTimeout(to);
+      streamingControllers.delete(reqId);
+      return;
+    }
+
+    // Non-streaming fallback (shouldn't happen if stream: true, but be resilient)
+    const ct = resp.headers.get('content-type') || '';
+    if (!ct.includes('text/event-stream') || !resp.body) {
+      try {
+        const data = await resp.json();
+        const txt = Array.isArray(data?.content) ? (data.content.map(c => c?.text || '').join('')) : (data?.content?.[0]?.text || '');
+        post({ type: 'CHAT_STREAM_BEGIN' });
+        if (txt) post({ type: 'CHAT_STREAM_DELTA', delta: txt });
+        post({ type: 'CHAT_STREAM_DONE' });
+      } catch (e) {
+        const text = await resp.text().catch(() => '');
+        post({ type: 'CHAT_STREAM_ERROR', error: `Non-stream parse error: ${String(e?.message || e)} ${text ? `(${text.slice(0,200)})` : ''}` });
+      }
+      clearTimeout(to);
+      streamingControllers.delete(reqId);
+      return;
+    }
+
+    // Streaming SSE
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let eventLines = [];
+    let begun = false;
+    const flushEvent = () => {
+      if (!eventLines.length) return false;
+      const evName = (eventLines.find(l => l.startsWith('event:')) || '').slice(6).trim();
+      const dataPayload = eventLines
+        .filter(l => l.startsWith('data:'))
+        .map(l => l.slice(5).trim())
+        .join('\n');
+      eventLines = [];
+      if (!dataPayload) return false;
+      try {
+        const json = JSON.parse(dataPayload);
+        const type = json?.type || evName;
+        if (!begun) { post({ type: 'CHAT_STREAM_BEGIN' }); begun = true; }
+        if (type === 'content_block_delta' && json?.delta?.text) {
+          const chunk = String(json.delta.text || '');
+          if (chunk) post({ type: 'CHAT_STREAM_DELTA', delta: chunk });
+        } else if (type === 'message_stop') {
+          post({ type: 'CHAT_STREAM_DONE' });
+          return true;
+        }
+      } catch (_) { /* ignore parse errors */ }
+      return false;
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf('\n')) >= 0) {
+        const lineRaw = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 1);
+        const line = lineRaw.replace(/\r$/, '');
+        if (line.trim() === '') {
+          const shouldStop = flushEvent();
+          if (shouldStop) {
+            clearTimeout(to);
+            streamingControllers.delete(reqId);
+            return;
+          }
+          continue;
+        }
+        if (line.startsWith('data:') || line.startsWith('event:')) {
+          eventLines.push(line.trim());
+        }
+      }
+    }
+    // Flush residual event and close
+    flushEvent();
+    if (!begun) post({ type: 'CHAT_STREAM_BEGIN' });
+    post({ type: 'CHAT_STREAM_DONE' });
+    clearTimeout(to);
+    streamingControllers.delete(reqId);
+  } catch (err) {
+    const msg = String(err?.message || err || '');
+    if (err?.name === 'AbortError' || /aborted|abort/i.test(msg)) {
+      try { post({ type: 'CHAT_STREAM_DONE' }) } catch (_) {}
+    } else {
+      post({ type: 'CHAT_STREAM_ERROR', error: `Request failed: ${msg}` });
+    }
+    clearTimeout(to);
+    streamingControllers.delete(reqId);
+  }
+}
+
 // Reusable function to perform Google Search + scrape
 async function performGoogleSearchAndScrape(payload) {
   try {
@@ -748,8 +862,20 @@ async function getSettings() {
   const s = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
   const merged = { ...DEFAULT_SETTINGS, ...s };
   // Fill in provider defaults if fields missing
-  if (merged.provider === 'cerebras' && !merged.apiBase) merged.apiBase = 'https://api.cerebras.ai/v1';
-  if (merged.provider === 'jan' && !merged.apiBase) merged.apiBase = 'http://localhost:1337/v1';
+  if (!merged.apiBase) {
+    if (merged.provider === 'jan-server') merged.apiBase = 'https://comingsoon.ai';
+    if (merged.provider === 'openai') merged.apiBase = 'https://api.openai.com/v1';
+    else if (merged.provider === 'anthropic') merged.apiBase = 'https://api.anthropic.com/v1'; // Requires OpenAI-compatible shim
+    else if (merged.provider === 'openrouter') merged.apiBase = 'https://openrouter.ai/api/v1';
+    else if (merged.provider === 'cerebras') merged.apiBase = 'https://api.cerebras.ai/v1';
+    else if (merged.provider === 'jan') merged.apiBase = 'http://localhost:1337/v1';
+  }
+  // Force-hide Jan Server base to comingsoon.ai until public release
+  try {
+    if (merged.provider === 'jan-server') {
+      merged.apiBase = 'https://comingsoon.ai';
+    }
+  } catch (_) { /* ignore */ }
   return merged;
 }
 
@@ -770,33 +896,6 @@ function buildInlineAssistMessages({ mode, text, lang }) {
 
   let instruction = '';
   switch (m) {
-    case 'fix_grammar':
-      instruction = [
-        'Fix grammar, spelling, and punctuation while keeping the tone and wording as close as possible.',
-        'Do not change length by more than ~5%.'
-      ].join(' ');
-      break;
-    case 'shorten':
-      instruction = [
-        'Make it 20–40% shorter while fully preserving meaning and important details.',
-        'Remove filler and hedging, prefer active voice.'
-      ].join(' ');
-      break;
-    case 'expand':
-      instruction = [
-        'Slightly elaborate to improve clarity and flow (1–2 brief additions such as transitions or minor context).',
-        'Do not invent facts; avoid fluff; keep tone.'
-      ].join(' ');
-      break;
-    case 'tone_formal':
-      instruction = 'Rewrite in a formal, professional tone without changing meaning or length by more than ~10%.';
-      break;
-    case 'tone_friendly':
-      instruction = 'Rewrite in a friendly, approachable tone without changing meaning or length by more than ~10%.';
-      break;
-    case 'summarize':
-      instruction = 'Summarize in 1–3 sentences, keeping key details and names; plain text only.';
-      break;
     case 'translate':
       instruction = `Translate into ${targetLang}. Preserve names, brand terms, code, emojis, URLs, and formatting; no notes or brackets.`;
       break;
@@ -824,9 +923,9 @@ async function handleSummarize(payload) {
       return { ok: false, error: 'No content to summarize.' };
     }
 
-    const { apiBase, apiKey, model, temperature } = await getSettings();
+    const { apiBase, apiKey, useApiKey, model, temperature, provider, useCustomCompletionsUrl, customCompletionsUrl } = await getSettings();
     if (!apiBase) return { ok: false, error: 'Missing API Base URL. Set it in Options.' };
-    if (!apiKey) return { ok: false, error: 'Missing API Key. Set it in Options.' };
+    if (useApiKey && !apiKey) return { ok: false, error: 'Missing API Key. Enable or provide one in Options.' };
     if (!model) return { ok: false, error: 'Missing Model. Set it in Options.' };
 
     const maxChars = 16000; // keep request manageable
@@ -855,7 +954,7 @@ async function handleSummarize(payload) {
       { role: 'user', content: `Summarize with sections: \n\n# TL;DR (1 line)\n# Key Points\n# Actions (if any)\n# Notable Quotes (optional)\n# Glossary (only if necessary)\n\nThen analyze potential biases or missing perspectives in 1-2 bullets.\n\n${userPrompt}` }
     ];
 
-    const response = await chatCompletions({ apiBase, apiKey, model, temperature, messages });
+    const response = await chatCompletions({ apiBase, apiKey, useApiKey, model, temperature, messages, provider, useCustomCompletionsUrl, customCompletionsUrl });
     if (!response.ok) return response;
 
     return { ok: true, summary: response.data?.choices?.[0]?.message?.content || response.data?.choices?.[0]?.text || '(no content)' };
@@ -866,11 +965,12 @@ async function handleSummarize(payload) {
 
 async function testSettings() {
   try {
-    const { apiBase, apiKey, model } = await getSettings();
-    if (!apiBase || !apiKey) return { ok: false, error: 'apiBase or apiKey is missing.' };
+    const { apiBase, apiKey, useApiKey, model } = await getSettings();
+    if (!apiBase) return { ok: false, error: 'apiBase is missing.' };
+    if (useApiKey && !apiKey) return { ok: false, error: 'API key missing while enabled.' };
 
     // Fast ping using /models (OpenAI-compatible). 5s timeout.
-    const ping = await pingModels({ apiBase, apiKey });
+    const ping = await pingModels({ apiBase, apiKey, useApiKey });
     if (ping.ok) {
       // If models list is available, optionally check if configured model appears.
       let note = '';
@@ -884,7 +984,7 @@ async function testSettings() {
     // Fallback: attempt a tiny chat request (10–15s timeout via chatCompletions)
     if (!model) return { ok: false, error: `Ping failed: ${ping.error}. Also missing model for chat test.` };
     const res = await chatCompletions({
-      apiBase, apiKey, model, temperature: 0,
+      apiBase, apiKey, useApiKey, model, temperature: 0,
       messages: [
         { role: 'system', content: 'You are a connectivity tester.' },
         { role: 'user', content: 'Reply with OK.' }
@@ -898,18 +998,19 @@ async function testSettings() {
   }
 }
 
-async function pingModels({ apiBase, apiKey }) {
+async function pingModels({ apiBase, apiKey, useApiKey }) {
   const url = `${apiBase.replace(/\/$/, '')}/models`;
   const controller = new AbortController();
   const to = setTimeout(() => controller.abort(), 5_000);
   try {
-    const resp = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`
-      },
-      signal: controller.signal
-    });
+    const headers = {};
+    if (isAnthropicBase(apiBase)) {
+      headers['anthropic-version'] = '2023-06-01';
+      if (useApiKey && apiKey) headers['x-api-key'] = apiKey;
+    } else {
+      if (useApiKey && apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    const resp = await fetch(url, { method: 'GET', headers, signal: controller.signal });
     clearTimeout(to);
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
@@ -926,18 +1027,68 @@ async function pingModels({ apiBase, apiKey }) {
   }
 }
 
-async function chatCompletions({ apiBase, apiKey, model, temperature, messages }) {
-  const url = `${apiBase.replace(/\/$/, '')}/chat/completions`;
+async function chatCompletions({ apiBase, apiKey, useApiKey, model, temperature, messages }) {
+  // Anthropic shim for non-streaming
+  if (isAnthropicBase(apiBase)) {
+    const urlA = `${apiBase.replace(/\/$/, '')}/messages`;
+    const controller = new AbortController();
+    const to = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const { system, messages: aMsgs } = convertToAnthropicMessages(messages);
+      const body = { model, messages: aMsgs, temperature, max_tokens: 1024 };
+      if (system) body.system = system;
+      const resp = await fetch(urlA, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(useApiKey && apiKey ? { 'x-api-key': apiKey } : {}),
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      clearTimeout(to);
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '');
+        return { ok: false, error: `API error ${resp.status}: ${text || resp.statusText}` };
+      }
+      const dataA = await resp.json();
+      const contentText = Array.isArray(dataA?.content) ? dataA.content.map(c => c?.text || '').join('') : (dataA?.content?.[0]?.text || '');
+      const mapped = {
+        choices: [
+          { message: { role: 'assistant', content: contentText }, text: contentText }
+        ]
+      };
+      return { ok: true, data: mapped };
+    } catch (err) {
+      clearTimeout(to);
+      const msg = String(err?.message || err);
+      if (msg.includes('aborted')) {
+        return { ok: false, error: 'Request timed out. Check your network or API Base URL.' };
+      }
+      return { ok: false, error: `Request failed: ${msg}` };
+    }
+  }
+
+  // Default OpenAI-compatible path (overrideable by full custom URL)
+  let url = `${apiBase.replace(/\/$/, '')}/chat/completions`;
+  try {
+    const { provider, useCustomCompletionsUrl, customCompletionsUrl } = await getSettings();
+    if (provider === 'custom' && useCustomCompletionsUrl && isSupportedUrl(customCompletionsUrl)) {
+      url = String(customCompletionsUrl);
+    }
+  } catch (_) { /* ignore */ }
   const controller = new AbortController();
   // Use a shorter timeout so the UI doesn't appear stuck
   const to = setTimeout(() => controller.abort(), 15_000);
   try {
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+    if (useApiKey && apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
     const resp = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
+      headers,
       body: JSON.stringify({ model, messages, temperature }),
       signal: controller.signal
     });
