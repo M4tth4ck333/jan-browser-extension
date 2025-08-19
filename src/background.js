@@ -89,7 +89,7 @@ async function connectMcpBridge() {
           const query = String(params?.query || '').trim();
           if (!query) return reply({ ok: false, error: 'Missing query' });
           console.log('[MCP Bridge] invoking performGoogleSearchAndScrape', { query });
-          const res = await performGoogleSearchAndScrape({ query, closeTab: true });
+          const res = await performGoogleSearchAndScrape({ query, closeTab: true, debug: true });
           console.log('[MCP Bridge] performGoogleSearchAndScrape done', { ok: res?.ok, hasData: !!res?.data });
           if (res?.ok && res?.data) {
             try {
@@ -858,7 +858,7 @@ async function chatCompletionsStreamAnthropic({ apiBase, apiKey, useApiKey, mode
 // Reusable function to perform Google Search + scrape
 async function performGoogleSearchAndScrape(payload) {
   try {
-    const { query, closeTab = true } = payload || {};
+    const { query, closeTab = true, debug = false, readinessTimeoutMs = 15000, minResults = 4 } = payload || {};
     if (!query || !String(query).trim()) {
       return { ok: false, error: 'Missing query' };
     }
@@ -870,10 +870,22 @@ async function performGoogleSearchAndScrape(payload) {
     // Wait for load complete
     await waitForTabComplete(tabId, 15000);
     console.log('[SearchFlow] tab load complete', { tabId });
-    // Small settle delay for dynamic SERP hydration
-    await delay(1200);
-    console.log('[SearchFlow] sending SCRAPE_GOOGLE_SERP to content script', { tabId });
-    const data = await sendMessageWithRetry(tabId, { type: 'SCRAPE_GOOGLE_SERP' }, 3, 500);
+    // Small human-like jitter before interacting
+    await delay(500 + Math.floor(500 + Math.random() * 1200));
+    // Ask content script to confirm SERP readiness (hydration) before scraping
+    let ready = null;
+    try {
+      ready = await sendMessageWithRetry(tabId, { type: 'WAIT_FOR_SERP_READY', payload: { timeoutMs: readinessTimeoutMs, minResults, debug } }, 3, 600);
+      console.log('[SearchFlow] WAIT_FOR_SERP_READY', { ok: !!ready?.ok, ready: !!ready?.ready, reason: ready?.reason, counts: ready?.counts });
+    } catch (e) {
+      console.warn('[SearchFlow] readiness check failed; proceeding anyway', String(e?.message || e));
+    }
+    if (!ready?.ok || !ready?.ready) {
+      // One more small settle if not ready
+      await delay(800 + Math.floor(Math.random() * 600));
+    }
+    console.log('[SearchFlow] sending SCRAPE_GOOGLE_SERP to content script', { tabId, debug });
+    const data = await sendMessageWithRetry(tabId, { type: 'SCRAPE_GOOGLE_SERP', debug }, 3, 500);
     console.log('[SearchFlow] scrape response received', { ok: !!data, keys: data ? Object.keys(data) : [] });
     if (closeTab) {
       try {
