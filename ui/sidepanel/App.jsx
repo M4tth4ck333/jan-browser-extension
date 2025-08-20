@@ -569,6 +569,8 @@ export default function App() {
         refreshTabs()
         // Route streaming to the newly active tab
         try { if (portRef.current) portRef.current.postMessage({ type: 'REGISTER_PORT', tabId: t.id }) } catch (_) {}
+        // Refresh page content/context for the newly active tab
+        try { await readPage() } catch (_) {}
         // Switch to the session mapped to this tab, if any
         const map = await loadTabSessionMap()
         const sid = map[t.id]
@@ -585,7 +587,7 @@ export default function App() {
     }
     try { chrome.tabs.onActivated.addListener(onActivated) } catch (_) {}
     return () => { try { chrome.tabs.onActivated.removeListener(onActivated) } catch (_) {} }
-  }, [refreshTabs, loadTabSessionMap])
+  }, [refreshTabs, loadTabSessionMap, readPage])
 
   const summarize = useCallback(async (useSelection) => {
     const pd = pageData || (await readPage())
@@ -1080,10 +1082,10 @@ export default function App() {
                 .filter(m => m.role !== 'system' && !(m.role === 'assistant' && typeof m.content === 'string' && m.content.startsWith('New chat created')))
               if (!hasUserMessage) {
                 return (
-                  <div className="w-full h-full grid place-items-center translate-y-2">
+                  <div className="w-full h-full grid place-items-center">
                     <div className="text-center">
-                      <div className="font-arapey text-5xl md:text-6xl leading-tight">Hi, how are you?</div>
-                      <div className="mt-3 ds-muted-text text-lg">How can I help you today?</div>
+                      <div className="font-arapey text-5xl md:text-6xl leading-tight">What do you </div>
+                      <div className="mt-3 ds-muted-text text-lg">want to do today?</div>
                     </div>
                   </div>
                 )
@@ -1235,15 +1237,6 @@ export default function App() {
               disabled={busy || !!streamingReqId}
             />
             <div className="flex items-center gap-1">
-              <Button
-                variant={useContextThisMsg ? 'secondary' : 'ghost'}
-                size="sm"
-                aria-pressed={useContextThisMsg}
-                onClick={() => setUseContextThisMsg(v => !v)}
-                title={useContextThisMsg ? 'Using page context for this message' : 'Not using page context for this message'}
-              >
-                Context{useContextThisMsg ? '' : ' (off)'}
-              </Button>
               <Button
                 variant="ghost"
                 size="icon"
