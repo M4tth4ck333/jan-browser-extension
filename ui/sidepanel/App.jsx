@@ -1160,20 +1160,28 @@ export default function App() {
                     </span>
                   </button>
                 </Popover.Trigger>
-                <Popover.Content side="top" align="start" className="rounded-xl border ds-border bg-card/80 backdrop-blur-sm shadow-lg p-2 w-[86vw] sm:w-[460px] max-h-[60vh]">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-medium text-[11px] opacity-80">Selection</span>
-                    <div className="flex items-center gap-1 opacity-70">
-                      <span title={`${selectionText.length} chars`} className="text-[10px]">{selectionText.length}</span>
-                      <Button variant="ghost" size="icon" aria-label="Clear selection preview" onClick={() => setSelectionText('')}>
-                        <XIcon size={12} />
-                      </Button>
+                <Popover.Portal>
+                  <Popover.Content
+                    side="top"
+                    align="start"
+                    sideOffset={8}
+                    className="rounded-xl border ds-border ds-bg shadow-2xl p-2 w-[86vw] sm:w-[460px] max-h-[60vh] z-50"
+                    style={{ backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium text-[11px] opacity-80">Selection</span>
+                      <div className="flex items-center gap-1 opacity-70">
+                        <span title={`${selectionText.length} chars`} className="text-[10px]">{selectionText.length}</span>
+                        <Button variant="ghost" size="icon" aria-label="Clear selection preview" onClick={() => setSelectionText('')}>
+                          <XIcon size={12} />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                  <div className="max-h-48 overflow-y-auto whitespace-pre-wrap leading-5 text-sm">
-                    {selectionText}
-                  </div>
-                </Popover.Content>
+                    <div className="max-h-48 overflow-y-auto whitespace-pre-wrap leading-5 text-sm">
+                      {selectionText}
+                    </div>
+                  </Popover.Content>
+                </Popover.Portal>
               </Popover.Root>
             ) : null}
             {tabs.map(t => {
@@ -1219,7 +1227,7 @@ export default function App() {
                   side="top"
                   align="end"
                   sideOffset={8}
-                  className="rounded-xl border ds-border bg-background shadow-2xl p-2 w-[86vw] sm:w-[520px] max-h-[70vh] z-50"
+                  className="rounded-xl border ds-border ds-bg shadow-2xl p-2 w-[86vw] sm:w-[520px] max-h-[70vh] z-50"
                   style={{ backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
                 >
                   <div className="flex flex-col gap-2">
