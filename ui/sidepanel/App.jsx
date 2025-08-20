@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+  import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
@@ -11,6 +11,19 @@ import * as ScrollArea from '@radix-ui/react-scroll-area'
 import * as Popover from '@radix-ui/react-popover'
 import { User as UserIcon, Send, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Search as SearchIcon, Settings as SettingsIcon, Trash2 as TrashIcon } from 'lucide-react'
 import { Input } from '../components/ui/input.jsx'
+
+// Day label helper (plain function; no hooks at module scope)
+function dayLabel(ts) {
+  try {
+    const d = new Date(ts)
+    const today = new Date()
+    const yest = new Date(); yest.setDate(today.getDate() - 1)
+    const dS = d.toDateString()
+    if (dS === today.toDateString()) return 'Today'
+    if (dS === yest.toDateString()) return 'Yesterday'
+    return d.toLocaleDateString()
+  } catch { return '' }
+}
 
 function Message({ role, content, ts, isFirst, isLast, onCopy }) {
   const isUser = role === 'user'
@@ -80,7 +93,7 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
   return (
     <div className={`w-full ${isUser ? 'justify-end' : 'justify-start'} mb-1 flex`}>
       <div className={`flex items-end gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
-        <div className={`hidden sm:flex shrink-0 h-6 w-6 rounded-full bg-muted text-muted-foreground items-center justify-center ${isLast ? '' : 'invisible'}`}>
+        <div className={`hidden sm:flex shrink-0 h-6 w-6 rounded-full bg-muted text-muted-foreground items-center justify-center ${isFirst ? '' : 'invisible'}`}>
           {isUser ? <UserIcon size={14} /> : <Bot size={14} />}
         </div>
         <div className={`${isUser ? `group pastel-grad pastel-fore relative max-w-[100%] sm:max-w-[75%] ${radius} px-3 py-2 text-sm` : 'group relative max-w-[100%] sm:max-w-[75%]'}`}>
@@ -148,9 +161,9 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
             </div>
           )}
           {!isUser ? (
-            <div className="mt-3 pt-2 border-t ds-border flex justify-end opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onCopy?.(content)} aria-label="Copy">
-                <CopyIcon size={14} className="mr-1" /> Copy
+            <div className="absolute top-1 right-1 flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onCopy?.(content)} aria-label="Copy">
+                <CopyIcon size={14} />
               </Button>
             </div>
           ) : null}
@@ -1028,6 +1041,12 @@ export default function App() {
             <span className="font-semibold truncate max-w-[60vw] min-w-0">{sessionTitle || 'Jan'}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {streamingReqId ? (
+              <div className="hidden sm:flex items-center gap-1 text-xs ds-muted-text">
+                <span className="spinner" aria-hidden="true" />
+                <span>Generating</span>
+              </div>
+            ) : null}
             <Button
               variant="secondary"
               size="sm"
@@ -1097,16 +1116,25 @@ export default function App() {
                     const nextRole = arr[i + 1]?.role
                     const isFirst = prevRole !== m.role
                     const isLast = nextRole !== m.role
+                    const showDayDivider = i === 0 || dayLabel(arr[i - 1]?.ts) !== dayLabel(m.ts)
                     return (
-                      <Message
-                        key={i}
-                        role={m.role}
-                        content={m.content}
-                        ts={m.ts}
-                        isFirst={isFirst}
-                        isLast={isLast}
-                        onCopy={copyToClipboard}
-                      />
+                      <React.Fragment key={i}>
+                        {showDayDivider ? (
+                          <div className="my-3 flex items-center gap-2 text-[10px] uppercase tracking-wide ds-muted-text">
+                            <div className="flex-1 border-t ds-border" />
+                            <span className="px-2">{dayLabel(m.ts)}</span>
+                            <div className="flex-1 border-t ds-border" />
+                          </div>
+                        ) : null}
+                        <Message
+                          role={m.role}
+                          content={m.content}
+                          ts={m.ts}
+                          isFirst={isFirst}
+                          isLast={isLast}
+                          onCopy={copyToClipboard}
+                        />
+                      </React.Fragment>
                     )
                   })}
                 </div>
@@ -1118,7 +1146,7 @@ export default function App() {
           </ScrollArea.Scrollbar>
         </ScrollArea.Root>
 
-        <footer className="p-3 sticky bottom-0 z-20 bg-transparent border-transparent composer">
+        <footer className="p-3 sticky bottom-0 z-20 bg-background/60 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t ds-border composer">
           {/* Chips row: selection chip + selected tabs */}
           <div className="mb-2 flex items-center gap-2 overflow-x-auto no-scrollbar">
             {selectionText && selectionText.trim().length > 0 ? (

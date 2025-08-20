@@ -435,6 +435,81 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep the message channel open for async response
   }
 
+  // Inline Assistant (tooltip) one-shot call
+  if (message?.type === 'INLINE_ASSIST_START') {
+    (async () => {
+      try {
+        const { apiBase, apiKey, useApiKey, model, temperature } = await getSettings();
+        if (!apiBase) return sendResponse({ ok: false, error: 'Missing API Base URL. Set it in Options.' });
+        if (useApiKey && !apiKey) return sendResponse({ ok: false, error: 'Missing API Key. Enable or provide one in Options.' });
+        if (!model) return sendResponse({ ok: false, error: 'Missing Model. Set it in Options.' });
+
+        const { mode, text, lang } = message?.payload || {};
+        const src = String(text || '').trim();
+        if (!src) return sendResponse({ ok: false, error: 'No selection text.' });
+
+        const { system, user } = buildInlineAssistMessages({ mode, text: src, lang });
+        const messages = [
+          { role: 'system', content: system },
+          { role: 'user', content: user }
+        ];
+
+        const resp = await chatCompletions({ apiBase, apiKey, useApiKey, model, temperature, messages });
+        if (!resp?.ok) return sendResponse(resp);
+        const out = resp.data?.choices?.[0]?.message?.content || resp.data?.choices?.[0]?.text || '';
+        sendResponse({ ok: true, text: out });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+      }
+    })();
+    return true;
+  }
+
+  // Custom Prompt overlay run
+  if (message?.type === 'CUSTOM_PROMPT_RUN') {
+    (async () => {
+      try {
+        const { apiBase, apiKey, useApiKey, model, temperature } = await getSettings();
+        if (!apiBase) return sendResponse({ ok: false, error: 'Missing API Base URL. Set it in Options.' });
+        if (useApiKey && !apiKey) return sendResponse({ ok: false, error: 'Missing API Key. Enable or provide one in Options.' });
+        if (!model) return sendResponse({ ok: false, error: 'Missing Model. Set it in Options.' });
+
+        const { prompt, content, url, title, lang, selection, metaDescription } = message?.payload || {};
+        const p = String(prompt || '').trim();
+        if (!p) return sendResponse({ ok: false, error: 'Missing prompt.' });
+
+        const maxChars = 16000;
+        const bodyText = String((selection && String(selection).trim()) || (content && String(content).trim()) || '').slice(0, maxChars);
+
+        const system = 'You are a helpful assistant. Follow the instruction precisely and respond concisely. Preserve formatting when applicable.';
+        const user = [
+          p,
+          '',
+          'Context:',
+          title ? `Title: ${title}` : null,
+          url ? `URL: ${url}` : null,
+          lang ? `Detected Language: ${lang}` : null,
+          metaDescription ? `Meta: ${metaDescription}` : null,
+          '',
+          bodyText ? 'Text:\n' + bodyText : null
+        ].filter(Boolean).join('\n');
+
+        const messages = [
+          { role: 'system', content: system },
+          { role: 'user', content: user }
+        ];
+
+        const resp = await chatCompletions({ apiBase, apiKey, useApiKey, model, temperature, messages });
+        if (!resp?.ok) return sendResponse(resp);
+        const out = resp.data?.choices?.[0]?.message?.content || resp.data?.choices?.[0]?.text || '';
+        sendResponse({ ok: true, text: out });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+      }
+    })();
+    return true;
+  }
+
   if (message?.type === 'TEST_SETTINGS') {
     (async () => {
       const ok = await testSettings();
