@@ -1214,45 +1214,65 @@ export default function App() {
                   <span>Add</span>
                 </button>
               </Popover.Trigger>
-              <Popover.Content side="top" align="end" className="rounded-xl border ds-border bg-card/80 backdrop-blur-sm shadow-lg p-2 w-[86vw] sm:w-[460px] max-h-[60vh]">
-                <div className="flex flex-col gap-2">
+              <Popover.Portal>
+                <Popover.Content
+                  side="top"
+                  align="end"
+                  sideOffset={8}
+                  className="rounded-xl border ds-border bg-background shadow-2xl p-2 w-[86vw] sm:w-[520px] max-h-[70vh] z-50"
+                  style={{ backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
+                >
+                  <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-sm">Add tabs</span>
+                    <span className="text-[11px] ds-muted-text">
+                      {filteredTabs.filter(t2 => !selectedTabIds.includes(t2.id) && isSupportedUrl(t2.url)).length} results
+                    </span>
+                  </div>
                   <Input
                     value={tabQuery}
                     onChange={(e) => setTabQuery(e.target.value)}
-                    placeholder="Search tabs..."
+                    placeholder="Search open tabs by title or URL"
                     className="h-8 text-sm"
                   />
-                  <div className="overflow-y-auto pr-1" style={{ maxHeight: '48vh' }}>
-                    {filteredTabs
-                      .filter(t2 => !selectedTabIds.includes(t2.id) && isSupportedUrl(t2.url))
-                      .map(t2 => {
-                        let host = ''
-                        try { host = new URL(t2.url || '').hostname } catch {}
-                        return (
-                          <button
-                            key={t2.id}
-                            className="w-full text-left flex items-center gap-2 p-2 rounded-lg border ds-border bg-card/70 hover:bg-card/90"
-                            onClick={() => { toggleTab(t2.id); setTabPickerOpen(false); setTabQuery('') }}
-                          >
-                            {t2.favIconUrl ? (
-                              <img src={t2.favIconUrl} alt="" className="h-4 w-4 rounded-sm" />
-                            ) : (
-                              <span className="h-4 w-4 rounded-sm bg-muted inline-block" />
-                            )}
-                            <div className="min-w-0">
-                              <div className="truncate text-sm">{t2.title || '(untitled tab)'}</div>
-                              <div className="truncate text-xs text-muted-foreground">{host}</div>
-                            </div>
-                            <div className="ml-auto text-xs text-muted-foreground">Add</div>
-                          </button>
-                        )
-                      })}
-                    {!filteredTabs.filter(t2 => !selectedTabIds.includes(t2.id) && isSupportedUrl(t2.url)).length ? (
-                      <div className="text-xs text-muted-foreground p-2">No other tabs found</div>
-                    ) : null}
+                  <div className="rounded-lg border ds-border overflow-hidden">
+                    <div className="overflow-y-auto" style={{ maxHeight: '48vh' }}>
+                      {filteredTabs
+                        .filter(t2 => !selectedTabIds.includes(t2.id) && isSupportedUrl(t2.url))
+                        .map(t2 => {
+                          let host = ''
+                          try { host = new URL(t2.url || '').hostname } catch {}
+                          return (
+                            <button
+                              key={t2.id}
+                              className="w-full text-left flex items-center gap-2 p-3 hover:bg-muted/20"
+                              onClick={() => { toggleTab(t2.id) }}
+                            >
+                              {t2.favIconUrl ? (
+                                <img src={t2.favIconUrl} alt="" className="h-4 w-4 rounded-sm" />
+                              ) : (
+                                <span className="h-4 w-4 rounded-sm bg-muted inline-block" />
+                              )}
+                              <div className="min-w-0">
+                                <div className="truncate text-sm">{t2.title || '(untitled tab)'}</div>
+                                <div className="truncate text-xs text-muted-foreground">{host}</div>
+                              </div>
+                              <div className="ml-auto">
+                                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                                  <PlusIcon size={14} />
+                                </span>
+                              </div>
+                            </button>
+                          )
+                        })}
+                      {!filteredTabs.filter(t2 => !selectedTabIds.includes(t2.id) && isSupportedUrl(t2.url)).length ? (
+                        <div className="text-xs text-muted-foreground p-3">No tabs match your search.</div>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-              </Popover.Content>
+                  </div>
+                </Popover.Content>
+              </Popover.Portal>
             </Popover.Root>
           </div>
           <div className="flex items-stretch gap-2">
