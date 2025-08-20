@@ -1,92 +1,93 @@
-# Agents Overview
+# Jan Extension — Agents Guide
 
-A concise guide to the extension's agent architecture, message flows, and how to extend it.
+What powers the Jan Extension under the hood: agents, message flow, and how to extend it.
 
 ## Goals
 
-- Unify page summarization, inline assistance, and search into a consistent agent orchestration.
-- Support OpenAI-compatible providers (Jan Server/local, Cerebras, etc.) with a simple config UI.
+- Unify page summarization, inline writing assist, and quick web search.
+- Support any OpenAI-compatible API (Jan Server/local, Cerebras, OpenAI, etc.).
 - Keep UX fast and predictable across content script, background, and side panel.
+
+## Mental Model
+
+- Background (service worker): the router/orchestrator. Hosts agents and tools.
+- Content script: runs in the page. Extracts text, shows inline tooltip UI, DOM ops.
+- Side panel UI: the app surface. Shows sessions, chat composer, and streaming output.
+
+These talk over a long‑lived port so streaming is smooth and cancellable.
 
 ## Key Components
 
 - Side Panel UI (`ui/sidepanel/`)
-  - Presents session context and chat composer, renders streaming markdown output.
-  - Manages tab selection and auto-following of the active tab.
+  - Shows session context + chat composer; renders streaming Markdown.
+  - Tracks active tab; auto-follows when enabled.
 - Background Service Worker (`src/background.js`)
-  - Central router/orchestrator for messages between UI, content scripts, and external services.
-  - Hosts agents and tools, including Google Search + SERP scraping.
+  - Central router for UI ↔ content scripts ↔ external services.
+  - Hosts agents/tools including Google Search + SERP scraping and the MCP bridge.
 - Content Script (`src/content.js`)
-  - Extracts page/selection text, drives Inline Assistant tooltip UI, handles DOM-level operations.
+  - Extracts page/selection text; presents Inline Assistant tooltip; DOM helpers.
 - Options UI (`ui/options/`)
-  - Allows configuring API base URL, API key, model presets (OpenAI-compatible endpoints including Jan and Cerebras).
+  - Configure provider base URL, API key, model presets (OpenAI‑compatible endpoints, including Jan and Cerebras).
 - MCP Search Bridge (`mcp/search-server/`)
-  - Optional local MCP server that proxies search/visit tools via the extension bridge.
+  - Optional local MCP server that exposes search/visit tools to LLM clients via a WebSocket bridge.
 
 ## Agents
 
-- Side Panel Summarizer Agent
-  - Goal: Summarize the active page or selection with clear, skimmable markdown.
+- Page Summarizer (Side Panel)
+  - Goal: Summarize the current page or selection with clear, skimmable Markdown.
   - Inputs: Page text, selection (optional), provider config, session settings.
   - Output: Markdown with headings, bullets, and links.
 
-- Inline Assistant Agent
-  - Goal: Provide inline improvements for selected text (rewrite, simplify, translate, tone, etc.).
+- Inline Assistant
+  - Goal: Improve selected text inline (rewrite, simplify, translate, adjust tone).
   - Entrypoint: Tooltip near selection; keyboard shortcuts to apply/copy/regenerate.
-  - Messages are built in `buildInlineAssistMessages` within `src/background.js`.
+  - Messages are built by `buildInlineAssistMessages` in `src/background.js`.
 
-- Search Agent (Google Search + Scrape)
-  - Goal: Run a quick web search and scrape SERP for links/snippets.
-  - Entrypoint: Background action `performGoogleSearchAndScrape(payload)` in `src/background.js`.
-  - Flow: Opens an inactive tab to Google, waits for load, allows dynamic SERP hydration, extracts structured results, optionally closes the tab.
+- Search (Google Search + Scrape)
+  - Goal: Run a quick web search, scrape the SERP for links/snippets.
+  - Entrypoint: `performGoogleSearchAndScrape(payload)` in `src/background.js`.
+  - Flow: Opens an inactive Google tab, waits for hydration, extracts structured results, optionally closes the tab.
 
 - MCP Bridge Agent
-  - Goal: Expose search/visit tools over MCP; connect local tools to LLMs via MCP client apps.
-  - Lives in `mcp/search-server/` with TypeScript implementation and Zod-typed output planned.
+  - Goal: Expose `search` and `visit_tool` over MCP so local tools are accessible from LLM apps.
+  - Lives in `mcp/search-server/` (TypeScript). Structured outputs are planned with Zod.
 
 ## Message & Port Routing
 
-- Long-lived Port
-  - Side panel establishes a long-lived port to background.
-  - On tab activation, side panel re-registers the port for the active `tabId` using `{ type: 'REGISTER_PORT', tabId }` to ensure streaming routes correctly.
-
-- Session ↔ Tab Mapping
-  - Background maintains a tab→session map in storage.
-  - Side panel reads this map to switch sessions when the active tab changes.
-  - Recent fix: On tab activation, auto-follow is derived from the target session’s `context.autoFollowActiveTab` rather than stale current session state (`ui/sidepanel/App.jsx`).
-
-- Content Script Messaging
-  - Background requests page/selection text from content scripts.
-  - Content script presents inline UI and returns updated selection or caret information as needed.
+- Long‑lived port: Side panel registers a persistent port with background.
+  - On tab activation, the side panel re‑registers the active `tabId` via `{ type: 'REGISTER_PORT', tabId }` so streaming routes to the right place.
+- Session ↔ tab mapping: Background maintains a tab→session map; side panel switches sessions as the active tab changes.
+  - Recent fix: Auto‑follow reads from the target session’s `context.autoFollowActiveTab` (see `ui/sidepanel/App.jsx`).
+- Content script messaging: Background requests page/selection text; content script returns selection/caret details and hosts the inline UI.
 
 ## Core Flows
 
 - Summarize Current Page (Side Panel)
-  1) Side panel requests page/selection data from content script.
-  2) Background builds LLM prompt and streams messages to provider.
-  3) Side panel renders streaming markdown; user can copy/export.
+  1) Side panel asks content script for page/selection data.
+  2) Background builds the LLM prompt and streams to the provider.
+  3) Side panel renders streaming Markdown; user can copy/export.
 
 - Inline Assistant
-  1) User selects text; content script shows tooltip.
-  2) Background builds messages via `buildInlineAssistMessages` and calls provider.
-  3) Content script displays preview; user can Apply/Copy/Regenerate.
+  1) User selects text; content script shows the tooltip.
+  2) Background builds messages (`buildInlineAssistMessages`) and calls the provider.
+  3) Content script previews the result; user Apply/Copy/Regenerate.
 
 - Google Search + Scrape
-  1) Side panel or agent triggers background `performGoogleSearchAndScrape({ query, closeTab? })`.
-  2) Background opens an inactive Google tab, waits for load, lets SERP hydrate, then extracts results.
-  3) Results are returned as structured JSON, with URLs also mirrored to `_meta.urls` for compatibility.
+  1) UI or an agent calls `performGoogleSearchAndScrape({ query, closeTab? })`.
+  2) Background opens an inactive Google tab, waits for load + hydration, then scrapes.
+  3) Returns structured JSON; URLs are also mirrored to `_meta.urls` for compatibility.
 
 ## Extending Agents
 
-- Add a new tool/agent in `src/background.js`.
-- Define a message type and handler; wire from side panel or content script.
-- Prefer streaming responses when supported; keep UI responsive and cancellable.
+- Add a tool/agent in `src/background.js`.
+- Define a message type and handler; wire it from the side panel or content script.
+- Prefer streaming when supported; keep UI cancellable and responsive.
 
 ## Permissions & Privacy
 
 - Manifest (`manifest.json`) requests `tabs`, `activeTab`, `sidePanel`, `storage`, and wide host permissions for dev.
 - For production, restrict host permissions and sanitize logs.
-- Avoid persisting secrets; users configure API keys in Options.
+- Do not persist secrets; users configure API keys in Options.
 
 ## References
 
@@ -95,3 +96,4 @@ A concise guide to the extension's agent architecture, message flows, and how to
 - Side Panel: `ui/sidepanel/`
 - Options: `ui/options/`
 - MCP Server: `mcp/search-server/`
+

@@ -1,10 +1,11 @@
-# Jan Summarizer (Chrome Extension)
+# Jan Extension (Chrome)
 
-A Manifest V3 Chrome extension that summarizes the current page (or selected text) using any OpenAI-compatible API, including Cerebras and Jan Server.
+A Manifest V3 Chrome extension that unifies page summarization, inline writing assist, and quick web search using any OpenAI‑compatible API (Jan Server/local, Cerebras, OpenAI, etc.).
 
-- Side Panel UI to trigger summaries
-- Content script extracts visible page text (or your selection)
-- Background service worker calls `/v1/chat/completions`
+- Side panel app for chat and streaming summaries
+- Inline Assistant tooltip for selected text (rewrite/simplify/translate)
+- Google Search + SERP scraping tool (structured results)
+- Optional MCP bridge to expose search/visit tools to LLM clients
 
 ## Quick Start
 
@@ -26,8 +27,8 @@ A Manifest V3 Chrome extension that summarizes the current page (or selected tex
     *   Enable "Developer mode".
     *   Click "Load unpacked" and select the `dist` folder.
 5.  **Configure and use the extension:**
-    *   Pin the extension and click it to open the Side Panel.
-    *   Click the settings (⚙️) button in the side panel to configure your API.
+    *   Pin the extension and click it to open the side panel.
+    *   Click the settings (⚙️) in the side panel to configure your API and bridge.
 
 ## Configuration
 
@@ -46,26 +47,28 @@ Click "Test" to verify connectivity.
 
 ## Usage
 
-- "Summarize Page": summarizes the whole page (trimmed to a safe length)
-- "Summarize Selection": prioritizes current text selection (if present)
+- Summarize Page: summarize the whole page (trimmed for token safety)
+- Summarize Selection: prioritize current text selection if present
+- Inline Assistant: select text on any page to rewrite/simplify/translate via tooltip
+- Quick Search: trigger Google Search + scrape via side panel or agent call
 
-Output is plain Markdown in the side panel.
+Output renders as Markdown in the side panel with streaming updates.
 
 ## How it Works
 
-- `src/content.js` collects `document.body.innerText`, selection text, title, URL, lang, and meta description.
-- `src/background.js` sends these to your configured endpoint via `/chat/completions` with a structured prompt.
-- `src/sidepanel.html` + `src/sidepanel.js` provide the UI.
-- `src/options.html` + `src/options.js` manage settings via `chrome.storage.sync`.
+- `src/content.js` collects page text/selection, title, URL, language, and meta description.
+- `src/background.js` builds prompts and calls your configured provider via `/v1/chat/completions` (streams when available). Also hosts Google Search + SERP scraping and the MCP bridge client.
+- Side panel UI lives in `ui/sidepanel/` (React). Options UI lives in `ui/options/`.
+- Settings are stored in `chrome.storage.sync`.
 
 ## Files
 
 - `manifest.json` — MV3 manifest with side panel, background service worker, and content script
-- `src/background.js` — service worker; calls the model
-- `src/content.js` — collects page data
-- `src/sidepanel.html` / `src/sidepanel.js` — side panel UI
-- `src/options.html` / `src/options.js` — settings UI
-- `src/styles.css` — shared styles
+- `src/background.js` — router/orchestrator; model calls, streaming, search tool, MCP bridge
+- `src/content.js` — page extraction + inline assistant tooltip host
+- `ui/sidepanel/` — side panel React app (entry: `index.html`, `main.jsx`, `App.jsx`)
+- `ui/options/` — options React app (entry: `index.html`, `main.jsx`, `App.jsx`)
+- `ui/styles.css` — shared styles
 
 ## Notes
 
@@ -80,9 +83,9 @@ Output is plain Markdown in the side panel.
 - "Read later" queue integrated with summaries
 - Per-site auto-summarize toggle
 
-## MCP: Search Server
+## MCP Bridge (optional)
 
-A standalone MCP server that bridges to the Chrome extension lives in `mcp/search-server/`.
+A standalone MCP server that bridges to the extension lives in `mcp/search-server/`.
 
 ### Unified dev workflow (extension + MCP server)
 
@@ -93,7 +96,7 @@ npm run build:mcp    # one-time build of MCP TS (or run dev below)
 npm run dev:all      # runs Vite (extension) and MCP server watch in parallel
 ```
 
-Then load the extension from `dist/` in Chrome (Developer mode → Load unpacked). The background service worker will connect to the MCP bridge at `ws://127.0.0.1:17389` automatically when running.
+Then load the extension from `dist/` in Chrome (Developer mode → Load unpacked). The background service worker connects to the MCP bridge at `ws://127.0.0.1:17389` automatically when running.
 
 To verify the connection:
 
@@ -179,6 +182,7 @@ Then reload the extension or wait for it to auto-reconnect.
 - ADR-004 (MCP Bridge Security – Optional Token): [docs/adr-004-mcp-bridge-security.md](./docs/adr-004-mcp-bridge-security.md)
 - SPEC v2 (Inline writing assistant tooltip): [docs/SPEC-v2.md](./docs/SPEC-v2.md)
 - MCP server details: [mcp/search-server/README.md](./mcp/search-server/README.md)
+- Agents Guide (architecture & flows): [agents.md](./agents.md)
 
 ## License
 

@@ -272,131 +272,145 @@ function stripTags(html?: string): string {
   }
 }
 
+async function searchHandler(args: any, _extra: any) {
+  const parsed = SearchInput.parse(args);
+  const { query, numResults, format } = parsed;
+  const n = numResults ?? 5;
+  const preferSerper = (format ?? "serper") === "serper";
+
+  try {
+    // Ask the extension to perform the search and scrape
+    // If extension not connected yet, wait briefly for it to reconnect
+    if (!(extSocket && extSocket.readyState === WebSocket.OPEN)) {
+      try { console.error("[Tool:search] waiting for bridge connection..."); } catch {}
+      await waitForBridgeConnection(4000);
+    }
+    try { console.error("[Tool:search] forwarding to extension", { query, n }); } catch {}
+    const data = await callExtension("search", { query, numResults: n });
+    const results: SearchResult[] = Array.isArray(data?.results)
+      ? (data.results as any[]).map((r) => ({
+          title: String(r?.title ?? ""),
+          url: String(r?.url ?? r?.link ?? ""),
+          html: String(r?.html ?? r?.snippetHtml ?? r?.htmlSnippet ?? ""),
+        }))
+      : [];
+    try { console.error("[Tool:search] results", { count: results.length }); } catch {}
+
+    if (!results.length) {
+      const emptyJson = preferSerper ? JSON.stringify({ knowledgeGraph: undefined, organic: [], peopleAlsoAsk: [] }, null, 2) : "No results.";
+      return { content: [{ type: "text", text: emptyJson }], _meta: { urls: [] } } as any;
+    }
+
+    const urls = results.slice(0, n).map(r => r.url).filter(Boolean);
+
+    if (preferSerper) {
+      const ab: any = data?.answerBox && typeof data.answerBox === "object" ? data.answerBox : undefined;
+      let knowledgeGraph: any = undefined;
+      if (ab) {
+        const imageUrl = typeof ab.imageUrl === "string" && /^https?:/i.test(ab.imageUrl) ? ab.imageUrl : undefined; // drop base64 icons
+        const attrs = ab.attributes && typeof ab.attributes === "object" ? ab.attributes : undefined;
+        knowledgeGraph = {
+          title: ab.title ?? ab.name ?? undefined,
+          type: ab.type ?? undefined,
+          website: ab.website ?? ab.site ?? undefined,
+          imageUrl,
+          description: ab.description ?? ab.text ?? undefined,
+          descriptionSource: ab.descriptionSource ?? undefined,
+          descriptionLink: ab.descriptionLink ?? undefined,
+          attributes: attrs,
+        } as any;
+        Object.keys(knowledgeGraph).forEach((k) => {
+          if ((knowledgeGraph as any)[k] === undefined) delete (knowledgeGraph as any)[k];
+        });
+        if (Object.keys(knowledgeGraph).length === 0) knowledgeGraph = undefined;
+      }
+
+      const organic = results.slice(0, n).map((r, i) => {
+        const snippet = stripTags(r.html);
+        const item: any = { title: r.title || r.url, link: r.url, position: i + 1 };
+        if (snippet) item.snippet = snippet;
+        return item;
+      });
+
+      const peopleAlsoAsk = Array.isArray(data?.peopleAlsoAsk)
+        ? (data.peopleAlsoAsk as any[]).map((q) => ({
+            question: q?.question ?? q?.q ?? undefined,
+            snippet: q?.snippet ?? q?.a ?? undefined,
+            title: q?.title ?? undefined,
+            link: q?.link ?? q?.url ?? undefined,
+          })).filter((x) => x.question || x.snippet || x.title || x.link)
+        : [];
+
+      const serperLike: any = {};
+      if (knowledgeGraph) serperLike.knowledgeGraph = knowledgeGraph;
+      serperLike.organic = organic;
+      if (peopleAlsoAsk.length) serperLike.peopleAlsoAsk = peopleAlsoAsk;
+      // Also include plain list of URLs to make consumption easier without parsing _meta
+      serperLike.urls = urls;
+
+      const jsonText = JSON.stringify(serperLike, null, 2);
+      try { console.error("[Tool:search] returning", { kind: "serper-json", length: jsonText.length, urls: urls.length }); } catch {}
+      return { content: [{ type: "text", text: jsonText }], _meta: { urls } } as any;
+    } else {
+      const lines: string[] = [];
+      lines.push(`Top ${Math.min(results.length, n)} results for: "${query}"`);
+      const pageTitle = typeof data?.pageTitle === "string" ? data.pageTitle : undefined;
+      if (pageTitle) lines.push(`Page Title: ${pageTitle}`);
+      lines.push("");
+      const answerBox = data?.answerBox;
+      if (answerBox && typeof answerBox === "object") {
+        const ansTitle = typeof (answerBox as any).title === "string" ? (answerBox as any).title : undefined;
+        const ansText = typeof (answerBox as any).text === "string" ? (answerBox as any).text : undefined;
+        if (ansTitle || ansText) {
+          lines.push("Answer Box:");
+          if (ansTitle) lines.push(ansTitle);
+          if (ansText) lines.push(ansText);
+          lines.push("");
+        }
+      }
+      results.slice(0, n).forEach((r, idx) => {
+        const num = idx + 1;
+        lines.push(`${num}. ${r.title || r.url}`);
+        if (r.url) lines.push(r.url);
+        if (r.html) {
+          lines.push("Result HTML:");
+          lines.push("```html");
+          lines.push(r.html);
+          lines.push("```");
+        }
+        lines.push("");
+      });
+      const text = lines.join("\n");
+      try { console.error("[Tool:search] returning", { kind: "text-only", length: text.length, urls: urls.length }); } catch {}
+      return { content: [{ type: "text", text }], _meta: { urls } } as any;
+    }
+  } catch (err: any) {
+    const msg = String(err?.message || err);
+    return { content: [{ type: "text", text: `Search failed: ${msg}` }], _meta: { urls: [] } } as any;
+  }
+}
+
+// New primary tool name
 server.registerTool(
-  "search",
+  "web_search",
   {
     title: "Web Search (Google)",
     description:
       "Search the web via Google by asking the installed browser extension to perform the search and scrape the SERP.",
     inputSchema: SearchInputShape,
   },
-  async (args: any, _extra: any) => {
-    const parsed = SearchInput.parse(args);
-    const { query, numResults, format } = parsed;
-    const n = numResults ?? 5;
-    const preferSerper = (format ?? "serper") === "serper";
+  async (args: any, extra: any) => searchHandler(args, extra)
+);
 
-    try {
-      // Ask the extension to perform the search and scrape
-      // If extension not connected yet, wait briefly for it to reconnect
-      if (!(extSocket && extSocket.readyState === WebSocket.OPEN)) {
-        try { console.error("[Tool:search] waiting for bridge connection..."); } catch {}
-        await waitForBridgeConnection(4000);
-      }
-      try { console.error("[Tool:search] forwarding to extension", { query, n }); } catch {}
-      const data = await callExtension("search", { query, numResults: n });
-      const results: SearchResult[] = Array.isArray(data?.results)
-        ? (data.results as any[]).map((r) => ({
-            title: String(r?.title ?? ""),
-            url: String(r?.url ?? r?.link ?? ""),
-            html: String(r?.html ?? r?.snippetHtml ?? r?.htmlSnippet ?? ""),
-          }))
-        : [];
-      try { console.error("[Tool:search] results", { count: results.length }); } catch {}
-
-      if (!results.length) {
-        const emptyJson = preferSerper ? JSON.stringify({ knowledgeGraph: undefined, organic: [], peopleAlsoAsk: [] }, null, 2) : "No results.";
-        return { content: [{ type: "text", text: emptyJson }], _meta: { urls: [] } } as any;
-      }
-
-      const urls = results.slice(0, n).map(r => r.url).filter(Boolean);
-
-      if (preferSerper) {
-        const ab: any = data?.answerBox && typeof data.answerBox === "object" ? data.answerBox : undefined;
-        let knowledgeGraph: any = undefined;
-        if (ab) {
-          const imageUrl = typeof ab.imageUrl === "string" && /^https?:/i.test(ab.imageUrl) ? ab.imageUrl : undefined; // drop base64 icons
-          const attrs = ab.attributes && typeof ab.attributes === "object" ? ab.attributes : undefined;
-          knowledgeGraph = {
-            title: ab.title ?? ab.name ?? undefined,
-            type: ab.type ?? undefined,
-            website: ab.website ?? ab.site ?? undefined,
-            imageUrl,
-            description: ab.description ?? ab.text ?? undefined,
-            descriptionSource: ab.descriptionSource ?? undefined,
-            descriptionLink: ab.descriptionLink ?? undefined,
-            attributes: attrs,
-          } as any;
-          Object.keys(knowledgeGraph).forEach((k) => {
-            if ((knowledgeGraph as any)[k] === undefined) delete (knowledgeGraph as any)[k];
-          });
-          if (Object.keys(knowledgeGraph).length === 0) knowledgeGraph = undefined;
-        }
-
-        const organic = results.slice(0, n).map((r, i) => {
-          const snippet = stripTags(r.html);
-          const item: any = { title: r.title || r.url, link: r.url, position: i + 1 };
-          if (snippet) item.snippet = snippet;
-          return item;
-        });
-
-        const peopleAlsoAsk = Array.isArray(data?.peopleAlsoAsk)
-          ? (data.peopleAlsoAsk as any[]).map((q) => ({
-              question: q?.question ?? q?.q ?? undefined,
-              snippet: q?.snippet ?? q?.a ?? undefined,
-              title: q?.title ?? undefined,
-              link: q?.link ?? q?.url ?? undefined,
-            })).filter((x) => x.question || x.snippet || x.title || x.link)
-          : [];
-
-        const serperLike: any = {};
-        if (knowledgeGraph) serperLike.knowledgeGraph = knowledgeGraph;
-        serperLike.organic = organic;
-        if (peopleAlsoAsk.length) serperLike.peopleAlsoAsk = peopleAlsoAsk;
-        // Also include plain list of URLs to make consumption easier without parsing _meta
-        serperLike.urls = urls;
-
-        const jsonText = JSON.stringify(serperLike, null, 2);
-        try { console.error("[Tool:search] returning", { kind: "serper-json", length: jsonText.length, urls: urls.length }); } catch {}
-        return { content: [{ type: "text", text: jsonText }], _meta: { urls } } as any;
-      } else {
-        const lines: string[] = [];
-        lines.push(`Top ${Math.min(results.length, n)} results for: "${query}"`);
-        const pageTitle = typeof data?.pageTitle === "string" ? data.pageTitle : undefined;
-        if (pageTitle) lines.push(`Page Title: ${pageTitle}`);
-        lines.push("");
-        const answerBox = data?.answerBox;
-        if (answerBox && typeof answerBox === "object") {
-          const ansTitle = typeof (answerBox as any).title === "string" ? (answerBox as any).title : undefined;
-          const ansText = typeof (answerBox as any).text === "string" ? (answerBox as any).text : undefined;
-          if (ansTitle || ansText) {
-            lines.push("Answer Box:");
-            if (ansTitle) lines.push(ansTitle);
-            if (ansText) lines.push(ansText);
-            lines.push("");
-          }
-        }
-        results.slice(0, n).forEach((r, idx) => {
-          const num = idx + 1;
-          lines.push(`${num}. ${r.title || r.url}`);
-          if (r.url) lines.push(r.url);
-          if (r.html) {
-            lines.push("Result HTML:");
-            lines.push("```html");
-            lines.push(r.html);
-            lines.push("```");
-          }
-          lines.push("");
-        });
-        const text = lines.join("\n");
-        try { console.error("[Tool:search] returning", { kind: "text-only", length: text.length, urls: urls.length }); } catch {}
-        return { content: [{ type: "text", text }], _meta: { urls } } as any;
-      }
-    } catch (err: any) {
-      const msg = String(err?.message || err);
-      return { content: [{ type: "text", text: `Search failed: ${msg}` }], _meta: { urls: [] } } as any;
-    }
-  }
+// Backwards-compatible alias (deprecated)
+server.registerTool(
+  "search",
+  {
+    title: "Web Search (Google) [deprecated]",
+    description: "Deprecated alias of web_search. Prefer web_search.",
+    inputSchema: SearchInputShape,
+  },
+  async (args: any, extra: any) => searchHandler(args, extra)
 );
 
 async function main() {

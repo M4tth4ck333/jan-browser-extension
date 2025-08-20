@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Summarize the current page using Jan Server, Cerebras, or any OpenAI-compatible endpoint.",
   "action": {
-    "default_title": "Open Jan Summarizer"
+    "default_title": "Open Jan"
   },
   "permissions": [
     "storage",

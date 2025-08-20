@@ -1,13 +1,13 @@
-# Jan Summarizer – Engineering Notes (agent.md)
+# Jan Extension – Engineering Notes
 
-This document captures the current architecture, recent changes, and a practical UI/UX roadmap for the MV3 side‑panel summarizer extension.
+Engineering overview for the MV3 side‑panel Jan Extension: architecture, key message flows, and a practical UI/UX roadmap.
 
 
 ## Overview
 
-- Works with OpenAI‑compatible APIs (Jan Server/local, Cerebras, etc.).
-- Manifest V3 service worker (`src/background.js`), side panel UI (React + Vite + Tailwind-ish DS classes), content script for page extraction, options page for provider settings.
-- Streaming chat completions with token‑by‑token updates in the side panel.
+- Works with OpenAI‑compatible APIs (Jan Server/local, Cerebras, OpenAI, etc.).
+- MV3 service worker (`src/background.js`), side panel UI (React under `ui/sidepanel/`), content script (`src/content.js`), options UI (`ui/options/`).
+- Streaming chat completions with token‑by‑token updates in the side panel; non‑streaming fallback supported.
 
 
 ## Architecture
@@ -21,37 +21,32 @@ This document captures the current architecture, recent changes, and a practical
 
 - `src/background.js` (service worker)
   - Initializes provider defaults and side panel behavior on install/startup.
-  - Handles toolbar click: ensures a supported http/https tab, calls `chrome.sidePanel.setOptions({ tabId, path })`, and opens the panel.
-  - Message handlers:
-    - `SUMMARIZE`: summarizes current page or selection.
-    - `CHAT_COMPLETION`: non‑streaming chat completion.
-    - `CHAT_COMPLETION_STREAM_START`: streaming chat (SSE) with incremental port messages.
+  - Handles toolbar click: ensures a supported http/https tab, sets side panel path, and opens the panel.
+  - Agents/tools hosted here: page summarizer, inline assistant, Google Search + SERP scrape, MCP bridge client.
+  - Message handlers include (non‑exhaustive):
+    - `SUMMARIZE`, `CHAT_COMPLETION`, `CHAT_COMPLETION_STREAM_START`, `CHAT_COMPLETION_STREAM_STOP`
+    - `INLINE_ASSIST_START`, `CUSTOM_PROMPT_RUN`
+    - `AUTOCOMPLETE_SUGGEST`
+    - `GOOGLE_SEARCH_AND_SCRAPE`
+    - `LIST_MODELS`, `TEST_SETTINGS`
+    - `GET_BRIDGE_STATUS`, `RECONNECT_BRIDGE`
+    - `SELECTION_UPDATED`
   - Streaming infra:
-    - Keeps a map of side panel Ports per `tabId` plus a global fallback.
-    - Side panel registers its tab via a `REGISTER_PORT` message.
-    - Robust SSE parser: accumulates multi‑line `data:` chunks, supports `choices[0].delta.content`, `message.content`, `text`, and array‑shaped segments.
-    - Fallback to one‑shot JSON when server doesn’t return `text/event-stream`.
+    - Tracks side panel ports per `tabId` plus a global fallback.
+    - Side panel re‑registers via `{ type: 'REGISTER_PORT', tabId }` on tab changes.
+    - SSE parser supports multi‑line `data:` events, `delta.content`, `message.content`, `text`, and array segments; JSON fallback when non‑SSE.
 
-- `ui/sidepanel/App.jsx` (React UI)
-  - Chat interface with sessions persisted to `chrome.storage.local`.
-  - Long‑lived Port `jan-stream` to receive streaming deltas; uses refs and functional updates to avoid stale closures.
-  - Messaging robustness:
-    - Targets only http/https tabs.
-    - `waitForTabComplete()` before messaging.
-    - `sendToTabWithRetry()` with programmatic injection of `src/content.js` using `chrome.scripting.executeScript` if needed.
-  - Persistence:
-    - Loads `sessions` and `activeSessionId` on mount.
-    - Saves after each mutation and on streaming `DONE` or error.
-    - Persists on side‑panel close via `beforeunload/pagehide`.
+- `ui/sidepanel/` (React UI)
+  - Chat interface, session list, streaming Markdown renderer with code highlighting and safe sanitization.
+  - Long‑lived port `jan-stream` receives streaming deltas.
+  - Stores sessions in `chrome.storage.local` with frequent save points and unload persistence.
 
-- `ui/options/App.jsx`
-  - Configure provider preset, API base, key, model, temperature.
-  - Connectivity “Test” triggers a background call and surfaces errors (including timeouts).
+- `ui/options/` (React Options UI)
+  - Configure provider preset, base URL, API key (optional), model, temperature, and MCP bridge token.
+  - Model list toggle (`/models`), connectivity test, and helpers to copy MCP server commands.
 
 - `vite.config.js`
-  - `base: ''`; multi‑page inputs for `ui/sidepanel/index.html` and `ui/options/index.html`.
-  - Rollup output uses stable names (`assets/[name].js`) to reduce cache confusion during dev.
-  - Source maps on.
+  - Multi‑page inputs for side panel and options; stable asset names; source maps on.
 
 
 ## Side Panel Opening Behavior
@@ -162,14 +157,14 @@ This document captures the current architecture, recent changes, and a practical
   - Or switch to explicit open with cache‑busting query.
 - Build: `bun run build` (Vite multi‑page). Source maps enabled.
 
-### MCP bridge + unified dev
+### MCP Bridge + Unified Dev
 
 - The MCP Search server lives at `mcp/search-server/` and spins up a local WebSocket bridge (`ws://127.0.0.1:17389`) that the extension’s background connects to.
 - Recommended workflow to run extension and MCP server together during dev:
 
 ```bash
 # from repo root
-npm install                # installs root + dev tool (concurrently)
+npm install                # installs dependencies
 npm run build:mcp          # one‑time TS build of the MCP server
 npm run dev:all            # runs Vite (extension) and MCP server watch in parallel
 ```
