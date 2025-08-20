@@ -24,6 +24,7 @@ export default function OptionsApp() {
   const [showApiKey, setShowApiKey] = useState(false)
   const mqRef = useRef(null)
   const [modelsState, setModelsState] = useState({ loading: false, error: '', items: [] })
+  const [cmds, setCmds] = useState([])
 
   // Toggle whether the browser sends the bridge token when connecting (default off)
   const onToggleUseBridge = (e) => {
@@ -37,6 +38,13 @@ export default function OptionsApp() {
       const s = await chrome.storage.sync.get(Object.keys(DEFAULTS))
       setCfg({ ...DEFAULTS, ...s })
     })()
+  }, [])
+
+  // Load current keyboard shortcuts so users can see if Chrome assigned them
+  useEffect(() => {
+    try {
+      chrome.commands.getAll((items) => setCmds(items || []))
+    } catch (_) { /* ignore */ }
   }, [])
 
   // Fetch models when toggled on, or when provider/base/key changes while toggled on
@@ -172,13 +180,13 @@ export default function OptionsApp() {
   }
 
   return (
-    <div className="min-h-screen ds-bg ds-text">
-      <header className="px-4 py-3 border-b ds-border ds-card">
-        <div className="text-lg font-semibold">Jan Summarizer – Settings</div>
+    <div className="min-h-screen ds-bg ds-text font-sans">
+      <header className="px-4 py-4 border-b ds-border ds-card">
+        <div className="typo-display font-display num-oldstyle">Jan Summarizer – Settings</div>
       </header>
-      <main className="p-4 max-w-xl mx-auto space-y-4">
+      <main className="p-4 max-w-2xl mx-auto space-y-5 reading">
         <div className="grid gap-1">
-          <label className="text-sm ds-muted-text">Provider Preset</label>
+          <label className="text-sm ds-muted-text small-caps">Provider Preset</label>
           <select value={cfg.provider} onChange={onProviderChange} className="input">
             <option value="jan-server">Jan Server (Cloud)</option>
             <option value="jan">Jan (Local)</option>
@@ -190,7 +198,7 @@ export default function OptionsApp() {
           </select>
         </div>
         <div className="grid gap-1">
-          <label className="text-sm ds-muted-text">API Base URL</label>
+          <label className="text-sm ds-muted-text small-caps">API Base URL</label>
           <input
             className="input"
             value={cfg.apiBase}
@@ -206,7 +214,7 @@ export default function OptionsApp() {
         {cfg.provider === 'custom' && (
           <div className="grid gap-2">
             <div className="flex items-center justify-between">
-              <Label className="text-sm font-medium text-foreground">Use full completions URL</Label>
+              <Label className="text-sm font-medium text-foreground small-caps">Use full completions URL</Label>
               <div className="flex items-center gap-3 text-sm text-foreground">
                 <Label htmlFor="use-custom-url" className="text-foreground/80 cursor-pointer">Off</Label>
                 <Switch
@@ -235,7 +243,7 @@ export default function OptionsApp() {
         )}
         <div className="grid gap-1">
           <div className="flex items-center justify-between">
-            <label className="text-sm ds-muted-text">API Key</label>
+            <label className="text-sm ds-muted-text small-caps">API Key</label>
             <div className="flex items-center gap-3 text-sm text-foreground">
               <Label htmlFor="use-api-key" className="text-foreground/80 cursor-pointer">Off</Label>
               <Switch
@@ -274,7 +282,7 @@ export default function OptionsApp() {
         </div>
         <div className="grid gap-2">
           <div className="flex items-center justify-between">
-            <Label className="text-sm font-medium text-foreground">Model</Label>
+            <Label className="text-sm font-medium text-foreground small-caps">Model</Label>
             <div className="flex items-center gap-3 text-sm text-foreground">
               <Label htmlFor="use-model-list" className="text-foreground/80 cursor-pointer">Manual</Label>
               <Switch
@@ -334,30 +342,64 @@ export default function OptionsApp() {
           )}
         </div>
         <div className="grid gap-1">
-          <label className="text-sm ds-muted-text">Temperature</label>
+          <label className="text-sm ds-muted-text small-caps">Temperature</label>
           <input type="number" step="0.1" min="0" max="2" className="input" value={cfg.temperature} onChange={onChange('temperature')} />
         </div>
 
         <div className="flex items-center gap-2 pt-2">
-          <button className="btn" onClick={save}>Save</button>
-          <button className="btn" onClick={test}>Test</button>
+          <button className="btn btn-brand" onClick={save}>Save</button>
+          <button className="btn btn-brand" onClick={test}>Test</button>
           <span className="text-sm ds-muted-text">{status}</span>
         </div>
 
-        <div className="mt-6 border ds-border rounded-xl p-4 space-y-4">
+        {/* Keyboard shortcuts helper */}
+        <div className="mt-6 border ds-border ds-muted-bg rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-base font-semibold">Inline Assistant (Tooltip)</div>
+              <div className="typo-h1 font-display">Keyboard Shortcuts</div>
+              <div className="text-sm ds-muted-text">Chrome might not auto-assign suggested keys. Set/confirm them in Shortcuts.</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                className="btn"
+                onClick={async () => {
+                  try { await chrome.tabs.create({ url: 'chrome://extensions/shortcuts' }) }
+                  catch (_) { setStatus('Open chrome://extensions/shortcuts'); setTimeout(() => setStatus(''), 1800) }
+                }}
+              >Open Shortcuts</button>
+              <button className="btn" onClick={() => { try { chrome.commands.getAll((items)=> setCmds(items || [])) } catch (_) {} }}>Refresh</button>
+            </div>
+          </div>
+          <ul className="text-sm grid gap-1">
+            {cmds.map(c => (
+              <li key={c.name} className="flex items-center justify-between">
+                <span className="ds-muted-text small-caps">{c.description || c.name}</span>
+                <span className="px-2 py-0.5 text-xs rounded bg-black/5">{c.shortcut || 'Unassigned'}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="mt-6 border ds-border ds-muted-bg rounded-xl p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="typo-h1 font-display">Inline Assistant (Tooltip)</div>
               <div className="text-sm ds-muted-text">Show a small Jan button near text when selecting in inputs/contenteditable.</div>
             </div>
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input type="checkbox" className="w-4 h-4" checked={!!cfg.inlineAssistEnabled} onChange={(e) => setCfg({ ...cfg, inlineAssistEnabled: !!e.target.checked })} />
-              <span>{cfg.inlineAssistEnabled ? 'On' : 'Off'}</span>
-            </label>
+            <div className="flex items-center gap-3 text-sm text-foreground">
+              <Label htmlFor="inline-assist-enabled" className="text-foreground/80 cursor-pointer">Off</Label>
+              <Switch
+                id="inline-assist-enabled"
+                checked={!!cfg.inlineAssistEnabled}
+                onCheckedChange={(v) => setCfg({ ...cfg, inlineAssistEnabled: !!v })}
+                aria-label="Toggle inline assistant"
+              />
+              <Label htmlFor="inline-assist-enabled" className="text-foreground/80 cursor-pointer">On</Label>
+            </div>
           </div>
 
           <div className="grid gap-2">
-            <label className="text-sm ds-muted-text">Actions</label>
+            <label className="text-sm ds-muted-text small-caps">Actions</label>
             <div className="grid grid-cols-2 gap-2 text-sm">
               {[
                 { id: 'rewrite', label: 'Rewrite' },
@@ -377,15 +419,15 @@ export default function OptionsApp() {
           </div>
         </div>
 
-        <div className="mt-6 border ds-border rounded-xl p-4 space-y-4">
+        <div className="mt-6 border ds-border ds-muted-bg rounded-xl p-4 space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-base font-semibold flex items-center gap-2">Bridge (MCP)
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/5 ds-muted-text">safer</span>
+              <div className="typo-h1 font-display flex items-center gap-2">Bridge (MCP)
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/5 ds-muted-text relative top-[1px]">safer</span>
               </div>
               <div className="text-sm ds-muted-text">Token and connection</div>
             </div>
-            <div className={`inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full ${bridgeInfo.connected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+            <div className={`inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full ${bridgeInfo.connected ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
               <span className={`inline-block w-2 h-2 rounded-full ${bridgeInfo.connected ? 'bg-green-600' : 'bg-red-600'}`}></span>
               {bridgeInfo.connected ? 'Connected' : 'Disconnected'}
             </div>
@@ -393,14 +435,15 @@ export default function OptionsApp() {
 
           <div className="flex items-center justify-between">
             <div className="text-sm ds-muted-text">Use token for bridge auth (default: off)</div>
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input type="checkbox" className="w-4 h-4" checked={!!cfg.useBridgeToken} onChange={onToggleUseBridge} />
-              <span>{cfg.useBridgeToken ? 'On' : 'Off'}</span>
-            </label>
+            <div className="flex items-center gap-3 text-sm text-foreground">
+              <Label htmlFor="use-bridge-token" className="text-foreground/80 cursor-pointer">Off</Label>
+              <Switch id="use-bridge-token" checked={!!cfg.useBridgeToken} onCheckedChange={(v) => onToggleUseBridge({ target: { checked: v } })} aria-label="Toggle bridge token usage" />
+              <Label htmlFor="use-bridge-token" className="text-foreground/80 cursor-pointer">On</Label>
+            </div>
           </div>
 
           <div className="grid gap-2">
-            <label className="text-sm ds-muted-text">Bridge Token (optional)</label>
+            <label className="text-sm ds-muted-text small-caps">Bridge Token (optional)</label>
             <div className="flex flex-col sm:flex-row gap-2">
               <input className="input flex-1" value={cfg.bridgeToken || ''} onChange={onChange('bridgeToken')} placeholder="Set if server uses BRIDGE_TOKEN" />
               <div className="flex gap-2">
@@ -412,7 +455,7 @@ export default function OptionsApp() {
           </div>
 
           <div className="grid gap-2">
-            <label className="text-sm ds-muted-text">Server command</label>
+            <label className="text-sm ds-muted-text small-caps">Server command</label>
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
               <div className="inline-flex rounded-lg overflow-hidden border ds-border">
                 <button className={`px-3 py-1.5 text-sm ${cmdContext==='root' ? 'bg-black/5 font-semibold' : ''}`} onClick={() => setCmdContext('root')}>From root</button>

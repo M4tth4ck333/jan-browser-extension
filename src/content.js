@@ -229,41 +229,129 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (!overlayEl) return;
         if (e.key === 'Escape') { e.preventDefault(); clearUI(); return; }
         if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'enter') { e.preventDefault(); doRun(); return; }
-        if (e.key === 'Enter' && !e.shiftKey) {
-          const target = e.target;
-          // Only trigger when focus is in textarea
-          if (target && target.tagName === 'TEXTAREA') { e.preventDefault(); doRun(); return; }
-        }
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doRun(); return; }
       } catch(_) {}
     };
-    try { shadowRoot.addEventListener('keydown', overlayKeyHandler, true); } catch(_) {}
+    shadowRoot.addEventListener('keydown', overlayKeyHandler, true);
   }
 
+  // Handle Google SERP readiness check for search flow
+  if (message?.type === 'WAIT_FOR_SERP_READY') {
+    (async () => {
+      try {
+        const timeoutMs = Math.max(1000, Number(message?.payload?.timeoutMs || 15000));
+        const minResults = Math.max(1, Number(message?.payload?.minResults || 4));
+        const start = Date.now();
+        const poll = () => {
+          const root = document.querySelector('#search') || document.querySelector('[role="main"]') || document.body;
+          const h3s = Array.from(root.querySelectorAll('h3')).filter(h => (h.textContent || '').trim().length > 0);
+          let good = 0;
+          for (const h3 of h3s) {
+            let a = h3.closest('a[href]') || h3.parentElement?.querySelector('a[href]');
+            if (a && a.href && /^https?:/i.test(a.href)) good++;
+          }
+          return good;
+        };
+        let good = poll();
+        while (good < minResults && (Date.now() - start) < timeoutMs) {
+          await new Promise(r => setTimeout(r, 250));
+          good = poll();
+        }
+        const elapsedMs = Date.now() - start;
+        const ready = good >= minResults;
+        const reason = ready ? 'enough_results' : 'timeout';
+        sendResponse({ ok: true, ready, counts: { good, minResults, elapsedMs }, reason });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+      }
+    })();
+    return true;
+  }
+  
+  // Scrape Google SERP results (used after readiness)
   if (message?.type === 'SCRAPE_GOOGLE_SERP') {
     try {
-      const url = new URL(location.href);
-      const q = url.searchParams.get('q') || '';
-      const results = [];
-      // Prefer organic results inside #search
-      const headings = Array.from(document.querySelectorAll('#search a h3')).slice(0, 5);
-      for (const h3 of headings) {
-        const a = h3.closest('a');
-        if (!a) continue;
-        const title = (h3.textContent || '').trim();
-        const href = a.href;
-        // Try to find a snippet within the result container
-        const container = h3.closest('div.g') || h3.parentElement?.parentElement || null;
-        const snippetEl = container?.querySelector('.VwiC3b, .yXK7lf, .MUxGbd');
-        const snippet = (snippetEl?.innerText || '').trim();
-        const snippetHtml = (snippetEl?.innerHTML || '').trim();
-        const html = container ? container.outerHTML : '';
-        results.push({ title, url: href, snippet, snippetHtml, html });
+      const debug = !!(message?.payload?.debug ?? message?.debug);
+      const q = new URLSearchParams(location.search).get('q') || '';
+
+      const collect = () => {
+        const out = [];
+        const seen = new Set();
+        const root = document.querySelector('#search') || document.querySelector('[role="main"]') || document.body;
+        const h3s = Array.from(root.querySelectorAll('h3')).filter(h => (h.textContent || '').trim().length > 0);
+        for (const h3 of h3s) {
+          let a = h3.closest('a[href]');
+          if (!a) {
+            const p = h3.parentElement;
+            if (p && p.querySelector('a[href]') && p.querySelector('a[href]')?.contains(h3)) {
+              a = p.querySelector('a[href]');
+            }
+          }
+          if (!a) continue;
+          const href = a.href;
+          if (!href || seen.has(href)) continue;
+          const container = h3.closest('div.g, div.MjjYud, div[data-sokoban-container], div.yuRUbf, div[jscontroller]')
+            || a.closest('div.g, div.MjjYud, div[data-sokoban-container], div[jscontroller]')
+            || h3.parentElement?.parentElement
+            || null;
+          const snippetEl = container?.querySelector('.VwiC3b, .yXK7lf, .MUxGbd, .UroMUd, .lyLwlc, .kno-rdesc, [data-content-feature="1"]');
+          const title = (h3.textContent || '').trim();
+          const snippet = (snippetEl?.innerText || '').trim();
+          const snippetHtml = (snippetEl?.innerHTML || '').trim();
+          const html = container ? container.outerHTML : '';
+          out.push({ title, url: href, snippet, snippetHtml, html });
+          seen.add(href);
+          if (out.length >= 8) break;
+        }
+        return out;
+      };
+
+      let results = collect();
+      if (!results.length) {
+        setTimeout(() => {
+          try {
+            let results2 = collect().slice(0, 5);
+            const answerBoxCandidates = [
+              '#kp-wp-tab-overview',
+              'div[data-attrid="wa:/description"]',
+              'div[data-attrid^="kc:/"]',
+              'div[data-tts]',
+              '#search .kp-blk',
+              '#search [role="complementary"]'
+            ];
+            let answerBox2 = '';
+            let answerBoxHtml2 = '';
+            for (const sel of answerBoxCandidates) {
+              const el = document.querySelector(sel);
+              if (el && (el.innerText || '').trim()) {
+                answerBox2 = el.innerText.trim();
+                try { answerBoxHtml2 = el.outerHTML; } catch (_) { answerBoxHtml2 = ''; }
+                break;
+              }
+            }
+            if (debug) {
+              const pageHtml = String(document.documentElement?.outerHTML || '').slice(0, 120000);
+              const allLinks = Array.from(document.querySelectorAll('a[href]')).slice(0, 500).map(a => ({ href: a.href, text: (a.textContent || '').trim().slice(0, 200) }));
+              const fallbackOrganic = Array.from(document.querySelectorAll('#search a[href] h3')).map(h3 => { const a = h3.closest('a[href]'); return a ? { title: (h3.textContent || '').trim(), url: a.href } : null; }).filter(Boolean).slice(0, 10);
+              sendResponse({ ok: true, query: q, pageTitle: document.title || '', answerBox: answerBox2, answerBoxHtml: answerBoxHtml2, results: results2, debug: { pageHtml, allLinks, fallbackOrganic } });
+            } else {
+              sendResponse({ ok: true, query: q, pageTitle: document.title || '', answerBox: answerBox2, answerBoxHtml: answerBoxHtml2, results: results2 });
+            }
+          } catch (err) {
+            sendResponse({ ok: false, error: String(err?.message || err) });
+          }
+        }, 600);
+        return true;
       }
+
+      results = results.slice(0, 5);
       const answerBoxCandidates = [
         '#kp-wp-tab-overview',
         'div[data-attrid="wa:/description"]',
         'div[data-attrid^="kc:/"]',
-        'div[data-tts]'
+        'div[data-tts]',
+        '#search .kp-blk',
+        '#search [role="complementary"]'
       ];
       let answerBox = '';
       let answerBoxHtml = '';
@@ -275,7 +363,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         }
       }
-      sendResponse({ ok: true, query: q, pageTitle: document.title || '', answerBox, answerBoxHtml, results });
+      if (debug) {
+        const pageHtml = String(document.documentElement?.outerHTML || '').slice(0, 120000);
+        const allLinks = Array.from(document.querySelectorAll('a[href]')).slice(0, 500).map(a => ({ href: a.href, text: (a.textContent || '').trim().slice(0, 200) }));
+        const fallbackOrganic = Array.from(document.querySelectorAll('#search a[href] h3')).map(h3 => { const a = h3.closest('a[href]'); return a ? { title: (h3.textContent || '').trim(), url: a.href } : null; }).filter(Boolean).slice(0, 10);
+        sendResponse({ ok: true, query: q, pageTitle: document.title || '', answerBox, answerBoxHtml, results, debug: { pageHtml, allLinks, fallbackOrganic } });
+      } else {
+        sendResponse({ ok: true, query: q, pageTitle: document.title || '', answerBox, answerBoxHtml, results });
+      }
     } catch (e) {
       sendResponse({ ok: false, error: String(e?.message || e) });
     }

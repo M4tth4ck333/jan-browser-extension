@@ -11,12 +11,13 @@ function Switch({
     <SwitchPrimitive.Root
       data-slot="switch"
       className={cn(
-        // Larger, higher-contrast track
-        "peer inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-input shadow-xs transition-all outline-none",
-        // Colors
-        "data-[state=checked]:bg-primary data-[state=unchecked]:bg-input",
-        // Focus ring
-        "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
+        // Track: size, shape, baseline colors
+        "peer inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 transition-colors outline-none",
+        "bg-muted border-border",
+        // Checked state uses brand primary and hides border
+        "data-[state=checked]:bg-primary data-[state=checked]:border-transparent",
+        // Focus ring uses brand pastel blue
+        "focus-visible:ring-2 focus-visible:ring-[--brand-blue] focus-visible:border-[--brand-blue]",
         // Disabled
         "disabled:cursor-not-allowed disabled:opacity-50",
         className
@@ -26,10 +27,8 @@ function Switch({
       <SwitchPrimitive.Thumb
         data-slot="switch-thumb"
         className={cn(
-          // Bigger thumb with clear movement and slight shadow
-          "pointer-events-none block h-5 w-5 rounded-full shadow-sm ring-0 transition-transform",
-          // Thumb colors
-          "data-[state=unchecked]:bg-background data-[state=checked]:bg-primary-foreground",
+          // Thumb
+          "pointer-events-none block h-5 w-5 rounded-full bg-white shadow-sm ring-0 transition-transform",
           // Translate distances aligned to track size
           "data-[state=checked]:translate-x-5 data-[state=unchecked]:translate-x-0"
         )}

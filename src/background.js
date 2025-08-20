@@ -89,7 +89,7 @@ async function connectMcpBridge() {
           const query = String(params?.query || '').trim();
           if (!query) return reply({ ok: false, error: 'Missing query' });
           console.log('[MCP Bridge] invoking performGoogleSearchAndScrape', { query });
-          const res = await performGoogleSearchAndScrape({ query, closeTab: true });
+          const res = await performGoogleSearchAndScrape({ query, closeTab: true, debug: true });
           console.log('[MCP Bridge] performGoogleSearchAndScrape done', { ok: res?.ok, hasData: !!res?.data });
           if (res?.ok && res?.data) {
             try {
@@ -555,6 +555,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const targetTabId = tabId || sender?.tab?.id || null;
         if (!targetTabId) return sendResponse({ ok: false, error: 'No target tab for streaming.' });
 
+        // Structured, compact logging of the inbound payload (no full content)
+        try {
+          const roles = { system: 0, user: 0, assistant: 0, other: 0 };
+          let systemChars = 0;
+          let contextSources = 0;
+          const arr = Array.isArray(messages) ? messages : [];
+          for (const m of arr) {
+            const r = m?.role || 'other';
+            if (Object.prototype.hasOwnProperty.call(roles, r)) roles[r]++; else roles.other++;
+            let content = m?.content;
+            if (Array.isArray(content)) {
+              content = content.map(p => (typeof p === 'string' ? p : (p?.text || p?.content || ''))).join('');
+            }
+            content = String(content ?? '');
+            if (r === 'system') {
+              systemChars += content.length;
+              // Count context blocks produced by buildContextMessages (marked with [Source: Tab ...])
+              try { contextSources += (content.match(/\[Source:\s*Tab\s+/g) || []).length; } catch (_) {}
+            }
+          }
+          console.log('[BG] STREAM_START payload summary', {
+            reqId,
+            tabId: targetTabId,
+            totalMessages: arr.length,
+            roles,
+            systemChars,
+            contextSources,
+          });
+        } catch (_) { /* ignore logging errors */ }
+
         // Acknowledge start so UI can show placeholder
         sendResponse({ ok: true, started: true });
 
@@ -828,7 +858,7 @@ async function chatCompletionsStreamAnthropic({ apiBase, apiKey, useApiKey, mode
 // Reusable function to perform Google Search + scrape
 async function performGoogleSearchAndScrape(payload) {
   try {
-    const { query, closeTab = true } = payload || {};
+    const { query, closeTab = true, debug = false, readinessTimeoutMs = 15000, minResults = 4 } = payload || {};
     if (!query || !String(query).trim()) {
       return { ok: false, error: 'Missing query' };
     }
@@ -840,10 +870,22 @@ async function performGoogleSearchAndScrape(payload) {
     // Wait for load complete
     await waitForTabComplete(tabId, 15000);
     console.log('[SearchFlow] tab load complete', { tabId });
-    // Small settle delay for dynamic SERP hydration
-    await delay(700);
-    console.log('[SearchFlow] sending SCRAPE_GOOGLE_SERP to content script', { tabId });
-    const data = await sendMessageWithRetry(tabId, { type: 'SCRAPE_GOOGLE_SERP' }, 3, 500);
+    // Small human-like jitter before interacting
+    await delay(500 + Math.floor(500 + Math.random() * 1200));
+    // Ask content script to confirm SERP readiness (hydration) before scraping
+    let ready = null;
+    try {
+      ready = await sendMessageWithRetry(tabId, { type: 'WAIT_FOR_SERP_READY', payload: { timeoutMs: readinessTimeoutMs, minResults, debug } }, 3, 600);
+      console.log('[SearchFlow] WAIT_FOR_SERP_READY', { ok: !!ready?.ok, ready: !!ready?.ready, reason: ready?.reason, counts: ready?.counts });
+    } catch (e) {
+      console.warn('[SearchFlow] readiness check failed; proceeding anyway', String(e?.message || e));
+    }
+    if (!ready?.ok || !ready?.ready) {
+      // One more small settle if not ready
+      await delay(800 + Math.floor(Math.random() * 600));
+    }
+    console.log('[SearchFlow] sending SCRAPE_GOOGLE_SERP to content script', { tabId, debug });
+    const data = await sendMessageWithRetry(tabId, { type: 'SCRAPE_GOOGLE_SERP', debug }, 3, 500);
     console.log('[SearchFlow] scrape response received', { ok: !!data, keys: data ? Object.keys(data) : [] });
     if (closeTab) {
       try {

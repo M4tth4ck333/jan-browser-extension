@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Jan Summarizer",
+  "name": "Jan",
   "version": "0.1.0",
   "description": "Summarize the current page using Jan Server, Cerebras, or any OpenAI-compatible endpoint.",
   "action": {
