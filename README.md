@@ -1,6 +1,6 @@
 # Jan Extension (Chrome)
 
-A Manifest V3 Chrome extension that unifies page summarization, inline writing assist, and quick web search using any OpenAI‑compatible API (Jan Server/local, Cerebras, OpenAI, etc.).
+The Jan companion for your browser: chat, inline writing help, search, and page context in the side panel. Uses your Jan service and also supports any OpenAI‑compatible endpoint (Jan Server/local, Cerebras, OpenAI, etc.).
 
 - Side panel app for chat and streaming summaries
 - Inline Assistant tooltip for selected text (rewrite/simplify/translate)

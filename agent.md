@@ -204,7 +204,6 @@ Notes:
 - Vite rollup outputs use stable names to reduce cache confusion.
 - Options: clearer timeout error messages for connectivity tests.
 
-
 ## Open Questions / Next Steps
 
 - Decide on side‑panel opening strategy (auto‑open vs explicit + cache‑bust) for your workflow.
