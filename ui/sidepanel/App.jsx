@@ -11,6 +11,24 @@ import * as ScrollArea from '@radix-ui/react-scroll-area'
 import * as Popover from '@radix-ui/react-popover'
 import { User as UserIcon, Send, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Search as SearchIcon, Settings as SettingsIcon, Trash2 as TrashIcon } from 'lucide-react'
 import { Input } from '../components/ui/input.jsx'
+ import { animate } from 'motion'
+
+// Animated wrapper for Radix Popover.Content (fade + slight scale/slide on mount)
+function AnimatedPopoverContent({ children, ...props }) {
+  const popRef = useRef(null)
+  useEffect(() => {
+    const el = popRef.current
+    if (!el) return
+    try {
+      animate(
+        el,
+        { opacity: [0, 1], y: [4, 0], scale: [0.98, 1] },
+        { duration: 0.18, easing: 'ease-out' }
+      )
+    } catch (_) { /* no-op */ }
+  }, [])
+  return <Popover.Content ref={popRef} {...props}>{children}</Popover.Content>
+}
 
 // Day label helper (plain function; no hooks at module scope)
 function dayLabel(ts) {
@@ -33,6 +51,19 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
     !isFirst ? (isUser ? 'rounded-tr-md' : 'rounded-tl-md') : '',
     !isLast ? (isUser ? 'rounded-br-md' : 'rounded-bl-md') : ''
   ].filter(Boolean).join(' ')
+  const rootRef = useRef(null)
+  useEffect(() => {
+    const el = rootRef.current
+    if (!el) return
+    // Subtle fade + slide-in; direction depends on speaker
+    try {
+      animate(
+        el,
+        { opacity: [0, 1], y: [6, 0], x: isUser ? [6, 0] : [-6, 0] },
+        { duration: 0.25, easing: 'ease-out' }
+      )
+    } catch (_) { /* no-op */ }
+  }, [isUser])
   const sanitizeSchema = useMemo(() => ({
     ...defaultSchema,
     attributes: {
@@ -91,8 +122,8 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
   }
 
   return (
-    <div className={`w-full ${isUser ? 'justify-end' : 'justify-start'} mb-1 flex`}>
-      <div className={`flex items-end gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
+    <div ref={rootRef} className={`w-full ${isUser ? 'justify-end' : 'justify-start'} mb-1 flex`}>
+      <div className={`group flex items-end gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
         <div className={`hidden sm:flex shrink-0 h-6 w-6 rounded-full bg-muted text-muted-foreground items-center justify-center ${isFirst ? '' : 'invisible'}`}>
           {isUser ? <UserIcon size={14} /> : <Bot size={14} />}
         </div>
@@ -153,22 +184,75 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
                   {content || ''}
                 </ReactMarkdown>
               ) : (
-                <div className="inline-flex items-center gap-2 text-sm ds-muted-text">
-                  <span className="spinner" aria-hidden="true" />
-                  <span>Thinking…</span>
+                <div className="w-[min(100%,56ch)] space-y-2 animate-pulse" aria-label="Generating answer…">
+                  <div className="h-3 rounded bg-muted/60 w-11/12" />
+                  <div className="h-3 rounded bg-muted/60 w-10/12" />
+                  <div className="h-3 rounded bg-muted/60 w-9/12" />
+                  <div className="mt-3 rounded-lg border ds-border bg-card/80 p-3 space-y-2">
+                    <div className="h-3 rounded bg-muted/50 w-9/12" />
+                    <div className="h-3 rounded bg-muted/50 w-7/12" />
+                    <div className="h-3 rounded bg-muted/50 w-10/12" />
+                  </div>
                 </div>
               )}
             </div>
           )}
-          {!isUser ? (
-            <div className="absolute top-1 right-1 flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onCopy?.(content)} aria-label="Copy">
-                <CopyIcon size={14} />
-              </Button>
-            </div>
-          ) : null}
         </div>
+        {!isUser ? (
+          <AssistantControls content={content} onCopy={onCopy} />
+        ) : null}
       </div>
+    </div>
+  )
+}
+
+// Compact assistant controls (Copy) rendered to the right of assistant messages
+function AssistantControls({ content, onCopy }) {
+  const ref = useRef(null)
+  const [copied, setCopied] = useState(false)
+  const canCopy = !!String(content || '').trim()
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    try { animate(el, { opacity: [0, 1], y: [4, 0] }, { duration: 0.18, easing: 'ease-out' }) } catch (_) {}
+  }, [])
+
+  const hoverIn = () => { try { animate(ref.current, { scale: 1.04 }, { duration: 0.12 }) } catch (_) {} }
+  const hoverOut = () => { try { animate(ref.current, { scale: 1.0 }, { duration: 0.12 }) } catch (_) {} }
+  const down = () => { try { animate(ref.current, { scale: 0.97 }, { duration: 0.06 }) } catch (_) {} }
+  const up = () => { try { animate(ref.current, { scale: 1.02 }, { duration: 0.08 }) } catch (_) {} }
+
+  const handleCopy = async () => {
+    if (!canCopy) return
+    const text = String(content || '').trim()
+    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1100); onCopy?.(text) } catch (_) {}
+  }
+
+  return (
+    <div className="ml-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+      <Tooltip.Root>
+        <Tooltip.Trigger asChild>
+          <button
+            ref={ref}
+            type="button"
+            className={`inline-flex items-center gap-1 h-7 px-2 rounded-full border ds-border bg-card/80 shadow-sm text-xs ${canCopy ? 'text-muted-foreground hover:text-foreground' : 'opacity-50 cursor-not-allowed'}`}
+            onMouseEnter={hoverIn}
+            onMouseLeave={hoverOut}
+            onMouseDown={down}
+            onMouseUp={up}
+            onClick={handleCopy}
+            aria-label={copied ? 'Copied' : 'Copy message'}
+            disabled={!canCopy}
+          >
+            {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+            <span>{copied ? 'Copied' : 'Copy'}</span>
+          </button>
+        </Tooltip.Trigger>
+        <Tooltip.Content sideOffset={6} className="text-xs ds-card ds-text border ds-border rounded px-2 py-1">
+          {copied ? 'Copied!' : (canCopy ? 'Copy message' : 'Nothing to copy yet')}
+        </Tooltip.Content>
+      </Tooltip.Root>
     </div>
   )
 }
@@ -1161,7 +1245,7 @@ export default function App() {
                   </button>
                 </Popover.Trigger>
                 <Popover.Portal>
-                  <Popover.Content
+                  <AnimatedPopoverContent
                     side="top"
                     align="start"
                     sideOffset={8}
@@ -1180,7 +1264,7 @@ export default function App() {
                     <div className="max-h-48 overflow-y-auto whitespace-pre-wrap leading-5 text-sm">
                       {selectionText}
                     </div>
-                  </Popover.Content>
+                  </AnimatedPopoverContent>
                 </Popover.Portal>
               </Popover.Root>
             ) : null}
@@ -1223,7 +1307,7 @@ export default function App() {
                 </button>
               </Popover.Trigger>
               <Popover.Portal>
-                <Popover.Content
+                <AnimatedPopoverContent
                   side="top"
                   align="end"
                   sideOffset={8}
@@ -1279,7 +1363,7 @@ export default function App() {
                     </div>
                   </div>
                   </div>
-                </Popover.Content>
+                </AnimatedPopoverContent>
               </Popover.Portal>
             </Popover.Root>
           </div>
