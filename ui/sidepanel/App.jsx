@@ -184,15 +184,8 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
                   {content || ''}
                 </ReactMarkdown>
               ) : (
-                <div className="w-[min(100%,56ch)] space-y-2 animate-pulse" aria-label="Generating answer…">
-                  <div className="h-3 rounded bg-muted/60 w-11/12" />
-                  <div className="h-3 rounded bg-muted/60 w-10/12" />
-                  <div className="h-3 rounded bg-muted/60 w-9/12" />
-                  <div className="mt-3 rounded-lg border ds-border bg-card/80 p-3 space-y-2">
-                    <div className="h-3 rounded bg-muted/50 w-9/12" />
-                    <div className="h-3 rounded bg-muted/50 w-7/12" />
-                    <div className="h-3 rounded bg-muted/50 w-10/12" />
-                  </div>
+                <div className="flex items-center" aria-label="Thinking">
+                  <ThinkingEmoji />
                 </div>
               )}
             </div>
@@ -202,6 +195,35 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
           <AssistantControls content={content} onCopy={onCopy} />
         ) : null}
       </div>
+    </div>
+  )
+}
+
+// Small waving-hand emoji for thinking state
+function ThinkingEmoji() {
+  const ref = useRef(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    let controls
+    try {
+      controls = animate(
+        el,
+        { rotate: [0, 18, -10, 18, 0] },
+        { duration: 1.6, easing: 'ease-in-out', repeat: Infinity }
+      )
+    } catch (_) {}
+    return () => { try { controls?.cancel?.() } catch (_) {} }
+  }, [])
+  return (
+    <div
+      ref={ref}
+      className="mt-0.5 select-none"
+      style={{ transformOrigin: '70% 70%' }}
+      aria-hidden="true"
+      title="Thinking"
+    >
+      <span className="text-lg">👋</span>
     </div>
   )
 }
