@@ -341,7 +341,7 @@ export default function App() {
   const streamingReqIdRef = useRef(null)
   const sessionsRef = useRef(sessions)
   const activeSessionIdRef = useRef(activeSessionId)
-  const [showReadingOverlay, setShowReadingOverlay] = useState(true)
+  const [showReadingOverlay, setShowReadingOverlay] = useState(false)
 
   const copyToClipboard = async (text) => {
     try { await navigator.clipboard.writeText(text) } catch (_) {}
@@ -374,7 +374,7 @@ export default function App() {
     const load = async () => {
       try {
         const { showReadingOverlay } = await chrome.storage.sync.get(['showReadingOverlay'])
-        if (mounted) setShowReadingOverlay(typeof showReadingOverlay === 'boolean' ? showReadingOverlay : true)
+        if (mounted) setShowReadingOverlay(typeof showReadingOverlay === 'boolean' ? showReadingOverlay : false)
       } catch (_) {}
     }
     load()
