@@ -12,6 +12,7 @@ import * as Popover from '@radix-ui/react-popover'
 import { User as UserIcon, Send, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Search as SearchIcon, Settings as SettingsIcon, Trash2 as TrashIcon } from 'lucide-react'
 import { Input } from '../components/ui/input.jsx'
  import { animate } from 'motion'
+import handSvg from '../assets/jan-hand.svg'
 
 // Animated wrapper for Radix Popover.Content (fade + slight scale/slide on mount)
 function AnimatedPopoverContent({ children, ...props }) {
@@ -225,6 +226,31 @@ function ThinkingEmoji() {
       title="Thinking"
     >
       <span className="text-lg">👋</span>
+    </div>
+  )
+}
+
+// Small animated hand indicator used while we're scraping/reading the page before generation starts
+function ReadingIndicator() {
+  const rootRef = useRef(null)
+  const handRef = useRef(null)
+  useEffect(() => {
+    const root = rootRef.current
+    const hand = handRef.current
+    let aEnter, aWave, aBob
+    try { aEnter = animate(root, { opacity: [0, 1], y: [4, 0] }, { duration: 0.2, easing: 'ease-out' }) } catch (_) {}
+    try { aWave = animate(hand, { rotate: [0, 16, -8, 16, 0] }, { duration: 1.6, easing: 'ease-in-out', repeat: Infinity }) } catch (_) {}
+    try { aBob = animate(hand, { y: [0, -2, 0] }, { duration: 1.2, easing: 'ease-in-out', repeat: Infinity }) } catch (_) {}
+    return () => {
+      try { aEnter?.cancel?.() } catch (_) {}
+      try { aWave?.cancel?.() } catch (_) {}
+      try { aBob?.cancel?.() } catch (_) {}
+    }
+  }, [])
+  return (
+    <div ref={rootRef} className="mb-2 inline-flex items-center gap-2 px-2.5 py-1.5 rounded-full border ds-border bg-card/80 shadow-sm backdrop-blur-sm">
+      <img ref={handRef} src={handSvg} alt="" className="h-4 w-4" style={{ transformOrigin: '70% 70%' }} />
+      <span className="text-xs ds-muted-text">Reading your page…</span>
     </div>
   )
 }
@@ -909,6 +935,40 @@ export default function App() {
           nextSessions[idxCtx] = updated
           await saveSessions(nextSessions)
         }
+        // Ensure each selected/active tab has usable content before sending
+        const minChars = 200
+        let missing = tabsToUse.filter(id => {
+          const r = cache[id]
+          const len = String((r?.selection && String(r.selection).trim()) || (r?.content && String(r.content).trim()) || '').length
+          return !r || len < minChars
+        })
+        if (missing.length) {
+          // Retry once for missing tabs
+          const retried = await scrapeSelectedTabs(missing)
+          retried.forEach(r => { cache[r.tabId] = r })
+          setContextCache(cache)
+          missing = tabsToUse.filter(id => {
+            const r = cache[id]
+            const len = String((r?.selection && String(r.selection).trim()) || (r?.content && String(r.content).trim()) || '').length
+            return !r || len < minChars
+          })
+        }
+        if (missing.length) {
+          const proceed = typeof window !== 'undefined' ? window.confirm(`Missing usable content for ${missing.length}/${tabsToUse.length} tab(s). Continue without full context?`) : true
+          if (!proceed) {
+            // Inform user and abort send
+            const note = `Send cancelled: missing usable content for ${missing.length}/${tabsToUse.length} tab(s).`
+            const sIdx2 = sessions.findIndex(s => s.id === activeSessionId)
+            if (sIdx2 >= 0) {
+              const next = [...sessions]
+              next[sIdx2].messages = [...next[sIdx2].messages, { role: 'assistant', content: note }]
+              next[sIdx2].updatedAt = Date.now()
+              await saveSessions(next)
+            }
+            setBusy(false)
+            return
+          }
+        }
         if (wantContext) contexts = tabsToUse.map(id => cache[id]).filter(Boolean)
       }
       // Prefer streaming
@@ -956,12 +1016,14 @@ export default function App() {
       setSessionTitle(text)
       nextSessions[sIdx].title = text
     }
+    // test
     await saveSessions(nextSessions)
     try {
       // Get Google SERP
       let serp = null
       try {
-        serp = await chrome.runtime.sendMessage({ type: 'GOOGLE_SEARCH_AND_SCRAPE', payload: { query: text, closeTab: true } })
+        // Use enhanced SERP scraping (same path MCP bridge uses) by enabling debug
+        serp = await chrome.runtime.sendMessage({ type: 'GOOGLE_SEARCH_AND_SCRAPE', payload: { query: text, closeTab: true, debug: true } })
       } catch (_) { serp = null }
       const googleMsgs = buildGoogleMessages(serp)
       // Determine contexts (tabs)
@@ -982,6 +1044,40 @@ export default function App() {
           const updated = { ...nextSessions[idxCtx], context: { useContextDefault, selectedTabIds: tabsToUse, contextCache: cache, autoFollowActiveTab } }
           nextSessions[idxCtx] = updated
           await saveSessions(nextSessions)
+        }
+        // Ensure each selected/active tab has usable content before sending
+        const minChars = 200
+        let missing = tabsToUse.filter(id => {
+          const r = cache[id]
+          const len = String((r?.selection && String(r.selection).trim()) || (r?.content && String(r.content).trim()) || '').length
+          return !r || len < minChars
+        })
+        if (missing.length) {
+          // Retry once for missing tabs
+          const retried = await scrapeSelectedTabs(missing)
+          retried.forEach(r => { cache[r.tabId] = r })
+          setContextCache(cache)
+          missing = tabsToUse.filter(id => {
+            const r = cache[id]
+            const len = String((r?.selection && String(r.selection).trim()) || (r?.content && String(r.content).trim()) || '').length
+            return !r || len < minChars
+          })
+        }
+        if (missing.length) {
+          const proceed = typeof window !== 'undefined' ? window.confirm(`Missing usable content for ${missing.length}/${tabsToUse.length} tab(s). Continue without full context?`) : true
+          if (!proceed) {
+            // Inform user and abort send
+            const note = `Send cancelled: missing usable content for ${missing.length}/${tabsToUse.length} tab(s).`
+            const sIdx2 = sessions.findIndex(s => s.id === activeSessionId)
+            if (sIdx2 >= 0) {
+              const next = [...sessions]
+              next[sIdx2].messages = [...next[sIdx2].messages, { role: 'assistant', content: note }]
+              next[sIdx2].updatedAt = Date.now()
+              await saveSessions(next)
+            }
+            setBusy(false)
+            return
+          }
         }
         if (wantContext) contexts = tabsToUse.map(id => cache[id]).filter(Boolean)
       }
@@ -1495,6 +1591,8 @@ export default function App() {
               </Popover.Portal>
             </Popover.Root>
           </div>
+          {/* Reading indicator appears while scraping/reading before generation starts */}
+          {(busy && !streamingReqId) ? <ReadingIndicator /> : null}
           <div className="flex items-stretch gap-2">
             <Textarea
               className="w-full flex-1 resize-none min-h-[72px] rounded-2xl text-base leading-6 shadow-lg bg-card/80 border-border/60 backdrop-blur-sm"

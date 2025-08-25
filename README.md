@@ -213,7 +213,7 @@ Then reload the extension or wait for it to auto-reconnect.
     ```
   - Outputs: `pack/jan-extension-<tag>.zip`, `pack/search-mcp-server-<tag>-dist.zip`.
 
-See RELEASE.md for full details.
+See release.md for full details.
 
 ## License
 
