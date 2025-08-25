@@ -14,7 +14,7 @@ const DEFAULTS = {
   useCustomCompletionsUrl: false,
   customCompletionsUrl: '',
   // UI: dim overlay behind reading indicator (busy pre-stream)
-  showReadingOverlay: true,
+  showReadingOverlay: false,
 }
 
 export default function OptionsApp() {
