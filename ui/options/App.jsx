@@ -13,6 +13,8 @@ const DEFAULTS = {
   // Custom full completions URL support (for provider: custom)
   useCustomCompletionsUrl: false,
   customCompletionsUrl: '',
+  // UI: dim overlay behind reading indicator (busy pre-stream)
+  showReadingOverlay: false,
 }
 
 export default function OptionsApp() {
@@ -50,10 +52,17 @@ export default function OptionsApp() {
   // Fetch models when toggled on, or when provider/base/key changes while toggled on
   useEffect(() => {
     if (!cfg.useModelList) return
+    // Avoid noisy errors while the user is still filling inputs
+    if (!cfg.apiBase) return
+    if (cfg.useApiKey && !cfg.apiKey) return
     let cancelled = false
     const fetchModels = async () => {
       setModelsState({ loading: true, error: '', items: [] })
-      const res = await chrome.runtime.sendMessage({ type: 'LIST_MODELS' }).catch(e => ({ ok: false, error: e.message }))
+      // Send overrides so background doesn't rely on possibly-stale storage
+      const res = await chrome.runtime.sendMessage({
+        type: 'LIST_MODELS',
+        payload: { apiBase: cfg.apiBase, apiKey: cfg.apiKey, useApiKey: !!cfg.useApiKey }
+      }).catch(e => ({ ok: false, error: e.message }))
       if (cancelled) return
       if (!res?.ok) {
         setModelsState({ loading: false, error: res?.error || 'Failed to fetch models', items: [] })
@@ -107,6 +116,20 @@ export default function OptionsApp() {
     await chrome.storage.sync.set(cfg)
     setStatus('Saved ✓')
     setTimeout(() => setStatus(''), 1500)
+    // Optionally refresh models after save so the dropdown reflects persisted settings
+    if (cfg.useModelList && cfg.apiBase && (!cfg.useApiKey || cfg.apiKey)) {
+      setModelsState({ loading: true, error: '', items: [] })
+      const res = await chrome.runtime.sendMessage({
+        type: 'LIST_MODELS',
+        payload: { apiBase: cfg.apiBase, apiKey: cfg.apiKey, useApiKey: !!cfg.useApiKey }
+      }).catch(e => ({ ok: false, error: e.message }))
+      if (!res?.ok) setModelsState({ loading: false, error: res?.error || 'Failed to fetch models', items: [] })
+      else {
+        const items = Array.isArray(res.models) ? res.models : []
+        const normalized = items.map(m => ({ id: m?.id || m?.name || '', name: m?.id || m?.name || '' })).filter(m => m.id)
+        setModelsState({ loading: false, error: '', items: normalized })
+      }
+    }
   }
 
   const test = async () => {
@@ -322,7 +345,10 @@ export default function OptionsApp() {
                 className="btn"
                 onClick={async () => {
                   setModelsState(s => ({ ...s, loading: true, error: '' }))
-                  const res = await chrome.runtime.sendMessage({ type: 'LIST_MODELS' }).catch(e => ({ ok: false, error: e.message }))
+                  const res = await chrome.runtime.sendMessage({
+                    type: 'LIST_MODELS',
+                    payload: { apiBase: cfg.apiBase, apiKey: cfg.apiKey, useApiKey: !!cfg.useApiKey }
+                  }).catch(e => ({ ok: false, error: e.message }))
                   if (!res?.ok) setModelsState({ loading: false, error: res?.error || 'Failed to fetch models', items: [] })
                   else {
                     const items = Array.isArray(res.models) ? res.models : []
@@ -378,6 +404,33 @@ export default function OptionsApp() {
               </li>
             ))}
           </ul>
+        </div>
+
+        <div className="mt-6 border ds-border ds-muted-bg rounded-xl p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="typo-h1 font-display">Reading Indicator</div>
+              <div className="text-sm ds-muted-text">Control visual emphasis when the extension is reading/scraping.</div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="text-sm ds-muted-text">Dim overlay during reading</div>
+            <div className="flex items-center gap-3 text-sm text-foreground">
+              <Label htmlFor="show-reading-overlay" className="text-foreground/80 cursor-pointer">Off</Label>
+              <Switch
+                id="show-reading-overlay"
+                checked={!!cfg.showReadingOverlay}
+                onCheckedChange={(v) => {
+                  const showReadingOverlay = !!v
+                  setCfg({ ...cfg, showReadingOverlay })
+                  try { chrome.storage.sync.set({ showReadingOverlay }) } catch (_) {}
+                }}
+                aria-label="Toggle dim overlay during reading"
+              />
+              <Label htmlFor="show-reading-overlay" className="text-foreground/80 cursor-pointer">On</Label>
+            </div>
+          </div>
         </div>
 
         <div className="mt-6 border ds-border ds-muted-bg rounded-xl p-4 space-y-4">

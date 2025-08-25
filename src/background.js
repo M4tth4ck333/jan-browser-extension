@@ -519,10 +519,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   // List available models from the configured provider (OpenAI-compatible /models)
+  // Allows optional overrides from the sender (e.g., Options UI) to avoid relying on stale storage
   if (message?.type === 'LIST_MODELS') {
     (async () => {
       try {
-        const { apiBase, apiKey, useApiKey } = await getSettings();
+        const overrides = message?.payload || {};
+        const s = await getSettings();
+        const apiBase = (overrides.apiBase ?? s.apiBase);
+        const apiKey = (overrides.apiKey ?? s.apiKey);
+        const useApiKey = (typeof overrides.useApiKey === 'boolean') ? overrides.useApiKey : s.useApiKey;
         if (!apiBase) return sendResponse({ ok: false, error: 'Missing API Base URL. Set it in Options.' });
         if (useApiKey && !apiKey) return sendResponse({ ok: false, error: 'Missing API Key. Enable or provide one in Options.' });
         const res = await pingModels({ apiBase, apiKey, useApiKey });

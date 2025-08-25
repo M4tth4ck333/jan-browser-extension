@@ -1,76 +1,94 @@
 # Release Guide
 
-This guide covers how to produce downloadable zips for the Chrome extension and the optional MCP search server.
+This doc explains how to ship downloadable zips for the Chrome extension and the optional MCP search server.
 
-## TL;DR
+## Quick Recipes
 
-- Stable releases (tags):
+- Stable release (tagged):
   ```bash
-  git tag v0.1.2
-  git push origin v0.1.2
+  # tag can be vX.Y.Z, X.Y.Z, or a custom like 12.11
+  git tag 12.11
+  git push origin main
+  git push origin 12.11
   ```
-  CI builds with Bun and publishes:
-  - `jan-extension-v0.1.2.zip`
-  - `search-mcp-server-v0.1.2-dist.zip`
+  CI publishes:
+  - `jan-extension-12.11.zip`
+  - `search-mcp-server-12.11-dist.zip`
 
-- Nightly prereleases (incremental):
-  - Every push to `main` updates a prerelease with tag `nightly` and uploads files like:
+- Nightly prerelease (incremental):
+  - Push to `main`. CI updates a prerelease with tag `nightly` and uploads:
     - `jan-extension-nightly-<run>-<sha>.zip`
     - `search-mcp-server-nightly-<run>-<sha>-dist.zip`
 
-- Local packaging (dry run):
+- Local dry run (no GitHub needed):
   ```bash
-  npm run release:local
-  # or
-  TAG=v0.1.2 npm run release:local
+  npm run release:local                # timestamped local tag
+  TAG=12.11 npm run release:local     # custom tag to mirror a release
   ```
-  Artifacts appear under `pack/`.
+  Outputs to `pack/`.
+
+## Tagging, Versioning, and What Shows Up
+
+- The artifact filenames mirror the Git tag exactly. If you tag `12.11`, the zip names will include `12.11`.
+- Internal versions (`manifest.json`, root `package.json`, and `mcp/search-server/package.json`) are independent from the tag:
+  - You can ship a tag-only release without bumping internal versions (handy for quick spins).
+  - For consistency, bump internal versions before tagging when you want them to match.
+
+Suggested manual bump (optional):
+```bash
+# Edit these files to your target version, e.g., 12.11.0
+# - manifest.json               (.version)
+# - package.json                (.version)
+# - mcp/search-server/package.json (.version)
+git add -A && git commit -m "chore(release): bump version to 12.11.0"
+git tag 12.11 && git push origin main && git push origin 12.11
+```
 
 ## Workflows
 
 - Stable: `.github/workflows/release.yml`
-  - Trigger: tag pushes (e.g., `v1.2.3`)
-  - Uses Bun for installs (`bun install`) and build (`bun run build:all`).
-  - Packages:
-    - `jan-extension-<tag>.zip`: includes `manifest.json`, `src/background.js`, `src/content.js`, `dist/ui/*`, `dist/assets/*`, `icons/*`, plus `LICENSE`/`README.md` if present.
-    - `search-mcp-server-<tag>-dist.zip`: zips `mcp/search-server/dist` (if exists).
-  - Uploads artifacts and creates a GitHub Release for the tag.
+  - Trigger: tag pushes (`vX.Y.Z`, `X.Y.Z`, or custom like `12.11`).
+  - Tooling: Bun (`oven-sh/setup-bun@v2`) for `bun install` and `bun run build:all`.
+  - Artifacts:
+    - `jan-extension-<tag>.zip`: `manifest.json`, `src/background.js`, `src/content.js`, `dist/ui/*`, `dist/assets/*`, `icons/*`, plus `LICENSE`/`README.md` if present.
+    - `search-mcp-server-<tag>-dist.zip`: `mcp/search-server/dist/**` (if present).
+  - Publishes a GitHub Release for the tag.
 
 - Nightly: `.github/workflows/nightly.yml`
   - Trigger: push to `main`.
-  - Uses Bun, same build steps.
-  - Patches `manifest.json` `version_name` to include `-nightly-<run>-<sha>` without changing `version`.
-  - Uploads artifacts and updates a prerelease with tag `nightly`.
+  - Patches `manifest.version_name` to include `-nightly-<run>-<sha>` (does not change `version`).
+  - Updates prerelease with tag `nightly` and uploads the two artifacts.
 
 ## Local Packaging Details
 
 - Script: `scripts/package-local.sh`
-  - Auto-detects Bun; falls back to npm when Bun is unavailable.
-  - Builds extension and MCP server (`bun run build:all` or `npm run build:all`).
-  - Zips to `pack/` using either a provided `TAG` env var or a timestamped local tag.
-
-- Outputs:
-  - `pack/jan-extension-<tag>.zip`
-  - `pack/search-mcp-server-<tag>-dist.zip` (if MCP dist exists)
+  - Detects Bun. If unavailable, falls back to npm (`npm ci` with install fallback).
+  - Builds extension + MCP (`bun run build:all` or `npm run build:all`).
+  - Zips into `pack/` using `TAG` or an auto timestamp.
 
 - Verify contents:
-  ```bash
-  unzip -l pack/jan-extension-<tag>.zip | sed -n '1,200p'
-  ```
+```bash
+unzip -l pack/jan-extension-<tag>.zip | sed -n '1,200p'
+```
 
 ## Optional: Run CI Locally
 
 - Install act (macOS): `brew install act`
-- Run the release job (simulating a tag push):
+- Simulate a tag release:
+```bash
+act push -P ubuntu-latest=catthehacker/ubuntu:act-latest -j build-and-release --env GITHUB_REF_NAME=12.11
+```
+The workflow uploads artifacts; publishing to GitHub Releases is skipped under `act`.
+
+## Troubleshooting
+
+- Tag-only releases show previous internal versions in the manifest/package files. Bump them first if you want parity with the tag.
+- To retag:
   ```bash
-  act push -P ubuntu-latest=catthehacker/ubuntu:act-latest -j build-and-release --env GITHUB_REF_NAME=v0.0.0-local
+  git tag -d 12.11
+  git push origin :refs/tags/12.11   # remove remote tag (if needed)
+  git tag 12.11 && git push origin 12.11
   ```
-  The workflow uploads artifacts and skips publishing the GitHub Release when `ACT=true`.
-
-## Notes & Tips
-
-- Bun version: we track `latest` in CI. If you see regressions, pin to `bun-version: 1.2.x`.
-- npm lockfile: the local script falls back to `npm install` if `npm ci` detects lockfile drift.
-- Chrome load: unzip the extension zip to a folder and load as unpacked via `chrome://extensions` in Developer mode.
-- Host permissions: restrict `host_permissions` in `manifest.json` before publishing to the Chrome Web Store.
+- Bun: we track `latest`. If CI regresses, pin `bun-version: 1.2.x`.
+- Chrome: unzip the extension zip and load as unpacked via `chrome://extensions`.
 
