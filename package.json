@@ -1,6 +1,6 @@
 {
   "name": "jan-browser-extension",
-  "version": "1.0.0",
+  "version": "0.12.0",
   "description": "A Manifest V3 Chrome extension that summarizes the current page (or selected text) using any OpenAI-compatible API, including Cerebras and Jan Server.",
   "type": "module",
   "main": "index.js",

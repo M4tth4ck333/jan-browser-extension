@@ -790,29 +790,76 @@ export default function App() {
     const data = serp.data || {}
     const lines = []
     if (data.answerBox) {
-      lines.push(`Answer box:\n${data.answerBox.trim().slice(0, 800)}`)
+      try { lines.push(`Answer box:\n${String(data.answerBox).trim().slice(0, 800)}`) } catch (_) {}
     }
     const results = Array.isArray(data.results) ? data.results.slice(0, 5) : []
     results.forEach((r, i) => {
       const title = (r?.title || '').trim()
       const url = (r?.url || '').trim()
       const snip = (r?.snippet || '').trim()
-      setDebugOpen(true)
-      return
-    }
-    if (!isSupportedUrl(t.url) || isRestrictedUrl(t.url)) {
-      setDebugInfo({ ok: false, error: 'This page is restricted. Open a normal http(s) page.' })
-      setDebugOpen(true)
-      return
+      const prefix = `Result ${i + 1}: ${title}${url ? ` (${url})` : ''}`.trim()
+      const block = [prefix, snip].filter(Boolean).join('\n')
+      if (block) lines.push(block)
+    })
+    if (!lines.length) return []
+    return [{ role: 'system', content: `Google results:\n\n${lines.join('\n\n')}` }]
+  }
+
+  // Scrape content for a set of selected tab IDs (fresh reads)
+  const scrapeSelectedTabs = useCallback(async (ids) => {
+    const results = []
+    const unique = Array.from(new Set(ids || []))
+    for (const id of unique) {
+      try {
+        const t = await chrome.tabs.get(id)
+        if (!t?.id || !isSupportedUrl(t.url) || isRestrictedUrl(t.url)) continue
         await waitForTabComplete(id)
         const resp = await sendToTabWithRetry(id, { type: 'GET_PAGE_CONTENT' })
-        if (resp?.ok) {
-          results.push({ ...resp, tabId: id })
-        }
+        if (resp?.ok) results.push({ ...resp, tabId: id })
       } catch (_) { /* ignore */ }
     }
     return results
-  }, [])
+  }, [waitForTabComplete, sendToTabWithRetry])
+
+  // Debug: preview current tab payload and the constructed system message
+  const previewCurrentTabPayload = useCallback(async () => {
+    try {
+      setDebugInfo({ loading: true })
+      setDebugOpen(true)
+      const t = await getActiveTab()
+      if (!t?.id) {
+        setDebugInfo({ ok: false, error: 'No active tab.' })
+        return
+      }
+      if (!isSupportedUrl(t.url)) {
+        setDebugInfo({ ok: false, error: 'Unsupported URL. Open a normal http(s) page.' })
+        return
+      }
+      if (isRestrictedUrl(t.url)) {
+        setDebugInfo({ ok: false, error: 'This page is restricted. Open a normal http(s) page.' })
+        return
+      }
+      await waitForTabComplete(t.id)
+      const resp = await sendToTabWithRetry(t.id, { type: 'GET_PAGE_CONTENT' })
+      if (!resp?.ok) {
+        setDebugInfo({ ok: false, error: resp?.error || 'Failed to read page.' })
+        return
+      }
+      const sysMsgs = buildContextMessages([{ ...resp, tabId: t.id }])
+      const sys = sysMsgs.find(m => m.role === 'system')?.content || ''
+      setDebugInfo({
+        ok: true,
+        tabId: t.id,
+        title: resp.title || '',
+        url: resp.url || t.url || '',
+        contentLen: (resp.content || '').length,
+        selectionLen: (resp.selection || '').length,
+        systemPreview: sys,
+      })
+    } catch (e) {
+      setDebugInfo({ ok: false, error: e?.message || 'Unexpected error.' })
+    }
+  }, [getActiveTab, isSupportedUrl, isRestrictedUrl, waitForTabComplete, sendToTabWithRetry, buildContextMessages])
 
   const rescrapeSelected = useCallback(async () => {
     const ids = selectedTabIds && selectedTabIds.length ? selectedTabIds : []
