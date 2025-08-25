@@ -22,3 +22,5 @@ build/
 log.txt
 *.log
 logs/
+\n+# Local packaging artifacts
+pack/

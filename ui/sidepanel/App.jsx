@@ -91,6 +91,7 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
     } catch { return '' }
   }
 
+
   // Local renderer for Markdown code elements with copy feedback
   function CodeBlock({ inline, className, children, ...props }) {
     const [copied, setCopied] = useState(false)
@@ -299,6 +300,9 @@ export default function App() {
   const [tabSessionMap, setTabSessionMap] = useState({}) // { [tabId]: sessionId }
   const [selectionText, setSelectionText] = useState('')
   const [bridgeStatus, setBridgeStatus] = useState({ connected: false, usingToken: false, url: '' })
+  // Debug preview state
+  const [debugOpen, setDebugOpen] = useState(false)
+  const [debugInfo, setDebugInfo] = useState(null)
 
   // Sessions (history)
   const [sessions, setSessions] = useState([])
@@ -700,13 +704,13 @@ export default function App() {
             await switchSession(sid)
           }
         }
-        // If user hasn't manually chosen tabs (i.e., wantAutoFollow), auto-follow the active tab
-        setSelectedTabIds([t.id])
+        // Auto-follow the active tab only if the user hasn't manually selected multiple tabs
+        if (autoFollowActiveTab) setSelectedTabIds([t.id])
       } catch (_) {}
     }
     try { chrome.tabs.onActivated.addListener(onActivated) } catch (_) {}
     return () => { try { chrome.tabs.onActivated.removeListener(onActivated) } catch (_) {} }
-  }, [refreshTabs, loadTabSessionMap, readPage])
+  }, [refreshTabs, loadTabSessionMap, readPage, autoFollowActiveTab])
 
   const summarize = useCallback(async (useSelection) => {
     const pd = pageData || (await readPage())
@@ -793,17 +797,13 @@ export default function App() {
       const title = (r?.title || '').trim()
       const url = (r?.url || '').trim()
       const snip = (r?.snippet || '').trim()
-      lines.push(`${i + 1}. ${title}${url ? `\n${url}` : ''}${snip ? `\n${snip}` : ''}`)
-    })
-    if (!lines.length) return []
-    const header = data.query ? `Fresh Google results for: "${data.query}"` : 'Fresh Google results'
-    return [{ role: 'system', content: `${header}\n\n${lines.join('\n\n')}` }]
-  }
-
-  const scrapeSelectedTabs = useCallback(async (tabIds) => {
-    const results = []
-    for (const id of tabIds) {
-      try {
+      setDebugOpen(true)
+      return
+    }
+    if (!isSupportedUrl(t.url) || isRestrictedUrl(t.url)) {
+      setDebugInfo({ ok: false, error: 'This page is restricted. Open a normal http(s) page.' })
+      setDebugOpen(true)
+      return
         await waitForTabComplete(id)
         const resp = await sendToTabWithRetry(id, { type: 'GET_PAGE_CONTENT' })
         if (resp?.ok) {
@@ -849,7 +849,7 @@ export default function App() {
       let contexts = []
       let cache = { ...contextCache }
       const activeTab = await getActiveTab()
-      const tabsToUse = [activeTab?.id].filter(Boolean)
+      const tabsToUse = (selectedTabIds && selectedTabIds.length) ? selectedTabIds : [activeTab?.id].filter(Boolean)
       if (tabsToUse.length) {
         // Always re-scrape targeted tabs to keep content fresh in cache
         const scraped = await scrapeSelectedTabs(tabsToUse)
@@ -858,7 +858,7 @@ export default function App() {
         // Persist the refreshed context into the active session
         const idxCtx = nextSessions.findIndex(s => s.id === activeSessionId)
         if (idxCtx >= 0) {
-          const updated = { ...nextSessions[idxCtx], context: { useContextDefault, selectedTabIds: tabsToUse, contextCache: cache, autoFollowActiveTab: true } }
+          const updated = { ...nextSessions[idxCtx], context: { useContextDefault, selectedTabIds: tabsToUse, contextCache: cache, autoFollowActiveTab } }
           nextSessions[idxCtx] = updated
           await saveSessions(nextSessions)
         }
@@ -892,7 +892,7 @@ export default function App() {
       setUseContextThisMsg(true)
       setBusy(false)
     }
-  }, [input, sessions, activeSessionId, useContextThisMsg, useContextDefault, contextCache, selectedTabIds, saveSessions, scrapeSelectedTabs])
+  }, [input, sessions, activeSessionId, useContextThisMsg, useContextDefault, contextCache, selectedTabIds, autoFollowActiveTab, saveSessions, scrapeSelectedTabs])
 
   const askWithGoogle = useCallback(async () => {
     const text = input.trim()
@@ -923,7 +923,7 @@ export default function App() {
       let contexts = []
       let cache = { ...contextCache }
       const activeTab = await getActiveTab()
-      const tabsToUse = [activeTab?.id].filter(Boolean)
+      const tabsToUse = (selectedTabIds && selectedTabIds.length) ? selectedTabIds : [activeTab?.id].filter(Boolean)
       if (tabsToUse.length) {
         // Always re-scrape targeted tabs to keep content fresh in cache
         const scraped = await scrapeSelectedTabs(tabsToUse)
@@ -932,7 +932,7 @@ export default function App() {
         // Persist refreshed context into the active session
         const idxCtx = nextSessions.findIndex(s => s.id === activeSessionId)
         if (idxCtx >= 0) {
-          const updated = { ...nextSessions[idxCtx], context: { useContextDefault, selectedTabIds: tabsToUse, contextCache: cache, autoFollowActiveTab: true } }
+          const updated = { ...nextSessions[idxCtx], context: { useContextDefault, selectedTabIds: tabsToUse, contextCache: cache, autoFollowActiveTab } }
           nextSessions[idxCtx] = updated
           await saveSessions(nextSessions)
         }
@@ -968,7 +968,7 @@ export default function App() {
       setUseContextThisMsg(true)
       setBusy(false)
     }
-  }, [input, sessions, activeSessionId, sessionTitle, useContextThisMsg, useContextDefault, contextCache, pageData, selectedTabIds, saveSessions, scrapeSelectedTabs])
+  }, [input, sessions, activeSessionId, sessionTitle, useContextThisMsg, useContextDefault, contextCache, pageData, selectedTabIds, autoFollowActiveTab, saveSessions, scrapeSelectedTabs])
 
   const onKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -978,7 +978,8 @@ export default function App() {
   }
 
   const toggleTab = (id) => {
-    setSelectedTabIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+    setSelectedTabIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
+    setAutoFollowActiveTab(false)
   }
 
   const newChat = async () => {
@@ -1153,6 +1154,64 @@ export default function App() {
                 <span>Generating</span>
               </div>
             ) : null}
+            {/* Debug preview */}
+            <Popover.Root open={debugOpen} onOpenChange={setDebugOpen}>
+              <Popover.Trigger asChild>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => { previewCurrentTabPayload() }}
+                  aria-label="Debug Preview"
+                  title="Preview current tab payload"
+                >
+                  Debug
+                </Button>
+              </Popover.Trigger>
+              <Popover.Portal>
+                <AnimatedPopoverContent
+                  side="bottom"
+                  align="end"
+                  sideOffset={8}
+                  className="rounded-xl border ds-border ds-bg shadow-2xl p-3 w-[90vw] sm:w-[560px] max-h-[70vh] overflow-auto z-50"
+                  style={{ backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="font-medium text-sm">Current Tab Payload Preview</div>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="icon" aria-label="Close" onClick={() => setDebugOpen(false)}>
+                        <XIcon size={14} />
+                      </Button>
+                    </div>
+                  </div>
+                  {debugInfo?.loading ? (
+                    <div className="text-sm ds-muted-text">Loading…</div>
+                  ) : debugInfo?.ok ? (
+                    <div className="space-y-2 text-sm">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div><span className="ds-muted-text">Tab ID:</span> {debugInfo.tabId}</div>
+                        <div className="col-span-2 truncate" title={debugInfo.title}><span className="ds-muted-text">Title:</span> {debugInfo.title || '(untitled)'}</div>
+                        <div className="col-span-3 truncate" title={debugInfo.url}><span className="ds-muted-text">URL:</span> {debugInfo.url}</div>
+                        <div><span className="ds-muted-text">Content:</span> {debugInfo.contentLen}</div>
+                        <div><span className="ds-muted-text">Selection:</span> {debugInfo.selectionLen}</div>
+                      </div>
+                      <div className="flex items-center justify-between mt-2">
+                        <div className="font-medium text-xs opacity-80">System message (what will be prepended)</div>
+                        <div className="flex items-center gap-1">
+                          <Button variant="ghost" size="icon" title="Copy" aria-label="Copy" onClick={() => copyToClipboard(debugInfo.systemPreview || '')}>
+                            <CopyIcon size={14} />
+                          </Button>
+                        </div>
+                      </div>
+                      <pre className="max-h-60 overflow-auto whitespace-pre-wrap text-xs bg-card border ds-border rounded p-2">{debugInfo.systemPreview}</pre>
+                    </div>
+                  ) : debugInfo ? (
+                    <div className="text-sm text-red-600">{debugInfo.error || 'Unknown error'}</div>
+                  ) : (
+                    <div className="text-sm ds-muted-text">Click Debug to preview the current tab payload.</div>
+                  )}
+                </AnimatedPopoverContent>
+              </Popover.Portal>
+            </Popover.Root>
             <Button
               variant="secondary"
               size="sm"

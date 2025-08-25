@@ -1,0 +1,94 @@
+name: Nightly Pre-release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-nightly:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies (Bun)
+        run: bun install --frozen-lockfile || bun install
+
+      - name: Install MCP search server deps (Bun)
+        run: |
+          if [ -f mcp/search-server/package.json ]; then
+            bun install --cwd mcp/search-server --no-save || true
+          fi
+
+      - name: Build extension and MCP server (Bun)
+        run: bun run build:all
+
+      - name: Prepare nightly extension package
+        id: pkg
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_NUMBER="${GITHUB_RUN_NUMBER}"
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          PKG_NAME="jan-extension-nightly-${RUN_NUMBER}-${SHA_SHORT}.zip"
+          mkdir -p pack/extension
+          # Copy required extension files
+          cp -r dist icons src pack/extension/
+          # Patch manifest version_name for nightly build
+          jq \
+            --arg rn "$RUN_NUMBER" \
+            --arg sha "$SHA_SHORT" \
+            '.version_name = ((.version_name // (.version)) + "-nightly-" + $rn + "-" + $sha)' \
+            manifest.json > pack/extension/manifest.json
+          [ -f LICENSE ] && cp LICENSE pack/extension/ || true
+          [ -f README.md ] && cp README.md pack/extension/ || true
+          (cd pack/extension && zip -r "../../${PKG_NAME}" .)
+          echo "pkg_name=${PKG_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Package MCP search server (optional asset)
+        id: mcp
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_NUMBER="${GITHUB_RUN_NUMBER}"
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          MCP_DIR="mcp/search-server/dist"
+          if [ -d "$MCP_DIR" ]; then
+            MCP_ZIP="search-mcp-server-nightly-${RUN_NUMBER}-${SHA_SHORT}-dist.zip"
+            zip -r "$MCP_ZIP" "$MCP_DIR"
+            echo "mcp_zip=${MCP_ZIP}" >> "$GITHUB_OUTPUT"
+          else
+            echo "mcp_zip=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload nightly build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-${{ github.run_number }}-${{ github.sha }}
+          if-no-files-found: warn
+          path: |
+            ${{ steps.pkg.outputs.pkg_name }}
+            ${{ steps.mcp.outputs.mcp_zip }}
+
+      - name: Create/Update Nightly Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Nightly Builds
+          draft: false
+          prerelease: true
+          files: |
+            ${{ steps.pkg.outputs.pkg_name }}
+            ${{ steps.mcp.outputs.mcp_zip }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

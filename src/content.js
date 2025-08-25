@@ -86,6 +86,10 @@ function getVisibleText() {
  }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === 'PING') {
+    try { sendResponse({ ok: true, ready: true, url: location.href }); } catch (_) {}
+    return true;
+  }
   if (message?.type === 'GET_PAGE_CONTENT') {
     // Only the top frame should respond; it will aggregate from same-origin iframes when needed
     if (window.top !== window) { return false; }

@@ -198,6 +198,33 @@ Notes:
 
 - Port routing: global fallback + `REGISTER_PORT` registration from the panel.
 - SSE parser: multi‑line events; supports `delta.content`, `message.content`, `text`, arrays.
+
+## Releases & Packaging
+
+- Stable releases (tags):
+  - CI workflow `.github/workflows/release.yml` runs on tag pushes (e.g., `v0.1.2`).
+  - Uses Bun to install/build, then uploads two assets to the GitHub Release:
+    - `jan-extension-<tag>.zip` (manifest.json, src/background.js, src/content.js, dist/ui/*, dist/assets/*, icons/*, plus LICENSE/README when present)
+    - `search-mcp-server-<tag>-dist.zip` (contents of `mcp/search-server/dist`, if it exists)
+  - Trigger: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+
+- Nightly prereleases (incremental builds):
+  - CI workflow `.github/workflows/nightly.yml` runs on every push to `main`.
+  - Produces assets with run number + short SHA in the filename (e.g., `jan-extension-nightly-<run>-<sha>.zip`).
+  - Patches `manifest.json` `version_name` to include `-nightly-<run>-<sha>` without changing `version`.
+  - Updates a prerelease with tag `nightly`.
+
+- Local packaging (dry run):
+  - `npm run release:local` (auto‑detects Bun; falls back to npm). Optional: `TAG=v0.1.2 npm run release:local`.
+  - Outputs to `pack/` (git‑ignored):
+    - `pack/jan-extension-<tag>.zip`
+    - `pack/search-mcp-server-<tag>-dist.zip`
+  - Inspect with `unzip -l pack/jan-extension-<tag>.zip`.
+
+- Local CI simulation (optional):
+  - Install `act` (e.g., `brew install act`).
+  - Run: `act push -P ubuntu-latest=catthehacker/ubuntu:act-latest -j build-and-release --env GITHUB_REF_NAME=v0.0.0-local`.
+  - The workflow uploads build artifacts and skips publishing a GitHub Release when `ACT=true`.
 - Non‑SSE fallback: parse JSON once and emit as a single delta.
 - UI streaming: functional updates with refs; prevents stale state during long streams.
 - Persistence: load sessions on mount; persist on unload; removed auto‑scrape on mount.

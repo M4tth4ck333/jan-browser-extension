@@ -20,6 +20,7 @@
     "storage",
     "activeTab",
     "tabs",
+    "scripting",
     "sidePanel",
     "clipboardWrite"
   ],
@@ -51,8 +52,7 @@
         "linux": "Ctrl+Shift+P"
       },
       "description": "Open custom prompt input"
-    }
-    ,
+    },
     "toggle_autocomplete": {
       "suggested_key": {
         "default": "Alt+K",

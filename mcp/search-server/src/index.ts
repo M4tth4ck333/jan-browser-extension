@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+// Use the same Zod instance as the MCP SDK to avoid type identity mismatches
 import { z } from "zod";
 import { WebSocketServer, WebSocket } from "ws";
 import { appendFileSync } from "node:fs";
@@ -188,7 +189,7 @@ server.registerTool(
     title: "Visit URL (Deep Dive)",
     description:
       "Visit a URL via the installed browser extension and extract page content (innerHTML/markdown). Use this to visit the URLs returned by search for a deeper dive.",
-    inputSchema: VisitInputShape,
+    // Omit inputSchema to avoid Zod instance mismatch; validate inside handler
   },
   async (args: any) => {
     const parsed = VisitInput.parse(args);
@@ -397,7 +398,7 @@ server.registerTool(
     title: "Web Search (Google)",
     description:
       "Search the web via Google by asking the installed browser extension to perform the search and scrape the SERP.",
-    inputSchema: SearchInputShape,
+    // Omit inputSchema; we validate with zod inside the handler
   },
   async (args: any, extra: any) => searchHandler(args, extra)
 );
@@ -408,7 +409,7 @@ server.registerTool(
   {
     title: "Web Search (Google) [deprecated]",
     description: "Deprecated alias of web_search. Prefer web_search.",
-    inputSchema: SearchInputShape,
+    // Omit inputSchema; we validate with zod inside the handler
   },
   async (args: any, extra: any) => searchHandler(args, extra)
 );

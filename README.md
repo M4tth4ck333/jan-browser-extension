@@ -180,9 +180,40 @@ Then reload the extension or wait for it to auto-reconnect.
 ## Docs
 
 - ADR-004 (MCP Bridge Security – Optional Token): [docs/adr-004-mcp-bridge-security.md](./docs/adr-004-mcp-bridge-security.md)
+- ADR-005 (Bun-based Release Automation and Local Testing): [docs/adr-005-bun-release-automation.md](./docs/adr-005-bun-release-automation.md)
 - SPEC v2 (Inline writing assistant tooltip): [docs/SPEC-v2.md](./docs/SPEC-v2.md)
 - MCP server details: [mcp/search-server/README.md](./mcp/search-server/README.md)
 - Agents Guide (architecture & flows): [agents.md](./agents.md)
+
+## Releases
+
+- Stable releases (tags)
+  - Push a tag (e.g., `v0.1.2`) to create a GitHub Release with two zips:
+    - `jan-extension-<tag>.zip` — Chrome extension bundle
+    - `search-mcp-server-<tag>-dist.zip` — optional MCP server distribution
+  - Trigger:
+    ```bash
+    git tag v0.1.2
+    git push origin v0.1.2
+    ```
+  - CI: `.github/workflows/release.yml` (uses Bun for install/build).
+
+- Nightly prereleases (incremental)
+  - Every push to `main` updates a prerelease with tag `nightly` and uploads zips suffixed with the run number and short commit SHA.
+  - CI: `.github/workflows/nightly.yml` patches `manifest.version_name` with `-nightly-<run>-<sha>`.
+
+- Local packaging (dry run)
+  - Validate packaging locally before tagging:
+    ```bash
+    # default timestamped tag
+    npm run release:local
+
+    # custom tag to mimic a real release name
+    TAG=v0.1.2 npm run release:local
+    ```
+  - Outputs: `pack/jan-extension-<tag>.zip`, `pack/search-mcp-server-<tag>-dist.zip`.
+
+See RELEASE.md for full details.
 
 ## License
 
