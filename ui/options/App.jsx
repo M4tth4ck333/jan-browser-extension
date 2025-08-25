@@ -13,6 +13,8 @@ const DEFAULTS = {
   // Custom full completions URL support (for provider: custom)
   useCustomCompletionsUrl: false,
   customCompletionsUrl: '',
+  // UI: dim overlay behind reading indicator (busy pre-stream)
+  showReadingOverlay: true,
 }
 
 export default function OptionsApp() {
@@ -402,6 +404,33 @@ export default function OptionsApp() {
               </li>
             ))}
           </ul>
+        </div>
+
+        <div className="mt-6 border ds-border ds-muted-bg rounded-xl p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="typo-h1 font-display">Reading Indicator</div>
+              <div className="text-sm ds-muted-text">Control visual emphasis when the extension is reading/scraping.</div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="text-sm ds-muted-text">Dim overlay during reading</div>
+            <div className="flex items-center gap-3 text-sm text-foreground">
+              <Label htmlFor="show-reading-overlay" className="text-foreground/80 cursor-pointer">Off</Label>
+              <Switch
+                id="show-reading-overlay"
+                checked={!!cfg.showReadingOverlay}
+                onCheckedChange={(v) => {
+                  const showReadingOverlay = !!v
+                  setCfg({ ...cfg, showReadingOverlay })
+                  try { chrome.storage.sync.set({ showReadingOverlay }) } catch (_) {}
+                }}
+                aria-label="Toggle dim overlay during reading"
+              />
+              <Label htmlFor="show-reading-overlay" className="text-foreground/80 cursor-pointer">On</Label>
+            </div>
+          </div>
         </div>
 
         <div className="mt-6 border ds-border ds-muted-bg rounded-xl p-4 space-y-4">

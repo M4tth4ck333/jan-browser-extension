@@ -1,76 +1,49 @@
-# Hotfix Pull Request
+# Jan Extension — Options Models Refresh Fix
 
 ## Summary
-This PR contains critical hotfixes and recent changes that need to be deployed immediately.
+Fixes a bug where the Options page required a hard refresh before the model list updated after changing provider/API settings.
 
-## Hotfixes from changes.md
-- **Critical fixes identified in changes.md**
-- **Immediate deployment required**
+## Root Cause
+`LIST_MODELS` in the background read from `chrome.storage.sync` only, while the Options UI had unsaved local state. The UI would fetch models before saving, and the background saw stale values, leading to "Missing API Base URL" or empty results until a reload.
 
 ## Files Changed
 ```
-src/components/Navbar.jsx
-src/components/Navbar.tsx
-src/components/ui/badge.tsx
-src/components/ui/button.tsx
-src/components/ui/card.tsx
-src/components/ui/input.tsx
-src/components/ui/label.tsx
-src/components/ui/select.tsx
-src/components/ui/separator.tsx
-src/components/ui/sheet.tsx
-src/components/ui/switch.tsx
-src/components/ui/table.tsx
-src/components/ui/tabs.tsx
-src/components/ui/textarea.tsx
-src/contexts/AuthContext.jsx
-src/contexts/AuthContext.tsx
-src/hooks/use-toast.ts
-src/lib/utils.ts
-src/pages/HomePage.jsx
-src/pages/HomePage.tsx
-src/pages/ProductPage.jsx
-src/pages/ProductPage.tsx
-src/styles/globals.css
+src/background.js
+ui/options/App.jsx
 ```
 
 ## Changes Overview
-- **src/components/Navbar.jsx → src/components/Navbar.tsx**: Renamed and likely converted to TypeScript
-- **src/contexts/AuthContext.jsx → src/contexts/AuthContext.tsx**: Renamed and converted to TypeScript
-- **src/pages/HomePage.jsx → src/pages/HomePage.tsx**: Renamed and converted to TypeScript
-- **src/pages/ProductPage.jsx → src/pages/ProductPage.tsx**: Renamed and converted to TypeScript
-- **Multiple UI component additions**: Added new shadcn/ui components (badge, button, card, input, label, select, separator, sheet, switch, table, tabs, textarea)
-- **New utility additions**: Added use-toast hook and utils
-- **Global styles**: Updated globals.css
+- **Background (`src/background.js`)**: `LIST_MODELS` now accepts overrides in `message.payload` (`apiBase`, `apiKey`, `useApiKey`). Falls back to `getSettings()` only when overrides are not provided.
+- **Options UI (`ui/options/App.jsx`)**: Model fetch effect now sends overrides to `LIST_MODELS` with current config values, adds guards to avoid errors while editing, and immediately refetches models after Save.
 
 ## Type of Change
 - [x] Bug fix (non-breaking change which fixes an issue)
-- [x] Hotfix (critical fix requiring immediate deployment)
+- [ ] Hotfix (critical fix requiring immediate deployment)
 - [ ] New feature
 - [ ] Breaking change
-- [ ] Code refactoring
-- [x] TypeScript migration
+- [x] Code refactoring
+- [ ] TypeScript migration
 
 ## Testing Checklist
 - [ ] Changes tested locally
-- [ ] TypeScript compilation successful
-- [ ] No new TypeScript errors introduced
-- [ ] UI components render correctly
-- [ ] Authentication context working properly
-- [ ] All pages load without errors
+- [ ] Model list updates immediately after changing settings without hard refresh
+- [ ] No error messages flash while typing in Options
+- [ ] Save functionality works correctly
+- [ ] Refresh button works as expected
+- [ ] Extension reload not required
 
 ## Deployment Notes
-⚠️ **This is a hotfix - deploy immediately after review**
+Standard deployment process; extension reload required for users to see the fix.
 
-## Additional Context
-Based on the git diff, this appears to be a TypeScript migration of key components alongside the addition of shadcn/ui components. The changes include both critical fixes and infrastructure improvements.
+## Additional Context 
+This fix addresses a UX issue in the Jan extension Options page where users had to reload the extension to see updated model lists after changing API settings. The changes are backward-compatible and only affect the Options page model fetching behavior.
 
 ## Reviewer Focus Areas
-- [ ] TypeScript type safety in converted components
-- [ ] Authentication context functionality
-- [ ] UI component integration
-- [ ] Breaking changes assessment
+- [ ] Background message handling changes
+- [ ] Options UI state management
+- [ ] Error handling improvements
+- [ ] Backward compatibility
 
 ---
 
-**Ready for immediate review and deployment** 🚀
+**Ready for review and deployment** 🚀

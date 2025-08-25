@@ -341,6 +341,7 @@ export default function App() {
   const streamingReqIdRef = useRef(null)
   const sessionsRef = useRef(sessions)
   const activeSessionIdRef = useRef(activeSessionId)
+  const [showReadingOverlay, setShowReadingOverlay] = useState(true)
 
   const copyToClipboard = async (text) => {
     try { await navigator.clipboard.writeText(text) } catch (_) {}
@@ -366,6 +367,30 @@ export default function App() {
     return tabs.filter(t => (t.title || '').toLowerCase().includes(q) || String(t.id).includes(q))
   }, [tabs, tabQuery])
   const messages = activeSession?.messages || []
+
+  // Load reading overlay preference and subscribe to changes
+  useEffect(() => {
+    let mounted = true
+    const load = async () => {
+      try {
+        const { showReadingOverlay } = await chrome.storage.sync.get(['showReadingOverlay'])
+        if (mounted) setShowReadingOverlay(typeof showReadingOverlay === 'boolean' ? showReadingOverlay : true)
+      } catch (_) {}
+    }
+    load()
+    const onChanged = (changes, area) => {
+      try {
+        if (area === 'sync' && changes.showReadingOverlay) {
+          setShowReadingOverlay(!!changes.showReadingOverlay.newValue)
+        }
+      } catch (_) {}
+    }
+    try { chrome.storage.onChanged.addListener(onChanged) } catch (_) {}
+    return () => {
+      mounted = false
+      try { chrome.storage.onChanged.removeListener(onChanged) } catch (_) {}
+    }
+  }, [])
 
   const isSupportedUrl = (url) => /^https?:\/\//.test(url || '')
 
@@ -1284,7 +1309,10 @@ export default function App() {
       )}
 
       {/* Main column */}
-      <div className="flex flex-col min-w-0">
+      <div className="flex flex-col min-w-0 relative">
+        {(busy && !streamingReqId && showReadingOverlay) ? (
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px] pointer-events-none z-10" />
+        ) : null}
         <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between px-3 py-2 bg-transparent">
           <div className="flex items-center gap-2 min-w-0">
             {!sidebarOpen && <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} aria-label="Expand sidebar">☰</Button>}
@@ -1591,30 +1619,38 @@ export default function App() {
               </Popover.Portal>
             </Popover.Root>
           </div>
-          {/* Reading indicator appears while scraping/reading before generation starts */}
-          {(busy && !streamingReqId) ? <ReadingIndicator /> : null}
-          <div className="flex items-stretch gap-2">
-            <Textarea
-              className="w-full flex-1 resize-none min-h-[72px] rounded-2xl text-base leading-6 shadow-lg bg-card/80 border-border/60 backdrop-blur-sm"
-              placeholder={(busy || !!streamingReqId) ? 'Working…' : 'Ask a question about this page…'}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={onKeyDown}
-              disabled={busy || !!streamingReqId}
-            />
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                title="Search + Ask"
-                aria-label="Search + Ask"
-                onClick={(e) => {
-                  if (e.altKey || e.metaKey) openGoogleSearch(); else askWithGoogle()
-                }}
-                disabled={busy}
-              >
-                <SearchIcon size={16} />
-              </Button>
+          <div className="relative">
+            {(busy && !streamingReqId && showReadingOverlay) ? (
+              <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px] pointer-events-none z-10" aria-hidden="true" />
+            ) : null}
+            {(busy && !streamingReqId) ? (
+              <div className="relative z-20">
+                <ReadingIndicator />
+              </div>
+            ) : null}
+            <div className="flex items-stretch gap-2">
+              <Textarea
+                className="w-full flex-1 resize-none min-h-[72px] rounded-2xl text-base leading-6 shadow-lg bg-card/80 border-border/60 backdrop-blur-sm"
+                placeholder={(busy || !!streamingReqId) ? 'Working…' : 'Ask a question about this page…'}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={onKeyDown}
+                disabled={busy || !!streamingReqId}
+              />
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title="Search + Ask"
+                  aria-label="Search + Ask"
+                  onClick={(e) => {
+                    if (e.altKey || e.metaKey) openGoogleSearch(); else askWithGoogle()
+                  }}
+                  disabled={busy}
+                >
+                  <SearchIcon size={16} />
+                </Button>
+              </div>
             </div>
           </div>
         </footer>
