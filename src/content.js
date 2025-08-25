@@ -258,7 +258,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         };
         let good = poll();
         while (good < minResults && (Date.now() - start) < timeoutMs) {
-          await new Promise(r => setTimeout(r, 250));
+          // Add slight randomness to polling cadence to look less bot-like
+          const jitter = 200 + Math.floor(Math.random() * 150); // 200–349ms
+          await new Promise(r => setTimeout(r, jitter));
           good = poll();
         }
         const elapsedMs = Date.now() - start;
@@ -272,11 +274,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   
+  // Small human-like interaction: smooth scrolls and short random waits
+  if (message?.type === 'HUMANIZE_SERP') {
+    (async () => {
+      try {
+        const steps = Math.max(1, Math.min(5, Number(message?.payload?.steps || (1 + Math.floor(Math.random() * 3))))); // 1–3 typical
+        for (let i = 0; i < steps; i++) {
+          // Random small scroll up or down
+          const dir = Math.random() < 0.8 ? 1 : -1; // mostly down
+          const dist = 150 + Math.floor(Math.random() * 450); // 150–600px
+          try {
+            window.scrollBy({ top: dir * dist, behavior: 'smooth' });
+          } catch (_) {
+            window.scrollBy(0, dir * dist);
+          }
+          const wait = 180 + Math.floor(Math.random() * 420); // 180–599ms
+          await new Promise(r => setTimeout(r, wait));
+        }
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+      }
+    })();
+    return true;
+  }
+  
   // Scrape Google SERP results (used after readiness)
   if (message?.type === 'SCRAPE_GOOGLE_SERP') {
     try {
       const debug = !!(message?.payload?.debug ?? message?.debug);
       const q = new URLSearchParams(location.search).get('q') || '';
+      const numResults = Math.max(1, Math.min(Number(message?.payload?.numResults || 5), 10));
 
       const collect = () => {
         const out = [];
@@ -305,7 +333,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const html = container ? container.outerHTML : '';
           out.push({ title, url: href, snippet, snippetHtml, html });
           seen.add(href);
-          if (out.length >= 8) break;
+          // Collect slightly more than requested to account for later filtering/slicing
+          const cap = Math.max(numResults, 8);
+          if (out.length >= cap) break;
         }
         return out;
       };
@@ -314,7 +344,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!results.length) {
         setTimeout(() => {
           try {
-            let results2 = collect().slice(0, 5);
+            let results2 = collect().slice(0, numResults);
             const answerBoxCandidates = [
               '#kp-wp-tab-overview',
               'div[data-attrid="wa:/description"]',
@@ -348,7 +378,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
       }
 
-      results = results.slice(0, 5);
+      results = results.slice(0, numResults);
       const answerBoxCandidates = [
         '#kp-wp-tab-overview',
         'div[data-attrid="wa:/description"]',

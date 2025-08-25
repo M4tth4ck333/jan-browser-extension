@@ -398,7 +398,8 @@ export default function App() {
   const openGoogleSearch = (q) => {
     const query = (q ?? input ?? '').trim()
     if (!query) return
-    const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`
+    const params = new URLSearchParams({ q: query, oq: query, sourceid: 'chrome', ie: 'UTF-8' })
+    const url = `https://www.google.com/search?${params.toString()}`
     try {
       if (chrome?.tabs?.create) {
         chrome.tabs.create({ url })
