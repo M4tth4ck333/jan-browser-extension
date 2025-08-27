@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jan",
-  "version": "0.12.1",
+  "version": "12.12",
   "description": "The Jan companion for your browser: chat, inline writing help, search, and page context in the side panel.",
   "icons": {
     "16": "icons/app-16.png",
