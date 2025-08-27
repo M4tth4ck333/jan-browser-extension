@@ -3,6 +3,17 @@
 
 @plugin "tailwindcss-animate";
 
+/* Reset body and html margins/padding */
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+#root {
+  margin: 0;
+  padding: 0;
+}
+
 /* Theme variables using system preference */
 :root {
   color-scheme: light;

@@ -19,6 +19,8 @@ const DEFAULTS = {
   showDebug: false,
   // Search preferences
   ddgOnly: false,
+  // Side panel: show Search button in composer
+  showComposerSearchButton: true,
 }
 
 export default function OptionsApp() {
@@ -456,6 +458,24 @@ export default function OptionsApp() {
                 aria-label="Toggle DuckDuckGo only mode"
               />
               <Label htmlFor="ddg-only" className="text-foreground/80 cursor-pointer">On</Label>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="text-sm ds-muted-text">Show Search button in composer</div>
+            <div className="flex items-center gap-3 text-sm text-foreground">
+              <Label htmlFor="show-composer-search" className="text-foreground/80 cursor-pointer">Off</Label>
+              <Switch
+                id="show-composer-search"
+                checked={!!cfg.showComposerSearchButton}
+                onCheckedChange={(v) => {
+                  const showComposerSearchButton = !!v
+                  setCfg({ ...cfg, showComposerSearchButton })
+                  try { chrome.storage.sync.set({ showComposerSearchButton }) } catch (_) {}
+                }}
+                aria-label="Toggle Search button visibility in composer"
+              />
+              <Label htmlFor="show-composer-search" className="text-foreground/80 cursor-pointer">On</Label>
             </div>
           </div>
         </div>
