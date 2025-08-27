@@ -1694,7 +1694,7 @@ export default function App() {
             ) : null}
             <div className="relative">
               <Textarea
-                className={`w-full flex-1 resize-none ${hasUserMessage ? 'min-h-[120px]' : 'min-h-[clamp(160px,24vh,260px)]'} rounded-full text-base leading-6 shadow-lg bg-card/80 border-border/60 backdrop-blur-sm px-4 py-3 pb-12`}
+                className={`w-full flex-1 resize-none ${hasUserMessage ? 'min-h-[120px]' : 'min-h-[clamp(120px,18vh,200px)]'} rounded-2xl text-base leading-6 shadow-lg bg-card/80 border-border/60 backdrop-blur-sm px-4 py-3 pb-12`}
                 placeholder={(busy || !!streamingReqId) ? 'Working…' : 'Ask a question about this page…'}
                 value={input}
                 onChange={e => setInput(e.target.value)}
