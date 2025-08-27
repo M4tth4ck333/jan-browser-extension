@@ -15,6 +15,8 @@ const DEFAULTS = {
   customCompletionsUrl: '',
   // UI: dim overlay behind reading indicator (busy pre-stream)
   showReadingOverlay: false,
+  // Search preferences
+  ddgOnly: false,
 }
 
 export default function OptionsApp() {
@@ -404,6 +406,33 @@ export default function OptionsApp() {
               </li>
             ))}
           </ul>
+        </div>
+
+        <div className="mt-6 border ds-border ds-muted-bg rounded-xl p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="typo-h1 font-display">Search Preferences</div>
+              <div className="text-sm ds-muted-text">Control how the extension searches the web.</div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="text-sm ds-muted-text">DuckDuckGo only (no Google fallback)</div>
+            <div className="flex items-center gap-3 text-sm text-foreground">
+              <Label htmlFor="ddg-only" className="text-foreground/80 cursor-pointer">Off</Label>
+              <Switch
+                id="ddg-only"
+                checked={!!cfg.ddgOnly}
+                onCheckedChange={(v) => {
+                  const ddgOnly = !!v
+                  setCfg({ ...cfg, ddgOnly })
+                  try { chrome.storage.sync.set({ ddgOnly }) } catch (_) {}
+                }}
+                aria-label="Toggle DuckDuckGo only mode"
+              />
+              <Label htmlFor="ddg-only" className="text-foreground/80 cursor-pointer">On</Label>
+            </div>
+          </div>
         </div>
 
         <div className="mt-6 border ds-border ds-muted-bg rounded-xl p-4 space-y-4">

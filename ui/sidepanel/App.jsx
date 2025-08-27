@@ -11,6 +11,7 @@ import * as ScrollArea from '@radix-ui/react-scroll-area'
 import * as Popover from '@radix-ui/react-popover'
 import { User as UserIcon, Send, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Search as SearchIcon, Settings as SettingsIcon, Trash2 as TrashIcon } from 'lucide-react'
 import { Input } from '../components/ui/input.jsx'
+import { Checkbox } from '../components/ui/checkbox.tsx'
  import { animate } from 'motion'
 import handSvg from '../assets/jan-hand.svg'
 
@@ -829,7 +830,7 @@ export default function App() {
       count === 1
         ? 'You are given exactly one tab context. Do not mention or imply multiple tabs/windows.'
         : `You are given ${count} tab contexts. Do not assume any others beyond the ones listed.`,
-      'Only use information from the context listed below. If an answer depends on information not present here, say so briefly.',
+      'Only use information from the tab context listed below and any search results provided in system messages. If an answer depends on information not present there, say so briefly.',
     ].join('\n')
 
     return [
@@ -838,8 +839,8 @@ export default function App() {
   }
 
   const buildGoogleMessages = (serp) => {
-    if (!serp || !serp.ok) return []
-    const data = serp.data || {}
+    if (!serp) return []
+    const data = serp.data || serp || {}
     const lines = []
     if (data.answerBox) {
       try { lines.push(`Answer box:\n${String(data.answerBox).trim().slice(0, 800)}`) } catch (_) {}
@@ -853,8 +854,15 @@ export default function App() {
       const block = [prefix, snip].filter(Boolean).join('\n')
       if (block) lines.push(block)
     })
-    if (!lines.length) return []
-    return [{ role: 'system', content: `Google results:\n\n${lines.join('\n\n')}` }]
+    if (!lines.length) {
+      try { console.debug('[SP] No SERP lines built', { ok: serp?.ok, source: data?.source, results: Array.isArray(data?.results) ? data.results.length : null }) } catch (_) {}
+      return []
+    }
+    const source = (data.source || '').toLowerCase()
+    const label = source === 'ddg' || source === 'duckduckgo'
+      ? 'DuckDuckGo results'
+      : (source === 'google' ? 'Google results' : 'Search results')
+    return [{ role: 'system', content: `${label}:\n\n${lines.join('\n\n')}` }]
   }
 
   // Scrape content for a set of selected tab IDs (fresh reads)
@@ -1048,9 +1056,10 @@ export default function App() {
       // Get Google SERP
       let serp = null
       try {
-        // Use enhanced SERP scraping (same path MCP bridge uses) by enabling debug
-        serp = await chrome.runtime.sendMessage({ type: 'GOOGLE_SEARCH_AND_SCRAPE', payload: { query: text, closeTab: true, debug: true } })
+        // Use unified search path; ddgOnly will be read from stored settings unless explicitly provided
+        serp = await chrome.runtime.sendMessage({ type: 'SEARCH_AND_SCRAPE', payload: { query: text, closeTab: true, debug: true } })
       } catch (_) { serp = null }
+      try { console.debug('[SP] SERP summary', { ok: !!serp?.ok, source: serp?.data?.source || serp?.source, count: Array.isArray(serp?.data?.results) ? serp.data.results.length : null, raw: serp }) } catch (_) {}
       const googleMsgs = buildGoogleMessages(serp)
       // Determine contexts (tabs)
       // Include context if either default or this-message toggle is on
@@ -1292,7 +1301,7 @@ export default function App() {
             <div className="max-h-40 overflow-auto space-y-1">
               {tabs.map(t => (
                 <label key={t.id} className="flex items-center gap-2 text-xs">
-                  <input type="checkbox" checked={selectedTabIds.includes(t.id)} onChange={() => toggleTab(t.id)} />
+                  <Checkbox checked={selectedTabIds.includes(t.id)} onCheckedChange={() => toggleTab(t.id)} />
                   <span className="truncate" title={t.title}>{t.title}</span>
                 </label>
               ))}
@@ -1302,7 +1311,7 @@ export default function App() {
               <Button variant="pastelReverse" onClick={rescrapeSelected} disabled={!selectedTabIds.length}>Scrape</Button>
             </div>
             <div className="mt-2 flex items-center gap-2 text-xs">
-              <label className="flex items-center gap-2"><input type="checkbox" checked={useContextDefault} onChange={e => setUseContextDefault(e.target.checked)} /> Use context by default</label>
+              <label className="flex items-center gap-2"><Checkbox checked={useContextDefault} onCheckedChange={(v) => setUseContextDefault(!!v)} /> Use context by default</label>
               <span className="ds-muted-text" title="Auto-follow is always on for fresh context">Following active tab</span>
             </div>
           </div>

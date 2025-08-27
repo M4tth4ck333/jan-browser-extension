@@ -11,6 +11,8 @@ const DEFAULT_SETTINGS = {
   // For provider: 'custom', allow specifying a full chat completions URL (non-stream and stream)
   useCustomCompletionsUrl: false,
   customCompletionsUrl: "",
+  // Search preferences
+  ddgOnly: false,
 };
 
 const isSupportedUrl = (url) => /^https?:\/\//.test(url || '');
@@ -89,31 +91,40 @@ async function connectMcpBridge() {
           const query = String(params?.query || '').trim();
           if (!query) return reply({ ok: false, error: 'Missing query' });
           const numResults = Math.max(1, Math.min(Number(params?.numResults || 5), 10));
-          console.log('[MCP Bridge] invoking performGoogleSearchAndScrape', { query, numResults });
-          const res = await performGoogleSearchAndScrape({ query, numResults, closeTab: true, debug: true });
-          console.log('[MCP Bridge] performGoogleSearchAndScrape done', { ok: res?.ok, hasData: !!res?.data });
-          if (res?.ok && res?.data) {
+          // New default: DuckDuckGo first
+          console.log('[MCP Bridge] invoking performDuckDuckGoSearchAndScrape', { query, numResults });
+          const ddgRes = await performDuckDuckGoSearchAndScrape({ query, numResults, closeTab: true, debug: true });
+          console.log('[MCP Bridge] performDuckDuckGoSearchAndScrape done', { ok: ddgRes?.ok, hasData: !!ddgRes?.data });
+          const dCount = (ddgRes?.data && Array.isArray(ddgRes.data.results)) ? ddgRes.data.results.length : 0;
+          if (ddgRes?.ok && ddgRes?.data && dCount > 0) {
             try {
-              const d = res.data;
-              const summarizeResult = (r) => ({
-                title: r?.title,
-                url: r?.url,
-                snippetLen: r?.snippet ? r.snippet.length : 0,
-                snippetHtmlLen: r?.snippetHtml ? r.snippetHtml.length : 0,
-                htmlLen: r?.html ? r.html.length : 0,
-              });
-              console.log('[MCP Bridge] raw scrape preview', {
+              const d = ddgRes.data;
+              const summarizeResult = (r) => ({ title: r?.title, url: r?.url, snippetLen: r?.snippet ? r.snippet.length : 0 });
+              console.log('[MCP Bridge] DuckDuckGo scrape preview', {
                 query: d.query,
-                pageTitle: d.pageTitle,
-                answerBoxLen: d.answerBox ? d.answerBox.length : 0,
-                answerBoxHtmlLen: d.answerBoxHtml ? d.answerBoxHtml.length : 0,
-                resultsCount: Array.isArray(d.results) ? d.results.length : 0,
-                resultsSample: Array.isArray(d.results) ? d.results.slice(0, 3).map(summarizeResult) : [],
+                resultsCount: dCount,
+                sample: Array.isArray(d.results) ? d.results.slice(0, 3).map(summarizeResult) : [],
               });
             } catch (_) {}
+            return reply({ ok: true, data: ddgRes.data });
           }
-          if (!res?.ok) return reply({ ok: false, error: res?.error || 'Search failed' });
-          return reply({ ok: true, data: res.data });
+          console.warn('[MCP Bridge] DuckDuckGo failed or zero results, falling back to Google...', { ok: ddgRes?.ok, dCount });
+          const gRes = await performGoogleSearchAndScrape({ query, numResults, closeTab: true, debug: true });
+          const gCount = (gRes?.data && Array.isArray(gRes.data.results)) ? gRes.data.results.length : 0;
+          if (gRes?.ok && gRes?.data && gCount > 0) {
+            try {
+              const d = gRes.data;
+              const summarizeResult = (r) => ({ title: r?.title, url: r?.url, snippetLen: r?.snippet ? r.snippet.length : 0 });
+              console.log('[MCP Bridge] Google scrape preview', {
+                query: d.query,
+                resultsCount: gCount,
+                sample: d.results.slice(0, 3).map(summarizeResult),
+              });
+            } catch (_) {}
+            return reply({ ok: true, data: gRes.data });
+          }
+          const err = gRes?.error || ddgRes?.error || 'Search failed';
+          return reply({ ok: false, error: err });
         }
         // Unknown tool
         reply({ ok: false, error: `Unknown tool: ${tool}` });
@@ -705,6 +716,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Unified search-and-scrape: DuckDuckGo first with Google fallback
+  if (message?.type === 'SEARCH_AND_SCRAPE') {
+    (async () => {
+      try {
+        const { query, numResults = 5, debug = false, readinessTimeoutMs = 15000, closeTab = true } = message?.payload || {};
+        // ddgOnly precedence: payload > stored setting > default
+        let ddgOnly = (message?.payload && 'ddgOnly' in message.payload) ? !!message.payload.ddgOnly : undefined;
+        if (typeof ddgOnly === 'undefined') {
+          try {
+            const s = await chrome.storage.sync.get(['ddgOnly']);
+            ddgOnly = (typeof s.ddgOnly === 'boolean') ? s.ddgOnly : !!DEFAULT_SETTINGS.ddgOnly;
+          } catch (_) {
+            ddgOnly = !!DEFAULT_SETTINGS.ddgOnly;
+          }
+        }
+        if (!query || !String(query).trim()) return sendResponse({ ok: false, error: 'Missing query' });
+        const ddg = await performDuckDuckGoSearchAndScrape({ query, numResults, debug, readinessTimeoutMs, closeTab });
+        const ddgCount = (ddg?.data && Array.isArray(ddg.data.results)) ? ddg.data.results.length : 0;
+        if (ddg?.ok && ddgCount > 0) {
+          const data = { ...(ddg.data || {}), source: 'ddg' };
+          return sendResponse({ ok: true, data });
+        }
+        if (ddgOnly) {
+          return sendResponse({ ok: false, error: ddg?.error || 'No DDG results', data: { source: 'ddg', results: ddg?.data?.results || [] } });
+        }
+        const g = await performGoogleSearchAndScrape({ query, numResults, debug, readinessTimeoutMs, closeTab });
+        const gCount = (g?.data && Array.isArray(g.data.results)) ? g.data.results.length : 0;
+        if (g?.ok && gCount > 0) {
+          const data = { ...(g.data || {}), source: 'google' };
+          return sendResponse({ ok: true, data });
+        }
+        return sendResponse({ ok: false, error: g?.error || ddg?.error || 'Search failed' });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+      }
+    })();
+    return true;
+  }
+
   if (message?.type === 'GET_BRIDGE_STATUS') {
     try {
       const connected = !!bridgeSocket && bridgeSocket.readyState === WebSocket.OPEN;
@@ -998,6 +1048,208 @@ async function performGoogleSearchAndScrape(payload) {
     return { ok: true, data, sourceTabId: tabId };
   } catch (e) {
     console.warn('[SearchFlow] error', String(e?.message || e));
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+// Reusable function to perform DuckDuckGo Search + scrape (no tab; background fetch + parse)
+async function performDuckDuckGoSearchAndScrape(payload) {
+  try {
+    const { query, debug = false, numResults } = payload || {};
+    if (!query || !String(query).trim()) return { ok: false, error: 'Missing query' };
+
+    const qstr = String(query).trim();
+    const normalizeDdgUrl = (href) => {
+      try {
+        if (!href) return href;
+        const u = new URL(href, 'https://duckduckgo.com');
+        // If it's a DDG redirect (/l/ or /r/) with uddg param, decode it
+        const uddg = u.searchParams.get('uddg');
+        if ((u.hostname.endsWith('duckduckgo.com') || u.hostname === 'duckduckgo.com') && (u.pathname === '/l/' || u.pathname === '/r/' || uddg)) {
+          if (uddg) {
+            const decoded = decodeURIComponent(uddg);
+            if (/^https?:/i.test(decoded)) return decoded;
+          }
+        }
+        return u.href;
+      } catch (_) {
+        return href;
+      }
+    };
+    // Prefer the HTML-only endpoint to avoid JS/hydration and simplify parsing
+    const baseUrls = [
+      `https://html.duckduckgo.com/html/?q=${encodeURIComponent(qstr)}&ia=web`,
+      `https://duckduckgo.com/html/?q=${encodeURIComponent(qstr)}&ia=web`
+    ];
+
+    const controller = new AbortController();
+    const to = setTimeout(() => controller.abort(), 12_000);
+    let html = '';
+    let respOk = false;
+    let lastErr = '';
+    for (const url of baseUrls) {
+      try {
+        const resp = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Accept': 'text/html,application/xhtml+xml',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36'
+          },
+          signal: controller.signal
+        });
+        if (resp.ok) {
+          html = await resp.text();
+          respOk = true;
+          break;
+        } else {
+          lastErr = `HTTP ${resp.status}`;
+        }
+      } catch (e) {
+        lastErr = String(e?.message || e);
+      }
+    }
+    clearTimeout(to);
+    if (!respOk || !html) {
+      return { ok: false, error: lastErr || 'DDG fetch failed' };
+    }
+
+    const parseWithDom = (htmlText) => {
+      try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlText, 'text/html');
+        const out = [];
+        const seen = new Set();
+        // Primary: classic DDG HTML markup
+        const containers = Array.from(doc.querySelectorAll('div.result, .results_links_deep, .web-result, li.result'));
+        const pushContainer = (container) => {
+          if (!container) return false;
+          const a = container.querySelector('a.result__a, h2 a[href], h3 a[href], a[href]');
+          if (!a || !a.href) return false;
+          const finalHref = normalizeDdgUrl(a.href);
+          if (!/^https?:/i.test(finalHref) || seen.has(finalHref)) return false;
+          const titleEl = container.querySelector('a.result__a, h2, h3');
+          const snippetEl = container.querySelector('.result__snippet, .result__body, p');
+          const title = (titleEl?.textContent || a.textContent || '').trim();
+          if (!title) return false;
+          const snippet = (snippetEl?.textContent || '').trim();
+          const snippetHtml = (snippetEl?.innerHTML || '').trim();
+          const htmlFrag = container.outerHTML || '';
+          out.push({ title, url: finalHref, snippet, snippetHtml, html: htmlFrag });
+          seen.add(finalHref);
+          return true;
+        };
+        for (const c of containers) {
+          pushContainer(c);
+          if (out.length >= Math.max(8, Number(numResults || 5))) break;
+        }
+        // Fallback: deep heading scan
+        if (out.length < (numResults || 5)) {
+          const heads = Array.from(doc.querySelectorAll('#links a[href] h2, #links a[href] h3, main a[href] h2, main a[href] h3, h2 a[href], h3 a[href]'));
+          for (const h of heads) {
+            const a = h.closest('a[href]');
+            if (!a || !a.href) continue;
+            const finalHref = normalizeDdgUrl(a.href);
+            if (!/^https?:/i.test(finalHref) || seen.has(finalHref)) continue;
+            const title = (h.textContent || a.textContent || '').trim();
+            if (!title) continue;
+            out.push({ title, url: finalHref, snippet: '', snippetHtml: '', html: h.outerHTML || '' });
+            seen.add(finalHref);
+            if (out.length >= Math.max(8, Number(numResults || 5))) break;
+          }
+        }
+        // Fallback 2: newer layout title anchors
+        if (out.length < (numResults || 5)) {
+          const titleAnchors = Array.from(doc.querySelectorAll('a[data-testid="result-title-a"], #links a.result__a, .result__title a'));
+          for (const a of titleAnchors) {
+            if (!a || !a.href) continue;
+            const finalHref = normalizeDdgUrl(a.href);
+            if (!/^https?:/i.test(finalHref) || seen.has(finalHref)) continue;
+            const title = (a.textContent || '').trim();
+            if (!title) continue;
+            out.push({ title, url: finalHref, snippet: '', snippetHtml: '', html: a.outerHTML || '' });
+            seen.add(finalHref);
+            if (out.length >= Math.max(8, Number(numResults || 5))) break;
+          }
+        }
+        // Fallback 3: broad anchors with heading descendants or strong text
+        if (out.length < (numResults || 5)) {
+          const anchors = Array.from(doc.querySelectorAll('#links a[href], main a[href]'));
+          for (const a of anchors) {
+            const finalHref = normalizeDdgUrl(a.href);
+            if (!/^https?:/i.test(finalHref) || seen.has(finalHref)) continue;
+            const h = a.querySelector('h2, h3, strong');
+            const title = (h?.textContent || a.textContent || '').trim();
+            if (!title) continue;
+            out.push({ title, url: finalHref, snippet: '', snippetHtml: '', html: a.outerHTML || '' });
+            seen.add(finalHref);
+            if (out.length >= Math.max(8, Number(numResults || 5))) break;
+          }
+        }
+        return out;
+      } catch (_) {
+        return null;
+      }
+    };
+
+    let results = parseWithDom(html) || [];
+    // Very light regex fallback if DOMParser is unavailable
+    if (!results.length) {
+      try {
+        const rx = /<a[^>]+class="[^"]*result__a[^"]*"[^>]*href="((?:https?:)?\/\/[^"#]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+        const tmp = [];
+        const seen = new Set();
+        let m;
+        const decode = (s) => {
+          try {
+            return String(s)
+              .replace(/&nbsp;/g, ' ')
+              .replace(/&amp;/g, '&')
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&quot;/g, '"')
+              .replace(/&#39;/g, "'")
+              .replace(/&#x27;/g, "'");
+          } catch (_) { return s; }
+        };
+        while ((m = rx.exec(html)) && tmp.length < Math.max(8, Number(numResults || 5))) {
+          const href = normalizeDdgUrl(m[1]);
+          if (seen.has(href)) continue;
+          const title = decode(m[2].replace(/<[^>]+>/g, '')).trim();
+          if (!title) continue;
+          // Look ahead locally for a nearby snippet element within the same result block
+          const start = Math.max(0, m.index);
+          const segment = html.slice(start, start + 2000);
+          let snippetHtml = '';
+          let snippet = '';
+          const snipMatchA = segment.match(/<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/i);
+          const snipMatchDiv = !snipMatchA && segment.match(/<div[^>]+class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+          const snipInner = (snipMatchA && snipMatchA[1]) || (snipMatchDiv && snipMatchDiv[1]) || '';
+          if (snipInner) {
+            snippetHtml = snipInner.trim();
+            snippet = decode(snipInner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')).trim();
+          }
+          tmp.push({ title, url: href, snippet, snippetHtml, html: m[0] });
+          seen.add(href);
+        }
+        results = tmp;
+      } catch (_) {}
+    }
+
+    results = Array.isArray(results) ? results.slice(0, Math.max(1, Math.min(Number(numResults || 5), 10))) : [];
+    const data = {
+      ok: true,
+      query: qstr,
+      pageTitle: 'DuckDuckGo Search',
+      answerBox: '',
+      answerBoxHtml: '',
+      results
+    };
+    if (debug) {
+      const allLinks = [];
+      data.debug = { htmlPreview: html.slice(0, 120000), allLinks };
+    }
+    return { ok: true, data };
+  } catch (e) {
     return { ok: false, error: String(e?.message || e) };
   }
 }

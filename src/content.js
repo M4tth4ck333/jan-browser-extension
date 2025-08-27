@@ -273,6 +273,52 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     })();
     return true;
   }
+
+  // Handle DuckDuckGo SERP readiness check for fallback search flow
+  if (message?.type === 'WAIT_FOR_DDG_READY') {
+    (async () => {
+      try {
+        const timeoutMs = Math.max(1000, Number(message?.payload?.timeoutMs || 15000));
+        const minResults = Math.max(1, Number(message?.payload?.minResults || 4));
+        const start = Date.now();
+        const poll = () => {
+          const root = document.querySelector('#links')
+            || document.querySelector('[data-testid="mainline"]')
+            || document.querySelector('main')
+            || document.body;
+          const headings = Array.from(root.querySelectorAll('h2, h3')).filter(h => (h.textContent || '').trim().length > 0);
+          let good = 0;
+          for (const h of headings) {
+            // Find a plausible result anchor near this heading
+            let a = h.closest('a[href]')
+              || h.querySelector('a[href]')
+              || h.parentElement?.querySelector('a[href]');
+            if (!a) {
+              const container = h.closest('article[data-testid="result"], [data-testid="result"], .result, .web-result, li.result, .results_links_deep');
+              if (container) {
+                a = container.querySelector('a[data-testid="result-title-a"], h2 a[href], h3 a[href], a[href]');
+              }
+            }
+            if (a && a.href && /^https?:/i.test(a.href)) good++;
+          }
+          return good;
+        };
+        let good = poll();
+        while (good < minResults && (Date.now() - start) < timeoutMs) {
+          const jitter = 200 + Math.floor(Math.random() * 150); // 200–349ms
+          await new Promise(r => setTimeout(r, jitter));
+          good = poll();
+        }
+        const elapsedMs = Date.now() - start;
+        const ready = good >= minResults;
+        const reason = ready ? 'enough_results' : 'timeout';
+        sendResponse({ ok: true, ready, counts: { good, minResults, elapsedMs }, reason });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+      }
+    })();
+    return true;
+  }
   
   // Small human-like interaction: smooth scrolls and short random waits
   if (message?.type === 'HUMANIZE_SERP') {
@@ -299,6 +345,110 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   
+  // Scrape DuckDuckGo SERP results (fallback flow)
+  if (message?.type === 'SCRAPE_DDG_SERP') {
+    try {
+      const debug = !!(message?.payload?.debug ?? message?.debug);
+      const q = new URLSearchParams(location.search).get('q') || '';
+      const numResults = Math.max(1, Math.min(Number(message?.payload?.numResults || 5), 10));
+
+      const collect = () => {
+        const out = [];
+        const seen = new Set();
+        const root = document.querySelector('#links')
+          || document.querySelector('[data-testid="mainline"]')
+          || document.querySelector('main')
+          || document.body;
+        // Prefer article/list result containers, then fallback
+        const containers = Array.from(root.querySelectorAll('article[data-testid="result"], [data-testid="result"], .result, .web-result, li.result, .results_links_deep'));
+        const pushFrom = (container) => {
+          if (!container) return false;
+          // Title/link
+          let a = container.querySelector('a[data-testid="result-title-a"], h2 a[href], h3 a[href], a[href]');
+          if (!a || !a.href || !/^https?:/i.test(a.href)) return false;
+          if (seen.has(a.href)) return false;
+          const titleEl = container.querySelector('h2, h3, a[data-testid="result-title-a"]');
+          const snippetEl = container.querySelector('[data-testid="result-snippet"], .result__snippet, .result__body, .result__extras, p');
+          const title = (titleEl?.textContent || a.textContent || '').trim();
+          const snippet = (snippetEl?.innerText || '').trim();
+          const snippetHtml = (snippetEl?.innerHTML || '').trim();
+          const html = container.outerHTML || '';
+          if (!title) return false;
+          out.push({ title, url: a.href, snippet, snippetHtml, html });
+          seen.add(a.href);
+          return true;
+        };
+
+        for (const c of containers) {
+          pushFrom(c);
+          const cap = Math.max(numResults, 8);
+          if (out.length >= cap) break;
+        }
+
+        // Fallback: scan headings if containers missed
+        if (out.length < numResults) {
+          const headings = Array.from(root.querySelectorAll('h2, h3')).filter(h => (h.textContent || '').trim().length > 0);
+          for (const h of headings) {
+            let container = h.closest('article[data-testid="result"], [data-testid="result"], .result, .web-result, li.result, .results_links_deep') || h.parentElement;
+            if (!pushFrom(container)) {
+              const a = h.closest('a[href]') || h.querySelector('a[href]') || h.parentElement?.querySelector('a[href]');
+              if (a && a.href && /^https?:/i.test(a.href) && !seen.has(a.href)) {
+                const title = (h.textContent || a.textContent || '').trim();
+                out.push({ title, url: a.href, snippet: '', snippetHtml: '', html: h.outerHTML || '' });
+                seen.add(a.href);
+              }
+            }
+            const cap = Math.max(numResults, 8);
+            if (out.length >= cap) break;
+          }
+        }
+        return out;
+      };
+
+      let results = collect();
+      if (!results.length) {
+        setTimeout(() => {
+          try {
+            let results2 = collect().slice(0, numResults);
+            // DDG has answer modules; capture a generic one if present
+            const answerSel = '[data-testid="answer"], [data-testid="result--ads"] ~ [data-testid], .module__answers, .zci, .zci__body';
+            const ab = document.querySelector(answerSel);
+            const answerBox2 = (ab?.innerText || '').trim();
+            const answerBoxHtml2 = ab ? (ab.outerHTML || '') : '';
+            if (debug) {
+              const pageHtml = String(document.documentElement?.outerHTML || '').slice(0, 120000);
+              const allLinks = Array.from(document.querySelectorAll('a[href]')).slice(0, 500).map(a => ({ href: a.href, text: (a.textContent || '').trim().slice(0, 200) }));
+              const fallbackOrganic = Array.from(document.querySelectorAll('#links a[href] h2, #links a[href] h3')).map(h => { const a = h.closest('a[href]'); return a ? { title: (h.textContent || '').trim(), url: a.href } : null; }).filter(Boolean).slice(0, 10);
+              sendResponse({ ok: true, query: q, pageTitle: document.title || '', answerBox: answerBox2, answerBoxHtml: answerBoxHtml2, results: results2, debug: { pageHtml, allLinks, fallbackOrganic } });
+            } else {
+              sendResponse({ ok: true, query: q, pageTitle: document.title || '', answerBox: answerBox2, answerBoxHtml: answerBoxHtml2, results: results2 });
+            }
+          } catch (err) {
+            sendResponse({ ok: false, error: String(err?.message || err) });
+          }
+        }, 600);
+        return true;
+      }
+
+      results = results.slice(0, numResults);
+      const answerSel = '[data-testid="answer"], [data-testid="result--ads"] ~ [data-testid], .module__answers, .zci, .zci__body';
+      const ab = document.querySelector(answerSel);
+      const answerBox = (ab?.innerText || '').trim();
+      const answerBoxHtml = ab ? (ab.outerHTML || '') : '';
+      if (debug) {
+        const pageHtml = String(document.documentElement?.outerHTML || '').slice(0, 120000);
+        const allLinks = Array.from(document.querySelectorAll('a[href]')).slice(0, 500).map(a => ({ href: a.href, text: (a.textContent || '').trim().slice(0, 200) }));
+        const fallbackOrganic = Array.from(document.querySelectorAll('#links a[href] h2, #links a[href] h3')).map(h => { const a = h.closest('a[href]'); return a ? { title: (h.textContent || '').trim(), url: a.href } : null; }).filter(Boolean).slice(0, 10);
+        sendResponse({ ok: true, query: q, pageTitle: document.title || '', answerBox, answerBoxHtml, results, debug: { pageHtml, allLinks, fallbackOrganic } });
+      } else {
+        sendResponse({ ok: true, query: q, pageTitle: document.title || '', answerBox, answerBoxHtml, results });
+      }
+    } catch (e) {
+      sendResponse({ ok: false, error: String(e?.message || e) });
+    }
+    return true;
+  }
+
   // Scrape Google SERP results (used after readiness)
   if (message?.type === 'SCRAPE_GOOGLE_SERP') {
     try {
