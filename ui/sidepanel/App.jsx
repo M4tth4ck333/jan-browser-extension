@@ -1,5 +1,5 @@
   import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
+import { Streamdown } from 'streamdown'
 import remarkGfm from 'remark-gfm'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import rehypeHighlight from 'rehype-highlight'
@@ -9,7 +9,7 @@ import { Button } from '../components/ui/button.jsx'
 import { Textarea } from '../components/ui/textarea.jsx'
 import * as ScrollArea from '@radix-ui/react-scroll-area'
 import * as Popover from '@radix-ui/react-popover'
-import { User as UserIcon, Send, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Search as SearchIcon, Settings as SettingsIcon, Trash2 as TrashIcon } from 'lucide-react'
+import { User as UserIcon, Send, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Settings as SettingsIcon, Trash2 as TrashIcon, Paperclip as PaperclipIcon, Mic as MicIcon } from 'lucide-react'
 import { Input } from '../components/ui/input.jsx'
 import { Checkbox } from '../components/ui/checkbox.tsx'
  import { animate } from 'motion'
@@ -136,7 +136,8 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
           ) : (
             <div className="max-w-none break-words ai-typography">
               {(content && String(content).trim().length > 0) ? (
-                <ReactMarkdown
+                <Streamdown
+                  parseIncompleteMarkdown
                   remarkPlugins={[remarkGfm]}
                   rehypePlugins={[[rehypeSanitize, sanitizeSchema], rehypeHighlight]}
                   components={{
@@ -185,7 +186,7 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
                   }}
                 >
                   {content || ''}
-                </ReactMarkdown>
+                </Streamdown>
               ) : (
                 <div className="flex items-center" aria-label="Thinking">
                   <ThinkingEmoji />
@@ -252,6 +253,27 @@ function ReadingIndicator() {
     <div ref={rootRef} className="mb-2 inline-flex items-center gap-2 px-2.5 py-1.5 rounded-full border ds-border bg-card/80 shadow-sm backdrop-blur-sm">
       <img ref={handRef} src={handSvg} alt="" className="h-4 w-4" style={{ transformOrigin: '70% 70%' }} />
       <span className="text-xs ds-muted-text">Reading your page…</span>
+    </div>
+  )
+}
+
+// Floating "hello" badge shown on first load
+function HelloFloat() {
+  const ref = useRef(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    let aEnter, aBob
+    try { aEnter = animate(el, { opacity: [0, 1], y: [-8, 0] }, { duration: 0.28, easing: 'ease-out' }) } catch (_) {}
+    try { aBob = animate(el, { y: [0, -4, 0] }, { duration: 1.6, easing: 'ease-in-out', repeat: 2 }) } catch (_) {}
+    return () => {
+      try { aEnter?.cancel?.() } catch (_) {}
+      try { aBob?.cancel?.() } catch (_) {}
+    }
+  }, [])
+  return (
+    <div ref={ref} className="mb-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full border ds-border bg-card/90 shadow-sm text-sm">
+      <span className="font-medium">hello</span>
     </div>
   )
 }
@@ -343,6 +365,7 @@ export default function App() {
   const sessionsRef = useRef(sessions)
   const activeSessionIdRef = useRef(activeSessionId)
   const [showReadingOverlay, setShowReadingOverlay] = useState(false)
+  const [showDebug, setShowDebug] = useState(false)
 
   const copyToClipboard = async (text) => {
     try { await navigator.clipboard.writeText(text) } catch (_) {}
@@ -392,6 +415,35 @@ export default function App() {
       try { chrome.storage.onChanged.removeListener(onChanged) } catch (_) {}
     }
   }, [])
+
+  // Load debug preference and subscribe to changes
+  useEffect(() => {
+    let mounted = true
+    const load = async () => {
+      try {
+        const { showDebug } = await chrome.storage.sync.get(['showDebug'])
+        if (mounted) setShowDebug(!!showDebug)
+      } catch (_) {}
+    }
+    load()
+    const onChanged = (changes, area) => {
+      try {
+        if (area === 'sync' && changes.showDebug) {
+          setShowDebug(!!changes.showDebug.newValue)
+        }
+      } catch (_) {}
+    }
+    try { chrome.storage.onChanged.addListener(onChanged) } catch (_) {}
+    return () => {
+      mounted = false
+      try { chrome.storage.onChanged.removeListener(onChanged) } catch (_) {}
+    }
+  }, [])
+
+  // If debug is disabled, ensure the popover is closed
+  useEffect(() => {
+    if (!showDebug) setDebugOpen(false)
+  }, [showDebug])
 
   const isSupportedUrl = (url) => /^https?:\/\//.test(url || '')
 
@@ -1326,7 +1378,7 @@ export default function App() {
         <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between px-3 py-2 bg-transparent">
           <div className="flex items-center gap-2 min-w-0">
             {!sidebarOpen && <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} aria-label="Expand sidebar">☰</Button>}
-            <span className="font-semibold truncate max-w-[60vw] min-w-0">{sessionTitle || 'Jan'}</span>
+            <span className="font-geist font-semibold text-2xl md:text-3xl truncate max-w-[60vw] min-w-0">Jan</span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {streamingReqId ? (
@@ -1336,6 +1388,7 @@ export default function App() {
               </div>
             ) : null}
             {/* Debug preview */}
+            {showDebug ? (
             <Popover.Root open={debugOpen} onOpenChange={setDebugOpen}>
               <Popover.Trigger asChild>
                 <Button
@@ -1393,6 +1446,7 @@ export default function App() {
                 </AnimatedPopoverContent>
               </Popover.Portal>
             </Popover.Root>
+            ) : null}
             <Button
               variant="secondary"
               size="sm"
@@ -1587,7 +1641,7 @@ export default function App() {
                     value={tabQuery}
                     onChange={(e) => setTabQuery(e.target.value)}
                     placeholder="Search open tabs by title or URL"
-                    className="h-8 text-sm"
+                    className="h-8 text-sm rounded-full"
                   />
                   <div className="rounded-lg border ds-border overflow-hidden">
                     <div className="overflow-y-auto" style={{ maxHeight: '48vh' }}>
@@ -1638,29 +1692,30 @@ export default function App() {
                 <ReadingIndicator />
               </div>
             ) : null}
-            <div className="flex items-stretch gap-2">
+            <div className="relative">
               <Textarea
-                className="w-full flex-1 resize-none min-h-[72px] rounded-2xl text-base leading-6 shadow-lg bg-card/80 border-border/60 backdrop-blur-sm"
+                className={`w-full flex-1 resize-none ${hasUserMessage ? 'min-h-[120px]' : 'min-h-[clamp(160px,24vh,260px)]'} rounded-full text-base leading-6 shadow-lg bg-card/80 border-border/60 backdrop-blur-sm px-4 py-3 pb-12`}
                 placeholder={(busy || !!streamingReqId) ? 'Working…' : 'Ask a question about this page…'}
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={onKeyDown}
                 disabled={busy || !!streamingReqId}
               />
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  title="Search + Ask"
-                  aria-label="Search + Ask"
-                  onClick={(e) => {
-                    if (e.altKey || e.metaKey) openGoogleSearch(); else askWithGoogle()
-                  }}
-                  disabled={busy}
-                >
-                  <SearchIcon size={16} />
+              {/* Inline controls inside textarea area */}
+              <div className="pointer-events-none absolute left-3 bottom-3 z-10 flex items-center gap-2">
+                <Button variant="ghost" size="icon" className="pointer-events-auto rounded-full border ds-border bg-card/90 shadow" title="Attach">
+                  <PaperclipIcon size={16} />
+                </Button>
+                <Button variant="ghost" size="icon" className="pointer-events-auto rounded-full border ds-border bg-card/90 shadow" title="Voice">
+                  <MicIcon size={16} />
                 </Button>
               </div>
+            </div>
+            {/* Send button below */}
+            <div className="mt-2 flex justify-end">
+              <Button onClick={sendChat} disabled={busy || !!streamingReqId} className="rounded-lg">
+                <Send size={16} className="mr-1" /> Send
+              </Button>
             </div>
           </div>
         </footer>
