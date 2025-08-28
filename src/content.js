@@ -1,6 +1,18 @@
 // content.js
 // Extracts text content from the page and returns it on request
 
+// Minimal browser/chrome API shim for cross-browser compatibility (no ESM import)
+try {
+  if (typeof window !== 'undefined' && !window.browser && window.chrome) {
+    window.browser = window.chrome;
+  }
+} catch (_) {}
+try {
+  if (typeof globalThis !== 'undefined' && !globalThis.browser && globalThis.chrome) {
+    globalThis.browser = globalThis.chrome;
+  }
+} catch (_) {}
+
 function getMetaDescription() {
   const el = document.querySelector('meta[name="description"]');
   return el?.getAttribute('content') || '';

@@ -30,13 +30,16 @@ jobs:
       - name: Build extension and MCP server (Bun)
         run: bun run build:all
 
-      - name: Prepare extension package
+      - name: Build Firefox extension (Bun)
+        run: bun run build:firefox
+
+      - name: Prepare extension package (Chrome)
         id: pkg
         shell: bash
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
-          PKG_NAME="jan-extension-${TAG}.zip"
+          PKG_NAME="jan-extension-chrome-${TAG}.zip"
           mkdir -p pack/extension
           # Copy required extension files
           cp -r manifest.json dist icons src pack/extension/
@@ -46,6 +49,16 @@ jobs:
           # Create zip with correct root layout
           (cd pack/extension && zip -r "../../${PKG_NAME}" .)
           echo "pkg_name=${PKG_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare extension package (Firefox)
+        id: pkg_ff
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          PKG_FF_NAME="jan-extension-firefox-${TAG}.zip"
+          (cd dist-firefox && zip -r "../${PKG_FF_NAME}" .)
+          echo "pkg_ff_name=${PKG_FF_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Package MCP search server (optional asset)
         id: mcp
@@ -69,6 +82,7 @@ jobs:
           if-no-files-found: warn
           path: |
             ${{ steps.pkg.outputs.pkg_name }}
+            ${{ steps.pkg_ff.outputs.pkg_ff_name }}
             ${{ steps.mcp.outputs.mcp_zip }}
 
       - name: Create GitHub Release and upload assets
@@ -79,8 +93,15 @@ jobs:
           name: Jan Extension ${{ github.ref_name }}
           draft: false
           prerelease: false
+          body: |
+            Firefox support: Added official Firefox build artifact alongside Chrome.
+
+            - Artifacts: `jan-extension-chrome-${{ github.ref_name }}.zip`, `jan-extension-firefox-${{ github.ref_name }}.zip`.
+            - Notes: Firefox package is built from `manifest.firefox.json` and zipped from `dist-firefox`.
+            - MCP Server (optional): included as `search-mcp-server-${{ github.ref_name }}-dist.zip` when present.
           files: |
             ${{ steps.pkg.outputs.pkg_name }}
+            ${{ steps.pkg_ff.outputs.pkg_ff_name }}
             ${{ steps.mcp.outputs.mcp_zip }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

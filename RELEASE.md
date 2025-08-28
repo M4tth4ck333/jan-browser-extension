@@ -12,7 +12,8 @@ This doc explains how to ship downloadable zips for the Chrome extension and the
   git push origin 12.11
   ```
   CI publishes:
-  - `jan-extension-12.11.zip`
+  - `jan-extension-chrome-12.11.zip`
+  - `jan-extension-firefox-12.11.zip`
   - `search-mcp-server-12.11-dist.zip`
 
 - Nightly prerelease (incremental):
@@ -50,14 +51,18 @@ git tag 12.11 && git push origin main && git push origin 12.11
   - Trigger: tag pushes (`vX.Y.Z`, `X.Y.Z`, or custom like `12.11`).
   - Tooling: Bun (`oven-sh/setup-bun@v2`) for `bun install` and `bun run build:all`.
   - Artifacts:
-    - `jan-extension-<tag>.zip`: `manifest.json`, `src/background.js`, `src/content.js`, `dist/ui/*`, `dist/assets/*`, `icons/*`, plus `LICENSE`/`README.md` if present.
+    - `jan-extension-chrome-<tag>.zip`: `manifest.json`, `src/*`, `dist/**`, `icons/*`, plus `LICENSE`/`README.md` if present.
+    - `jan-extension-firefox-<tag>.zip`: zipped from `dist-firefox/**` built via `npm run build:firefox`.
     - `search-mcp-server-<tag>-dist.zip`: `mcp/search-server/dist/**` (if present).
   - Publishes a GitHub Release for the tag.
 
 - Nightly: `.github/workflows/nightly.yml`
   - Trigger: push to `main`.
-  - Patches `manifest.version_name` to include `-nightly-<run>-<sha>` (does not change `version`).
-  - Updates prerelease with tag `nightly` and uploads the two artifacts.
+  - Patches Chrome `manifest.version_name` to include `-nightly-<run>-<sha>` (does not change `version`).
+  - Updates prerelease with tag `nightly` and uploads:
+    - `jan-extension-chrome-nightly-<run>-<sha>.zip`
+    - `jan-extension-firefox-nightly-<run>-<sha>.zip`
+    - `search-mcp-server-nightly-<run>-<sha>-dist.zip`
 
 ## Local Packaging Details
 
@@ -68,7 +73,8 @@ git tag 12.11 && git push origin main && git push origin 12.11
 
 - Verify contents:
 ```bash
-unzip -l pack/jan-extension-<tag>.zip | sed -n '1,200p'
+unzip -l pack/jan-extension-chrome-<tag>.zip | sed -n '1,200p'
+unzip -l pack/jan-extension-firefox-<tag>.zip | sed -n '1,200p'
 ```
 
 ## Optional: Run CI Locally
@@ -91,4 +97,3 @@ The workflow uploads artifacts; publishing to GitHub Releases is skipped under `
   ```
 - Bun: we track `latest`. If CI regresses, pin `bun-version: 1.2.x`.
 - Chrome: unzip the extension zip and load as unpacked via `chrome://extensions`.
-

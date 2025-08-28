@@ -15,8 +15,12 @@ const DEFAULTS = {
   customCompletionsUrl: '',
   // UI: dim overlay behind reading indicator (busy pre-stream)
   showReadingOverlay: false,
+  // Developer: show debug popover/tools in side panel
+  showDebug: false,
   // Search preferences
   ddgOnly: false,
+  // Side panel: show Search button in composer
+  showComposerSearchButton: true,
 }
 
 export default function OptionsApp() {
@@ -305,6 +309,29 @@ export default function OptionsApp() {
             </button>
           </div>
         </div>
+
+        <div className="mt-6 border ds-border ds-muted-bg rounded-xl p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="typo-h1 font-display">Debug</div>
+              <div className="text-sm ds-muted-text">Show debug tools (e.g., payload preview) in the side panel header.</div>
+            </div>
+            <div className="flex items-center gap-3 text-sm text-foreground">
+              <Label htmlFor="show-debug" className="text-foreground/80 cursor-pointer">Off</Label>
+              <Switch
+                id="show-debug"
+                checked={!!cfg.showDebug}
+                onCheckedChange={(v) => {
+                  const showDebug = !!v
+                  setCfg({ ...cfg, showDebug })
+                  try { chrome.storage.sync.set({ showDebug }) } catch (_) {}
+                }}
+                aria-label="Toggle debug tools in side panel"
+              />
+              <Label htmlFor="show-debug" className="text-foreground/80 cursor-pointer">On</Label>
+            </div>
+          </div>
+        </div>
         <div className="grid gap-2">
           <div className="flex items-center justify-between">
             <Label className="text-sm font-medium text-foreground small-caps">Model</Label>
@@ -431,6 +458,24 @@ export default function OptionsApp() {
                 aria-label="Toggle DuckDuckGo only mode"
               />
               <Label htmlFor="ddg-only" className="text-foreground/80 cursor-pointer">On</Label>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="text-sm ds-muted-text">Show Search button in composer</div>
+            <div className="flex items-center gap-3 text-sm text-foreground">
+              <Label htmlFor="show-composer-search" className="text-foreground/80 cursor-pointer">Off</Label>
+              <Switch
+                id="show-composer-search"
+                checked={!!cfg.showComposerSearchButton}
+                onCheckedChange={(v) => {
+                  const showComposerSearchButton = !!v
+                  setCfg({ ...cfg, showComposerSearchButton })
+                  try { chrome.storage.sync.set({ showComposerSearchButton }) } catch (_) {}
+                }}
+                aria-label="Toggle Search button visibility in composer"
+              />
+              <Label htmlFor="show-composer-search" className="text-foreground/80 cursor-pointer">On</Label>
             </div>
           </div>
         </div>

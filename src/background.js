@@ -1,5 +1,17 @@
-// background.js (MV3 service worker)
+// background.js (MV3 service worker / Firefox background script)
 // Handles side panel activation and summary requests via an OpenAI-compatible API
+
+// Minimal browser/chrome API shim for cross-browser compatibility (no ESM import)
+try {
+  if (typeof window !== 'undefined' && !window.browser && window.chrome) {
+    window.browser = window.chrome;
+  }
+} catch (_) {}
+try {
+  if (typeof globalThis !== 'undefined' && !globalThis.browser && globalThis.chrome) {
+    globalThis.browser = globalThis.chrome;
+  }
+} catch (_) {}
 
 const DEFAULT_SETTINGS = {
   provider: "custom", // 'jan-server' | 'openai' | 'anthropic' | 'openrouter' | 'cerebras' | 'jan' | 'custom'
@@ -49,7 +61,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
 // Prefer Chrome auto-opening the side panel on action click for reliability.
 try {
-  chrome.sidePanel.setPanelBehavior?.({ openPanelOnActionClick: true });
+  chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true });
 } catch (err) {
   console.warn('setPanelBehavior (startup) not supported:', err);
 }
@@ -337,7 +349,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 
   // Let Chrome open the panel on action click automatically.
   try {
-    await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+    await chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true });
   } catch (err) {
     console.warn('setPanelBehavior not supported:', err);
   }
@@ -346,7 +358,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 // Also apply behavior when the browser starts up (service worker cold start)
 chrome.runtime.onStartup.addListener(async () => {
   try {
-    await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+    await chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true });
   } catch (err) {
     console.warn('setPanelBehavior (startup) not supported:', err);
   }
@@ -376,7 +388,7 @@ chrome.action.onClicked.addListener(async (tab) => {
     // Ensure the target tab is active/visible so the panel is noticeable
     try { await chrome.tabs.update(targetTabId, { active: true }); } catch (_) {}
 
-    await chrome.sidePanel.setOptions({
+    await chrome.sidePanel?.setOptions?.({
       tabId: targetTabId,
       path: `dist/ui/sidepanel/index.html`,
       enabled: true
@@ -412,7 +424,7 @@ try {
 
       if (command === 'open_sidepanel') {
         try { await chrome.tabs.update(targetTabId, { active: true }); } catch (_) {}
-        await chrome.sidePanel.setOptions({ tabId: targetTabId, path: `dist/ui/sidepanel/index.html`, enabled: true });
+        await chrome.sidePanel?.setOptions?.({ tabId: targetTabId, path: `dist/ui/sidepanel/index.html`, enabled: true });
         try { if (chrome.sidePanel?.open) await chrome.sidePanel.open({ tabId: targetTabId }); } catch (_) {}
       } else if (command === 'open_custom_prompt') {
         // Ask content script to show the custom prompt overlay

@@ -1,5 +1,5 @@
-  import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Streamdown } from 'streamdown'
 import remarkGfm from 'remark-gfm'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import rehypeHighlight from 'rehype-highlight'
@@ -9,11 +9,39 @@ import { Button } from '../components/ui/button.jsx'
 import { Textarea } from '../components/ui/textarea.jsx'
 import * as ScrollArea from '@radix-ui/react-scroll-area'
 import * as Popover from '@radix-ui/react-popover'
-import { User as UserIcon, Send, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Search as SearchIcon, Settings as SettingsIcon, Trash2 as TrashIcon } from 'lucide-react'
+import { User as UserIcon, ArrowUp, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Settings as SettingsIcon, Trash2 as TrashIcon, Paperclip as PaperclipIcon, Mic as MicIcon, Search as SearchIcon, Menu, SlidersHorizontal } from 'lucide-react'
 import { Input } from '../components/ui/input.jsx'
 import { Checkbox } from '../components/ui/checkbox.tsx'
- import { animate } from 'motion'
+import { animate } from 'motion'
 import handSvg from '../assets/jan-hand.svg'
+
+// Helpers at module scope
+const hostFromUrl = (url = '') => { try { return new URL(url).hostname || '' } catch { return '' } }
+
+// Animated hamburger menu trigger for opening the sidebar
+function MenuTrigger({ onOpen }) {
+  const btnRef = useRef(null)
+  const handlePointerDown = useCallback(() => {
+    // Open immediately on press
+    onOpen?.()
+    // Fire-and-forget micro animation for tap feedback
+    const el = btnRef.current
+    try {
+      animate(
+        el,
+        { scale: [1, 1.08, 1], y: [0, -1, 0] },
+        { duration: 0.14, easing: 'ease-out' }
+      )
+    } catch (_) {}
+  }, [onOpen])
+  return (
+    <Button ref={btnRef} variant="ghost" size="icon" onPointerDown={handlePointerDown} aria-label="Open sidebar">
+      <Menu size={18} />
+    </Button>
+  )
+}
+const hueFromString = (s = '') => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h % 360 }
+const chipColorForTab = (tab) => { const host = hostFromUrl(tab?.url || ''); const h = hueFromString(host); return `hsl(${h}, 70%, 88%)` }
 
 // Animated wrapper for Radix Popover.Content (fade + slight scale/slide on mount)
 function AnimatedPopoverContent({ children, ...props }) {
@@ -30,6 +58,99 @@ function AnimatedPopoverContent({ children, ...props }) {
     } catch (_) { /* no-op */ }
   }, [])
   return <Popover.Content ref={popRef} {...props}>{children}</Popover.Content>
+}
+
+// Single tab chip with left-side remove and enter/exit animations
+function Chip({ tab, onRemove }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    let a
+    try { a = animate(el, { opacity: [0, 1], y: [4, 0], scale: [0.98, 1] }, { duration: 0.18, easing: 'ease-out' }) } catch (_) {}
+    return () => { try { a?.cancel?.() } catch (_) {} }
+  }, [])
+  const handleRemove = async (e) => {
+    e?.stopPropagation?.()
+    const el = ref.current
+    try {
+      await animate(el, { opacity: [1, 0], y: [0, 2], scale: [1, 0.96] }, { duration: 0.16, easing: 'ease-in' })
+    } catch (_) {}
+    onRemove?.()
+  }
+  const host = hostFromUrl(tab?.url || '')
+  const bg = chipColorForTab(tab)
+  return (
+    <div ref={ref} className="tab-chip" title={`${tab.title}\n${host}`}>
+      <button type="button" className="chip-x ml-0 mr-1" onClick={handleRemove} aria-label="Remove tab">
+        <XIcon size={12} />
+      </button>
+      <span className="chip-ic" style={{ backgroundColor: bg }}>
+        {tab.favIconUrl ? (
+          <img src={tab.favIconUrl} alt="" className="h-3 w-3" />
+        ) : (
+          <span className="h-3 w-3 rounded-full bg-muted inline-block" />
+        )}
+      </span>
+      <span className="truncate chip-label">{tab.title || '(untitled tab)'}</span>
+    </div>
+  )
+}
+
+// Hero headline that floats in on first load
+function HeroSlogan() {
+  const ref = useRef(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    let aEnter
+    try {
+      aEnter = animate(el, { opacity: [0, 1], y: [-8, 0] }, { duration: 0.28, easing: 'ease-out' })
+    } catch (_) {}
+    return () => { try { aEnter?.cancel?.() } catch (_) {} }
+  }, [])
+  return (
+    <div ref={ref} className="text-center">
+      <div className="font-arapey text-5xl md:text-6xl leading-tight">What do you </div>
+      <div className="mt-3 ds-muted-text text-lg">want to do today?</div>
+    </div>
+  )
+}
+
+// Settings button with Motion click animation, opens the Options page
+function SettingsTrigger() {
+  const btnRef = useRef(null)
+  const [active, setActive] = useState(false)
+  const onClick = useCallback(async () => {
+    const el = btnRef.current
+    setActive((v) => !v)
+    try {
+      // Subtle engage animation
+      await animate(
+        el,
+        { scale: [1, 1.08, 1], rotate: [0, 8, 0] },
+        { duration: 0.22, easing: 'ease-out' }
+      )
+    } catch (_) {}
+    // Open Options page via Chrome API so it works in MV3
+    try {
+      if (chrome?.runtime?.openOptionsPage) chrome.runtime.openOptionsPage()
+      else window.open(chrome.runtime.getURL('dist/ui/options/index.html'), '_blank')
+    } catch (_) {}
+  }, [])
+  return (
+    <Button
+      ref={btnRef}
+      variant="ghost"
+      size="icon"
+      className="rounded-full border ds-border bg-card/80"
+      onClick={onClick}
+      aria-label="Settings"
+      title="Settings"
+    >
+      <SlidersHorizontal size={16} className={active ? 'text-foreground' : 'text-foreground/80'} />
+    </Button>
+  )
 }
 
 // Day label helper (plain function; no hooks at module scope)
@@ -136,7 +257,8 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
           ) : (
             <div className="max-w-none break-words ai-typography">
               {(content && String(content).trim().length > 0) ? (
-                <ReactMarkdown
+                <Streamdown
+                  parseIncompleteMarkdown
                   remarkPlugins={[remarkGfm]}
                   rehypePlugins={[[rehypeSanitize, sanitizeSchema], rehypeHighlight]}
                   components={{
@@ -185,7 +307,7 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
                   }}
                 >
                   {content || ''}
-                </ReactMarkdown>
+                </Streamdown>
               ) : (
                 <div className="flex items-center" aria-label="Thinking">
                   <ThinkingEmoji />
@@ -256,6 +378,27 @@ function ReadingIndicator() {
   )
 }
 
+// Floating "hello" badge shown on first load
+function HelloFloat() {
+  const ref = useRef(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    let aEnter, aBob
+    try { aEnter = animate(el, { opacity: [0, 1], y: [-8, 0] }, { duration: 0.28, easing: 'ease-out' }) } catch (_) {}
+    try { aBob = animate(el, { y: [0, -4, 0] }, { duration: 1.6, easing: 'ease-in-out', repeat: 2 }) } catch (_) {}
+    return () => {
+      try { aEnter?.cancel?.() } catch (_) {}
+      try { aBob?.cancel?.() } catch (_) {}
+    }
+  }, [])
+  return (
+    <div ref={ref} className="mb-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full border ds-border bg-card/90 shadow-sm text-sm">
+      <span className="font-medium">hello</span>
+    </div>
+  )
+}
+
 // Compact assistant controls (Copy) rendered to the right of assistant messages
 function AssistantControls({ content, onCopy }) {
   const ref = useRef(null)
@@ -314,7 +457,12 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [tabPickerOpen, setTabPickerOpen] = useState(false)
   const [tabQuery, setTabQuery] = useState('')
-  
+  // @mention state
+  const [mentionOpen, setMentionOpen] = useState(false)
+  const [mentionQuery, setMentionQuery] = useState('')
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const [mentionStart, setMentionStart] = useState(-1)
+  const inputRef = useRef(null)
 
   // Page/context state
   const [pageData, setPageData] = useState(null)
@@ -343,6 +491,9 @@ export default function App() {
   const sessionsRef = useRef(sessions)
   const activeSessionIdRef = useRef(activeSessionId)
   const [showReadingOverlay, setShowReadingOverlay] = useState(false)
+  const [showDebug, setShowDebug] = useState(false)
+  const [showComposerSearchButton, setShowComposerSearchButton] = useState(true)
+  const [searchMode, setSearchMode] = useState(false)
 
   const copyToClipboard = async (text) => {
     try { await navigator.clipboard.writeText(text) } catch (_) {}
@@ -368,6 +519,8 @@ export default function App() {
     return tabs.filter(t => (t.title || '').toLowerCase().includes(q) || String(t.id).includes(q))
   }, [tabs, tabQuery])
   const messages = activeSession?.messages || []
+  // Selected tabs materialized for chips UI
+  const selectedTabs = useMemo(() => tabs.filter(t => selectedTabIds.includes(t.id)), [tabs, selectedTabIds])
 
   // Load reading overlay preference and subscribe to changes
   useEffect(() => {
@@ -392,6 +545,59 @@ export default function App() {
       try { chrome.storage.onChanged.removeListener(onChanged) } catch (_) {}
     }
   }, [])
+
+  // Load debug preference and subscribe to changes
+  useEffect(() => {
+    let mounted = true
+    const load = async () => {
+      try {
+        const { showDebug } = await chrome.storage.sync.get(['showDebug'])
+        if (mounted) setShowDebug(!!showDebug)
+      } catch (_) {}
+    }
+    load()
+    const onChanged = (changes, area) => {
+      try {
+        if (area === 'sync' && changes.showDebug) {
+          setShowDebug(!!changes.showDebug.newValue)
+        }
+      } catch (_) {}
+    }
+    try { chrome.storage.onChanged.addListener(onChanged) } catch (_) {}
+    return () => {
+      mounted = false
+      try { chrome.storage.onChanged.removeListener(onChanged) } catch (_) {}
+    }
+  }, [])
+
+  // Load composer search button preference and subscribe to changes
+  useEffect(() => {
+    let mounted = true
+    const load = async () => {
+      try {
+        const { showComposerSearchButton } = await chrome.storage.sync.get(['showComposerSearchButton'])
+        if (mounted) setShowComposerSearchButton(typeof showComposerSearchButton === 'boolean' ? showComposerSearchButton : true)
+      } catch (_) {}
+    }
+    load()
+    const onChanged = (changes, area) => {
+      try {
+        if (area === 'sync' && changes.showComposerSearchButton) {
+          setShowComposerSearchButton(!!changes.showComposerSearchButton.newValue)
+        }
+      } catch (_) {}
+    }
+    try { chrome.storage.onChanged.addListener(onChanged) } catch (_) {}
+    return () => {
+      mounted = false
+      try { chrome.storage.onChanged.removeListener(onChanged) } catch (_) {}
+    }
+  }, [])
+
+  // If debug is disabled, ensure the popover is closed
+  useEffect(() => {
+    if (!showDebug) setDebugOpen(false)
+  }, [showDebug])
 
   const isSupportedUrl = (url) => /^https?:\/\//.test(url || '')
 
@@ -432,7 +638,38 @@ export default function App() {
     return () => { stopped = true; clearInterval(id) }
   }, [])
 
-  
+  // Get current open tabs (helper for mentions and external calls)
+  const current_tabs = useCallback(async () => {
+    try {
+      const t = await chrome.tabs.query({ currentWindow: true })
+      return (t || []).filter(tt => tt.id && isSupportedUrl(tt.url))
+    } catch (_) { return [] }
+  }, [])
+
+  // Simple fuzzy: score by subsequence match + includes on title/url/host
+  const fuzzyRankTabs = useCallback((items, q) => {
+    const query = (q || '').trim().toLowerCase()
+    if (!query) return items
+    const isSubseq = (s, pat) => {
+      let i = 0; for (const ch of s) { if (ch === pat[i]) i++; if (i === pat.length) break }
+      return i === pat.length
+    }
+    const scored = items.map(t => {
+      const title = (t.title || '').toLowerCase()
+      let host = ''
+      try { host = new URL(t.url || '').hostname.toLowerCase() } catch {}
+      const url = String(t.url || '').toLowerCase()
+      let score = 0
+      if (title.includes(query)) score += 3
+      if (host.includes(query)) score += 2
+      if (url.includes(query)) score += 1
+      if (isSubseq(title, query)) score += 1
+      if (String(t.id).includes(query)) score += 1
+      return { t, score }
+    })
+    scored.sort((a, b) => b.score - a.score)
+    return scored.filter(s => s.score > 0).map(s => s.t)
+  }, [])
 
   const delay = (ms) => new Promise(res => setTimeout(res, ms))
 
@@ -1149,9 +1386,25 @@ export default function App() {
   }, [input, sessions, activeSessionId, sessionTitle, useContextThisMsg, useContextDefault, contextCache, pageData, selectedTabIds, autoFollowActiveTab, saveSessions, scrapeSelectedTabs])
 
   const onKeyDown = (e) => {
+    // Handle mention navigation/selection first
+    if (mentionOpen) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionResults.length - 1)); return }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        const item = mentionResults[mentionIndex]
+        if (item) insertMentionTab(item)
+        return
+      }
+      if (e.key === 'Escape') { setMentionOpen(false); return }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      sendChat()
+      if (searchMode) {
+        askWithGoogle()
+      } else {
+        sendChat()
+      }
     }
   }
 
@@ -1159,6 +1412,49 @@ export default function App() {
     setSelectedTabIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
     setAutoFollowActiveTab(false)
   }
+
+  // Compute mention candidates on input changes
+  const [mentionResults, setMentionResults] = useState([])
+  const updateMentions = useCallback((text, caretPos) => {
+    try {
+      const upto = text.slice(0, caretPos)
+      const m = /(^|\s)@([^\s@]{0,64})$/.exec(upto)
+      if (!m) { setMentionOpen(false); setMentionQuery(''); setMentionResults([]); setMentionStart(-1); return }
+      const q = m[2] || ''
+      setMentionQuery(q)
+      setMentionStart(upto.length - q.length - 1) // index of '@'
+      const pool = tabs.filter(t => !selectedTabIds.includes(t.id) && isSupportedUrl(t.url))
+      const ranked = q ? fuzzyRankTabs(pool, q) : pool
+      setMentionResults(ranked.slice(0, 8))
+      setMentionIndex(0)
+      setMentionOpen(true)
+    } catch (_) {
+      setMentionOpen(false); setMentionResults([])
+    }
+  }, [tabs, selectedTabIds, fuzzyRankTabs])
+
+  const insertMentionTab = useCallback((tab) => {
+    const el = inputRef.current
+    const text = String(input)
+    if (!el || mentionStart < 0) {
+      // Fallback: just toggle and keep text
+      toggleTab(tab.id)
+      setMentionOpen(false)
+      return
+    }
+    const caret = el.selectionStart || text.length
+    const before = text.slice(0, mentionStart)
+    // Find end of token from '@' to caret
+    const after = text.slice(caret)
+    const next = (before + after).replace(/\s{2,}/g, ' ').trimStart()
+    setInput(next)
+    toggleTab(tab.id)
+    setMentionOpen(false)
+    // Restore caret position
+    setTimeout(() => {
+      try { el.focus(); el.selectionStart = el.selectionEnd = before.length } catch (_) {}
+    }, 0)
+  }, [input, mentionStart, toggleTab])
 
   const newChat = async () => {
     const newId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now())
@@ -1270,11 +1566,35 @@ export default function App() {
   // Whether the current session has any user messages (used for layout tweaks)
   const hasUserMessage = messages.some(m => m.role === 'user')
 
+  // Animate only main content shift; rely on CSS width transition for the sidebar for smoothness
+  const asideRef = useRef(null)
+  const mainRef = useRef(null)
+  useEffect(() => {
+    if (sidebarOpen && mainRef.current) {
+      try {
+        animate(mainRef.current, { x: [8, 0] }, { duration: 0.18, easing: 'ease-out' })
+      } catch (_) {}
+    }
+  }, [sidebarOpen])
+
   return (
-    <div className="h-screen ds-bg ds-text grid" style={{ gridTemplateColumns: sidebarOpen ? '220px 1fr' : '1fr' }}>
+    <div
+      className="h-screen ds-bg ds-text grid"
+      style={{
+        gridTemplateColumns: 'auto 1fr'
+      }}
+    >
       {/* Sidebar */}
-      {sidebarOpen && (
-        <aside className="border-r ds-border flex flex-col overflow-hidden">
+      <aside
+        ref={asideRef}
+        className="border-r ds-border flex flex-col overflow-hidden"
+        aria-hidden={!sidebarOpen}
+        style={{
+          width: sidebarOpen ? 220 : 0,
+          transition: 'width 220ms cubic-bezier(0.16, 1, 0.3, 1)',
+          willChange: 'width'
+        }}
+      >
           <div className="p-2 flex items-center justify-between ds-card border-b ds-border pastel-grad">
             <div className="flex items-center gap-2"><span className="font-semibold">Chats</span></div>
             <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(false)} aria-label="Collapse sidebar">←</Button>
@@ -1315,143 +1635,45 @@ export default function App() {
               <span className="ds-muted-text" title="Auto-follow is always on for fresh context">Following active tab</span>
             </div>
           </div>
-        </aside>
-      )}
+      </aside>
 
       {/* Main column */}
-      <div className="flex flex-col min-w-0 relative">
+      <div ref={mainRef} className="flex flex-col min-w-0 relative" style={{ willChange: 'transform' }}>
         {(busy && !streamingReqId && showReadingOverlay) ? (
           <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px] pointer-events-none z-10" />
         ) : null}
-        <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between px-3 py-2 bg-transparent">
+        <header className="sticky top-0 z-10 grid grid-cols-3 items-center px-2 py-1.5 bg-transparent">
           <div className="flex items-center gap-2 min-w-0">
-            {!sidebarOpen && <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} aria-label="Expand sidebar">☰</Button>}
-            <span className="font-semibold truncate max-w-[60vw] min-w-0">{sessionTitle || 'Jan'}</span>
+            {!sidebarOpen && (
+              <MenuTrigger onOpen={() => setSidebarOpen(true)} />
+            )}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {streamingReqId ? (
-              <div className="hidden sm:flex items-center gap-1 text-xs ds-muted-text">
-                <span className="spinner" aria-hidden="true" />
-                <span>Generating</span>
-              </div>
-            ) : null}
-            {/* Debug preview */}
-            <Popover.Root open={debugOpen} onOpenChange={setDebugOpen}>
-              <Popover.Trigger asChild>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => { previewCurrentTabPayload() }}
-                  aria-label="Debug Preview"
-                  title="Preview current tab payload"
-                >
-                  Debug
-                </Button>
-              </Popover.Trigger>
-              <Popover.Portal>
-                <AnimatedPopoverContent
-                  side="bottom"
-                  align="end"
-                  sideOffset={8}
-                  className="rounded-xl border ds-border ds-bg shadow-2xl p-3 w-[90vw] sm:w-[560px] max-h-[70vh] overflow-auto z-50"
-                  style={{ backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="font-medium text-sm">Current Tab Payload Preview</div>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" aria-label="Close" onClick={() => setDebugOpen(false)}>
-                        <XIcon size={14} />
-                      </Button>
-                    </div>
-                  </div>
-                  {debugInfo?.loading ? (
-                    <div className="text-sm ds-muted-text">Loading…</div>
-                  ) : debugInfo?.ok ? (
-                    <div className="space-y-2 text-sm">
-                      <div className="grid grid-cols-3 gap-2">
-                        <div><span className="ds-muted-text">Tab ID:</span> {debugInfo.tabId}</div>
-                        <div className="col-span-2 truncate" title={debugInfo.title}><span className="ds-muted-text">Title:</span> {debugInfo.title || '(untitled)'}</div>
-                        <div className="col-span-3 truncate" title={debugInfo.url}><span className="ds-muted-text">URL:</span> {debugInfo.url}</div>
-                        <div><span className="ds-muted-text">Content:</span> {debugInfo.contentLen}</div>
-                        <div><span className="ds-muted-text">Selection:</span> {debugInfo.selectionLen}</div>
-                      </div>
-                      <div className="flex items-center justify-between mt-2">
-                        <div className="font-medium text-xs opacity-80">System message (what will be prepended)</div>
-                        <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="icon" title="Copy" aria-label="Copy" onClick={() => copyToClipboard(debugInfo.systemPreview || '')}>
-                            <CopyIcon size={14} />
-                          </Button>
-                        </div>
-                      </div>
-                      <pre className="max-h-60 overflow-auto whitespace-pre-wrap text-xs bg-card border ds-border rounded p-2">{debugInfo.systemPreview}</pre>
-                    </div>
-                  ) : debugInfo ? (
-                    <div className="text-sm text-red-600">{debugInfo.error || 'Unknown error'}</div>
-                  ) : (
-                    <div className="text-sm ds-muted-text">Click Debug to preview the current tab payload.</div>
-                  )}
-                </AnimatedPopoverContent>
-              </Popover.Portal>
-            </Popover.Root>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={newChat}
-              aria-label="New Chat"
-              title="New Chat"
-            >
-              <PlusIcon size={14} className="mr-1" /> New
-            </Button>
+          <div className="flex items-center justify-center">
+            <span className="font-geist font-medium text-lg">Jan</span>
+          </div>
+          <div className="flex items-center justify-end gap-1">
+            <SettingsTrigger />
             <Button
               variant="ghost"
               size="icon"
               onClick={() => deleteChat()}
-              aria-label="Delete Chat"
-              title="Delete Chat"
+              aria-label="Close"
+              title="Close"
             >
-              <TrashIcon size={16} />
+              <XIcon size={16} />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => { try { chrome.runtime.openOptionsPage() } catch (_) {} }}
-              aria-label="Settings"
-              title="Settings"
-            >
-              <SettingsIcon size={16} />
-            </Button>
-            <Tooltip.Root>
-              <Tooltip.Trigger asChild>
-                <button
-                  type="button"
-                  className="p-1"
-                  aria-label={`MCP Bridge: ${bridgeStatus.connected ? 'Connected' : 'Disconnected'}`}
-                  title="MCP Bridge Status"
-                  onClick={() => { if (!bridgeStatus.connected) reconnectBridge() }}
-                >
-                  <span className={`status-dot ${bridgeStatus.connected ? 'status-yellow' : 'status-green'}`} />
-                </button>
-              </Tooltip.Trigger>
-              <Tooltip.Content side="bottom" align="end" className="text-xs ds-card ds-text border ds-border rounded px-2 py-1">
-                {bridgeStatus.connected ? 'Bridge Connected' : 'Bridge Disconnected'}{bridgeStatus.usingToken ? ' · Token' : ''}
-              </Tooltip.Content>
-            </Tooltip.Root>
           </div>
-
         </header>
 
-        <ScrollArea.Root className="flex-1">
-          <ScrollArea.Viewport ref={listRef} className={`h-full w-full p-3 ${hasUserMessage ? 'pb-28' : 'pb-3'} min-w-0`}>
+          <ScrollArea.Root className="flex-1">
+          <ScrollArea.Viewport ref={listRef} className={`h-full w-full px-2 pt-3 ${hasUserMessage ? 'pb-24' : 'pb-3'} min-w-0`}>
             {(() => {
               const visible = messages
                 .filter(m => m.role !== 'system' && !(m.role === 'assistant' && typeof m.content === 'string' && m.content.startsWith('New chat created')))
               if (!hasUserMessage) {
                 return (
                   <div className="w-full h-full grid place-items-center">
-                    <div className="text-center">
-                      <div className="font-arapey text-5xl md:text-6xl leading-tight">What do you </div>
-                      <div className="mt-3 ds-muted-text text-lg">want to do today?</div>
-                    </div>
+                    <HeroSlogan />
                   </div>
                 )
               }
@@ -1462,16 +1684,10 @@ export default function App() {
                     const nextRole = arr[i + 1]?.role
                     const isFirst = prevRole !== m.role
                     const isLast = nextRole !== m.role
-                    const showDayDivider = i === 0 || dayLabel(arr[i - 1]?.ts) !== dayLabel(m.ts)
+                    const showDayDivider = false
                     return (
                       <React.Fragment key={i}>
-                        {showDayDivider ? (
-                          <div className="my-3 flex items-center gap-2 text-[10px] uppercase tracking-wide ds-muted-text">
-                            <div className="flex-1 border-t ds-border" />
-                            <span className="px-2">{dayLabel(m.ts)}</span>
-                            <div className="flex-1 border-t ds-border" />
-                          </div>
-                        ) : null}
+                        {showDayDivider ? null : null}
                         <Message
                           role={m.role}
                           content={m.content}
@@ -1492,9 +1708,9 @@ export default function App() {
           </ScrollArea.Scrollbar>
         </ScrollArea.Root>
 
-        <footer className="p-3 sticky bottom-0 z-20 bg-background/60 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t ds-border composer">
+        <footer className="px-1 py-1 sticky bottom-0 z-20 bg-background/60 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t ds-border composer">
           {/* Chips row: selection chip + selected tabs */}
-          <div className="mb-2 flex items-center gap-2 overflow-x-auto no-scrollbar">
+          <div className="mb-1 mx-0 flex items-center gap-2 overflow-x-auto no-scrollbar">
             {selectionText && selectionText.trim().length > 0 ? (
               <Popover.Root>
                 <Popover.Trigger asChild>
@@ -1530,105 +1746,17 @@ export default function App() {
                 </Popover.Portal>
               </Popover.Root>
             ) : null}
-            {tabs.map(t => {
-              const selected = selectedTabIds.includes(t.id)
-              if (!selected) return null
-              return (
-                <div
-                  key={t.id}
-                  className="tab-chip"
-                  aria-selected={selected}
-                  title={t.title}
-                  onClick={() => toggleTab(t.id)}
-                  role="button"
-                >
-                  {t.favIconUrl ? (
-                    <img src={t.favIconUrl} alt="" className="h-3.5 w-3.5 rounded-sm" />
-                  ) : (
-                    <span className="h-3.5 w-3.5 rounded-sm bg-muted inline-block" />
-                  )}
-                  <span className="truncate max-w-[30vw] sm:max-w-[240px]">{t.title}</span>
-                  <span
-                    className="chip-x"
-                    role="button"
-                    aria-label="Remove tab from context"
-                    onClick={(e) => { e.stopPropagation(); toggleTab(t.id) }}
-                  >
-                    <XIcon size={12} />
-                  </span>
-                </div>
-              )
-            })}
-
-            {/* Add tabs popover */}
-            <Popover.Root open={tabPickerOpen} onOpenChange={setTabPickerOpen}>
-              <Popover.Trigger asChild>
-                <button type="button" className="tab-chip add-chip" aria-label="Add tabs" title="Add tabs">
-                  <PlusIcon size={14} />
-                  <span>Add</span>
-                </button>
-              </Popover.Trigger>
-              <Popover.Portal>
-                <AnimatedPopoverContent
-                  side="top"
-                  align="end"
-                  sideOffset={8}
-                  className="rounded-xl border ds-border ds-bg shadow-2xl p-2 w-[86vw] sm:w-[520px] max-h-[70vh] z-50"
-                  style={{ backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
-                >
-                  <div className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-sm">Add tabs</span>
-                    <span className="text-[11px] ds-muted-text">
-                      {filteredTabs.filter(t2 => !selectedTabIds.includes(t2.id) && isSupportedUrl(t2.url)).length} results
-                    </span>
-                  </div>
-                  <Input
-                    value={tabQuery}
-                    onChange={(e) => setTabQuery(e.target.value)}
-                    placeholder="Search open tabs by title or URL"
-                    className="h-8 text-sm"
-                  />
-                  <div className="rounded-lg border ds-border overflow-hidden">
-                    <div className="overflow-y-auto" style={{ maxHeight: '48vh' }}>
-                      {filteredTabs
-                        .filter(t2 => !selectedTabIds.includes(t2.id) && isSupportedUrl(t2.url))
-                        .map(t2 => {
-                          let host = ''
-                          try { host = new URL(t2.url || '').hostname } catch {}
-                          return (
-                            <button
-                              key={t2.id}
-                              className="w-full text-left flex items-center gap-2 p-3 hover:bg-muted/20"
-                              onClick={() => { toggleTab(t2.id) }}
-                            >
-                              {t2.favIconUrl ? (
-                                <img src={t2.favIconUrl} alt="" className="h-4 w-4 rounded-sm" />
-                              ) : (
-                                <span className="h-4 w-4 rounded-sm bg-muted inline-block" />
-                              )}
-                              <div className="min-w-0">
-                                <div className="truncate text-sm">{t2.title || '(untitled tab)'}</div>
-                                <div className="truncate text-xs text-muted-foreground">{host}</div>
-                              </div>
-                              <div className="ml-auto">
-                                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                                  <PlusIcon size={14} />
-                                </span>
-                              </div>
-                            </button>
-                          )
-                        })}
-                      {!filteredTabs.filter(t2 => !selectedTabIds.includes(t2.id) && isSupportedUrl(t2.url)).length ? (
-                        <div className="text-xs text-muted-foreground p-3">No tabs match your search.</div>
-                      ) : null}
-                    </div>
-                  </div>
-                  </div>
-                </AnimatedPopoverContent>
-              </Popover.Portal>
-            </Popover.Root>
+            {/* Tab chips area above input */}
+            {selectedTabs.length > 0 && (
+              <div className="flex items-center gap-1 mb-2 px-1 overflow-x-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                {selectedTabs.map(tab => (
+                  <Chip key={tab.id} tab={tab} onRemove={() => toggleTab(tab.id)} />
+                ))}
+              </div>
+            )}
           </div>
+          
+          {/* Main input area */}
           <div className="relative">
             {(busy && !streamingReqId && showReadingOverlay) ? (
               <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px] pointer-events-none z-10" aria-hidden="true" />
@@ -1638,29 +1766,155 @@ export default function App() {
                 <ReadingIndicator />
               </div>
             ) : null}
-            <div className="flex items-stretch gap-2">
+            <div className="relative">
               <Textarea
-                className="w-full flex-1 resize-none min-h-[72px] rounded-2xl text-base leading-6 shadow-lg bg-card/80 border-border/60 backdrop-blur-sm"
-                placeholder={(busy || !!streamingReqId) ? 'Working…' : 'Ask a question about this page…'}
+                ref={inputRef}
+                className={`w-full flex-1 resize-none ${hasUserMessage ? 'min-h-[120px]' : 'min-h-[clamp(160px,28vh,320px)]'} rounded-2xl text-base leading-6 shadow-lg bg-card/80 border-border/60 backdrop-blur-sm px-4 py-3 pr-12`}
+                placeholder={(busy || !!streamingReqId) ? 'Working…' : 'Ask Jan …'}
                 value={input}
-                onChange={e => setInput(e.target.value)}
+                onChange={e => { setInput(e.target.value); updateMentions(e.target.value, e.target.selectionStart || e.target.value.length) }}
                 onKeyDown={onKeyDown}
+                onKeyUp={e => updateMentions(e.currentTarget.value, e.currentTarget.selectionStart || e.currentTarget.value.length)}
+                onClick={e => updateMentions(e.currentTarget.value, e.currentTarget.selectionStart || e.currentTarget.value.length)}
                 disabled={busy || !!streamingReqId}
               />
-              <div className="flex items-center gap-1">
+              {/* Send button */}
+              <div className="pointer-events-none absolute right-3 bottom-3 z-10">
                 <Button
                   variant="ghost"
                   size="icon"
-                  title="Search + Ask"
-                  aria-label="Search + Ask"
-                  onClick={(e) => {
-                    if (e.altKey || e.metaKey) openGoogleSearch(); else askWithGoogle()
-                  }}
-                  disabled={busy}
+                  className="pointer-events-auto rounded-full h-7 w-7 bg-card/80 border border-border/70 text-foreground/60 shadow-sm"
+                  onClick={() => (searchMode ? askWithGoogle() : sendChat())}
+                  disabled={busy || !!streamingReqId || !(input && input.trim().length)}
+                  aria-label={searchMode ? 'Search and send' : 'Send'}
+                  title={searchMode ? 'Send with Google' : 'Send'}
+                >
+                  <ArrowUp size={12} />
+                </Button>
+              </div>
+              {/* @mention suggestions */}
+              {mentionOpen && mentionResults.length > 0 ? (
+                <div className="absolute left-2 right-10 bottom-12 z-20 rounded-xl border ds-border ds-bg shadow-2xl p-1 max-h-60 overflow-y-auto">
+                  {mentionResults.map((t, idx) => {
+                    let host = ''
+                    try { host = new URL(t.url || '').hostname } catch {}
+                    const active = idx === mentionIndex
+                    return (
+                      <button
+                        key={t.id}
+                        className={`w-full text-left flex items-center gap-2 px-2 py-2 rounded ${active ? 'bg-muted/30' : 'hover:bg-muted/20'}`}
+                        onMouseEnter={() => setMentionIndex(idx)}
+                        onMouseDown={(e) => { e.preventDefault(); insertMentionTab(t) }}
+                      >
+                        {t.favIconUrl ? (
+                          <img src={t.favIconUrl} alt="" className="h-4 w-4 rounded-sm" />
+                        ) : (
+                          <span className="h-4 w-4 rounded-sm bg-muted inline-block" />
+                        )}
+                        <div className="min-w-0">
+                          <div className="truncate text-sm">{t.title || '(untitled tab)'}</div>
+                          <div className="truncate text-[11px] text-muted-foreground">{host}</div>
+                        </div>
+                        <div className="ml-auto text-[10px] opacity-60">#{t.id}</div>
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : null}
+            </div>
+          </div>
+          
+          {/* Context bar below input */}
+          <div className="flex items-center justify-between mt-2 px-1">
+            <div className="flex items-center gap-2">
+              <Popover.Root open={tabPickerOpen} onOpenChange={setTabPickerOpen}>
+                <Popover.Trigger asChild>
+                  <Button variant="ghost" size="sm" className="text-sm text-muted-foreground hover:text-foreground" aria-label="Add context">
+                    <PlusIcon size={16} className="mr-1" />
+                    Add context
+                  </Button>
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <AnimatedPopoverContent
+                    side="top"
+                    align="start"
+                    sideOffset={8}
+                    className="rounded-xl border ds-border ds-bg shadow-2xl p-2 w-[86vw] sm:w-[520px] max-h-[70vh] z-50"
+                    style={{ backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
+                  >
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-sm">Add tabs</span>
+                        <span className="text-[11px] ds-muted-text">
+                          {filteredTabs.filter(t2 => !selectedTabIds.includes(t2.id) && isSupportedUrl(t2.url)).length} results
+                        </span>
+                      </div>
+                      <Input
+                        value={tabQuery}
+                        onChange={(e) => setTabQuery(e.target.value)}
+                        placeholder="Search open tabs by title or URL"
+                        className="h-8 text-sm rounded-full"
+                      />
+                      <div className="rounded-lg border ds-border overflow-hidden">
+                        <div className="overflow-y-auto" style={{ maxHeight: '48vh' }}>
+                          {filteredTabs
+                            .filter(t2 => !selectedTabIds.includes(t2.id) && isSupportedUrl(t2.url))
+                            .map(t2 => {
+                              let host = ''
+                              try { host = new URL(t2.url || '').hostname } catch {}
+                              return (
+                                <button
+                                  key={t2.id}
+                                  className="w-full text-left flex items-center gap-2 p-3 hover:bg-muted/20"
+                                  onClick={() => { toggleTab(t2.id); setTabPickerOpen(false) }}
+                                >
+                                  {t2.favIconUrl ? (
+                                    <img src={t2.favIconUrl} alt="" className="h-4 w-4 rounded-sm" />
+                                  ) : (
+                                    <span className="h-4 w-4 rounded-sm bg-muted inline-block" />
+                                  )}
+                                  <div className="min-w-0">
+                                    <div className="truncate text-sm">{t2.title || '(untitled tab)'}</div>
+                                    <div className="truncate text-xs text-muted-foreground">{host}</div>
+                                  </div>
+                                  <div className="ml-auto">
+                                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                                      <PlusIcon size={14} />
+                                    </span>
+                                  </div>
+                                </button>
+                              )
+                            })}
+                          {!filteredTabs.filter(t2 => !selectedTabIds.includes(t2.id) && isSupportedUrl(t2.url)).length ? (
+                            <div className="text-xs text-muted-foreground p-3">No tabs match your search.</div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  </AnimatedPopoverContent>
+                </Popover.Portal>
+              </Popover.Root>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="icon" className="h-8 w-8" title="Attach file">
+                <PaperclipIcon size={16} />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8" title="Voice input">
+                <MicIcon size={16} />
+              </Button>
+              {showComposerSearchButton ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={`h-8 w-8 ${searchMode ? 'bg-primary text-primary-foreground' : ''}`}
+                  onClick={() => setSearchMode(v => !v)}
+                  disabled={busy || !!streamingReqId}
+                  aria-pressed={searchMode}
+                  title={searchMode ? 'Google mode: ON' : 'Google mode: OFF'}
                 >
                   <SearchIcon size={16} />
                 </Button>
-              </div>
+              ) : null}
             </div>
           </div>
         </footer>

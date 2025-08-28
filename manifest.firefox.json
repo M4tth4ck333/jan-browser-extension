@@ -2,7 +2,13 @@
   "manifest_version": 3,
   "name": "Jan",
   "version": "0.12.14",
-  "description": "The Jan companion for your browser: chat, inline writing help, search, and page context in the side panel.",
+  "description": "The Jan companion for your browser: chat, inline writing help, search, and page context in the sidebar.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "jan-browser-extension@temp.local",
+      "strict_min_version": "109.0"
+    }
+  },
   "icons": {
     "16": "icons/app-16.png",
     "32": "icons/app-32.png",
@@ -21,18 +27,18 @@
     "activeTab",
     "tabs",
     "scripting",
-    "sidePanel",
     "clipboardWrite"
   ],
   "host_permissions": [
     "https://*/*",
     "http://*/*",
     "https://duckduckgo.com/*",
-    "https://html.duckduckgo.com/*"
+    "https://html.duckduckgo.com/*",
+    "https://www.google.com/*",
+    "https://google.com/*"
   ],
   "background": {
-    "service_worker": "src/background.js",
-    "type": "module"
+    "scripts": ["src/background.js"]
   },
   "commands": {
     "open_sidepanel": {
@@ -43,7 +49,7 @@
         "chromeos": "Ctrl+Shift+Y",
         "linux": "Ctrl+Shift+Y"
       },
-      "description": "Open Jan side panel"
+      "description": "Open Jan sidebar"
     },
     "open_custom_prompt": {
       "suggested_key": {
@@ -66,18 +72,15 @@
       "description": "Toggle Jan Autocomplete"
     }
   },
-  "side_panel": {
-    "default_path": "dist/ui/sidepanel/index.html"
+  "sidebar_action": {
+    "default_title": "Jan",
+    "default_panel": "ui/sidepanel/index.html"
   },
-  "options_page": "dist/ui/options/index.html",
+  "options_page": "ui/options/index.html",
   "content_scripts": [
     {
-      "matches": [
-        "<all_urls>"
-      ],
-      "js": [
-        "src/content.js"
-      ],
+      "matches": ["<all_urls>"],
+      "js": ["src/content.js"],
       "run_at": "document_idle",
       "all_frames": true,
       "match_about_blank": true

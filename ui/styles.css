@@ -3,6 +3,17 @@
 
 @plugin "tailwindcss-animate";
 
+/* Reset body and html margins/padding */
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+#root {
+  margin: 0;
+  padding: 0;
+}
+
 /* Theme variables using system preference */
 :root {
   color-scheme: light;
@@ -326,9 +337,10 @@
 .tab-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 7px; /* slightly shrunk */
-  font-size: 11px;  /* compact */
+  gap: 4px;
+  padding: 2px 6px; /* tighter */
+  height: 22px; /* uniform height */
+  font-size: 10px;  /* compact */
   line-height: 1;
   border: 1px solid var(--border);
   border-radius: 9999px;
@@ -352,7 +364,7 @@
   justify-content: center;
   width: 16px;
   height: 16px;
-  margin-left: 4px;
+  margin-left: 2px;
   border-radius: 9999px;
   color: var(--muted-foreground);
   background: transparent;
@@ -367,6 +379,29 @@
 .add-chip {
   cursor: pointer;
   border-style: dashed;
+}
+
+/* Favicon circle inside chip (adaptive color provided inline) */
+.chip-ic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 2px; /* show colored rim */
+  border-radius: 9999px;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.chip-ic img {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+
+/* Label truncation to keep chips tidy */
+.chip-label {
+  max-width: 110px; /* keep chips short horizontally */
 }
 
 /* Typing indicator (assistant waiting for first token) */
@@ -412,6 +447,18 @@
   /* Enable common and contextual ligatures (adjacent forms) */
   font-variant-ligatures: common-ligatures contextual;
   font-feature-settings: "liga" 1, "clig" 1, "calt" 1;
+}
+
+/* Geist font utility (uses locally installed Geist if present) */
+@font-face {
+  font-family: "Geist";
+  src: local("Geist Variable"), local("Geist");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+.font-geist {
+  font-family: "Geist", "Geist Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans";
 }
 
 /* OpenType helpers */

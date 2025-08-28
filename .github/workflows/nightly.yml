@@ -32,14 +32,17 @@ jobs:
       - name: Build extension and MCP server (Bun)
         run: bun run build:all
 
-      - name: Prepare nightly extension package
+      - name: Build Firefox extension (Bun)
+        run: bun run build:firefox
+
+      - name: Prepare nightly extension package (Chrome)
         id: pkg
         shell: bash
         run: |
           set -euo pipefail
           RUN_NUMBER="${GITHUB_RUN_NUMBER}"
           SHA_SHORT=$(git rev-parse --short HEAD)
-          PKG_NAME="jan-extension-nightly-${RUN_NUMBER}-${SHA_SHORT}.zip"
+          PKG_NAME="jan-extension-chrome-nightly-${RUN_NUMBER}-${SHA_SHORT}.zip"
           mkdir -p pack/extension
           # Copy required extension files
           cp -r dist icons src pack/extension/
@@ -53,6 +56,18 @@ jobs:
           [ -f README.md ] && cp README.md pack/extension/ || true
           (cd pack/extension && zip -r "../../${PKG_NAME}" .)
           echo "pkg_name=${PKG_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare nightly extension package (Firefox)
+        id: pkg_ff
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_NUMBER="${GITHUB_RUN_NUMBER}"
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          PKG_FF_NAME="jan-extension-firefox-nightly-${RUN_NUMBER}-${SHA_SHORT}.zip"
+          # Zip the firefox dist root as the extension package
+          (cd dist-firefox && zip -r "../${PKG_FF_NAME}" .)
+          echo "pkg_ff_name=${PKG_FF_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Package MCP search server (optional asset)
         id: mcp
@@ -77,6 +92,7 @@ jobs:
           if-no-files-found: warn
           path: |
             ${{ steps.pkg.outputs.pkg_name }}
+            ${{ steps.pkg_ff.outputs.pkg_ff_name }}
             ${{ steps.mcp.outputs.mcp_zip }}
 
       - name: Create/Update Nightly Release
@@ -86,9 +102,15 @@ jobs:
           name: Nightly Builds
           draft: false
           prerelease: true
+          body: |
+            Nightly builds for Jan Extension.
+
+            - Includes Chrome and Firefox extension packages.
+            - Firefox artifacts are built from `manifest.firefox.json` and `dist-firefox`.
+            - Zips are suffixed with run and commit for traceability.
           files: |
             ${{ steps.pkg.outputs.pkg_name }}
+            ${{ steps.pkg_ff.outputs.pkg_ff_name }}
             ${{ steps.mcp.outputs.mcp_zip }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
