@@ -1,4 +1,4 @@
-  import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Streamdown } from 'streamdown'
 import remarkGfm from 'remark-gfm'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
@@ -12,8 +12,36 @@ import * as Popover from '@radix-ui/react-popover'
 import { User as UserIcon, ArrowUp, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Settings as SettingsIcon, Trash2 as TrashIcon, Paperclip as PaperclipIcon, Mic as MicIcon, Search as SearchIcon, Menu, SlidersHorizontal } from 'lucide-react'
 import { Input } from '../components/ui/input.jsx'
 import { Checkbox } from '../components/ui/checkbox.tsx'
- import { animate } from 'motion'
+import { animate } from 'motion'
 import handSvg from '../assets/jan-hand.svg'
+
+// Helpers at module scope
+const hostFromUrl = (url = '') => { try { return new URL(url).hostname || '' } catch { return '' } }
+
+// Animated hamburger menu trigger for opening the sidebar
+function MenuTrigger({ onOpen }) {
+  const btnRef = useRef(null)
+  const handlePointerDown = useCallback(() => {
+    // Open immediately on press
+    onOpen?.()
+    // Fire-and-forget micro animation for tap feedback
+    const el = btnRef.current
+    try {
+      animate(
+        el,
+        { scale: [1, 1.08, 1], y: [0, -1, 0] },
+        { duration: 0.14, easing: 'ease-out' }
+      )
+    } catch (_) {}
+  }, [onOpen])
+  return (
+    <Button ref={btnRef} variant="ghost" size="icon" onPointerDown={handlePointerDown} aria-label="Open sidebar">
+      <Menu size={18} />
+    </Button>
+  )
+}
+const hueFromString = (s = '') => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h % 360 }
+const chipColorForTab = (tab) => { const host = hostFromUrl(tab?.url || ''); const h = hueFromString(host); return `hsl(${h}, 70%, 88%)` }
 
 // Animated wrapper for Radix Popover.Content (fade + slight scale/slide on mount)
 function AnimatedPopoverContent({ children, ...props }) {
@@ -30,6 +58,43 @@ function AnimatedPopoverContent({ children, ...props }) {
     } catch (_) { /* no-op */ }
   }, [])
   return <Popover.Content ref={popRef} {...props}>{children}</Popover.Content>
+}
+
+// Single tab chip with left-side remove and enter/exit animations
+function Chip({ tab, onRemove }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    let a
+    try { a = animate(el, { opacity: [0, 1], y: [4, 0], scale: [0.98, 1] }, { duration: 0.18, easing: 'ease-out' }) } catch (_) {}
+    return () => { try { a?.cancel?.() } catch (_) {} }
+  }, [])
+  const handleRemove = async (e) => {
+    e?.stopPropagation?.()
+    const el = ref.current
+    try {
+      await animate(el, { opacity: [1, 0], y: [0, 2], scale: [1, 0.96] }, { duration: 0.16, easing: 'ease-in' })
+    } catch (_) {}
+    onRemove?.()
+  }
+  const host = hostFromUrl(tab?.url || '')
+  const bg = chipColorForTab(tab)
+  return (
+    <div ref={ref} className="tab-chip" title={`${tab.title}\n${host}`}>
+      <button type="button" className="chip-x ml-0 mr-1" onClick={handleRemove} aria-label="Remove tab">
+        <XIcon size={12} />
+      </button>
+      <span className="chip-ic" style={{ backgroundColor: bg }}>
+        {tab.favIconUrl ? (
+          <img src={tab.favIconUrl} alt="" className="h-3 w-3" />
+        ) : (
+          <span className="h-3 w-3 rounded-full bg-muted inline-block" />
+        )}
+      </span>
+      <span className="truncate chip-label">{tab.title || '(untitled tab)'}</span>
+    </div>
+  )
 }
 
 // Hero headline that floats in on first load
@@ -1501,11 +1566,35 @@ export default function App() {
   // Whether the current session has any user messages (used for layout tweaks)
   const hasUserMessage = messages.some(m => m.role === 'user')
 
+  // Animate only main content shift; rely on CSS width transition for the sidebar for smoothness
+  const asideRef = useRef(null)
+  const mainRef = useRef(null)
+  useEffect(() => {
+    if (sidebarOpen && mainRef.current) {
+      try {
+        animate(mainRef.current, { x: [8, 0] }, { duration: 0.18, easing: 'ease-out' })
+      } catch (_) {}
+    }
+  }, [sidebarOpen])
+
   return (
-    <div className="h-screen ds-bg ds-text grid" style={{ gridTemplateColumns: sidebarOpen ? '220px 1fr' : '1fr' }}>
+    <div
+      className="h-screen ds-bg ds-text grid"
+      style={{
+        gridTemplateColumns: 'auto 1fr'
+      }}
+    >
       {/* Sidebar */}
-      {sidebarOpen && (
-        <aside className="border-r ds-border flex flex-col overflow-hidden">
+      <aside
+        ref={asideRef}
+        className="border-r ds-border flex flex-col overflow-hidden"
+        aria-hidden={!sidebarOpen}
+        style={{
+          width: sidebarOpen ? 220 : 0,
+          transition: 'width 220ms cubic-bezier(0.16, 1, 0.3, 1)',
+          willChange: 'width'
+        }}
+      >
           <div className="p-2 flex items-center justify-between ds-card border-b ds-border pastel-grad">
             <div className="flex items-center gap-2"><span className="font-semibold">Chats</span></div>
             <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(false)} aria-label="Collapse sidebar">←</Button>
@@ -1546,20 +1635,17 @@ export default function App() {
               <span className="ds-muted-text" title="Auto-follow is always on for fresh context">Following active tab</span>
             </div>
           </div>
-        </aside>
-      )}
+      </aside>
 
       {/* Main column */}
-      <div className="flex flex-col min-w-0 relative">
+      <div ref={mainRef} className="flex flex-col min-w-0 relative" style={{ willChange: 'transform' }}>
         {(busy && !streamingReqId && showReadingOverlay) ? (
           <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px] pointer-events-none z-10" />
         ) : null}
         <header className="sticky top-0 z-10 grid grid-cols-3 items-center px-2 py-1.5 bg-transparent">
           <div className="flex items-center gap-2 min-w-0">
             {!sidebarOpen && (
-              <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar">
-                <Menu size={18} />
-              </Button>
+              <MenuTrigger onOpen={() => setSidebarOpen(true)} />
             )}
           </div>
           <div className="flex items-center justify-center">
@@ -1663,23 +1749,9 @@ export default function App() {
             {/* Tab chips area above input */}
             {selectedTabs.length > 0 && (
               <div className="flex items-center gap-1 mb-2 px-1 overflow-x-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-                {selectedTabs.map(tab => {
-                  let host = ''
-                  try { host = new URL(tab.url || '').hostname } catch {}
-                  return (
-                    <div key={tab.id} className="tab-chip" title={`${tab.title}\n${host}`}>
-                      {tab.favIconUrl ? (
-                        <img src={tab.favIconUrl} alt="" className="h-3 w-3 rounded-sm" />
-                      ) : (
-                        <span className="h-3 w-3 rounded-sm bg-muted inline-block" />
-                      )}
-                      <span className="truncate">{tab.title || '(untitled tab)'}</span>
-                      <button type="button" className="chip-remove" onClick={() => toggleTab(tab.id)} aria-label="Remove tab">
-                        <XIcon size={12} />
-                      </button>
-                    </div>
-                  )
-                })}
+                {selectedTabs.map(tab => (
+                  <Chip key={tab.id} tab={tab} onRemove={() => toggleTab(tab.id)} />
+                ))}
               </div>
             )}
           </div>
@@ -1794,7 +1866,7 @@ export default function App() {
                                 <button
                                   key={t2.id}
                                   className="w-full text-left flex items-center gap-2 p-3 hover:bg-muted/20"
-                                  onClick={() => { toggleTab(t2.id) }}
+                                  onClick={() => { toggleTab(t2.id); setTabPickerOpen(false) }}
                                 >
                                   {t2.favIconUrl ? (
                                     <img src={t2.favIconUrl} alt="" className="h-4 w-4 rounded-sm" />
