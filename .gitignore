@@ -24,3 +24,4 @@ log.txt
 logs/
 \n+# Local packaging artifacts
 pack/
+dist-firefox/
