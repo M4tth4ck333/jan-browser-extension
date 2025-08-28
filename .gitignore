@@ -25,3 +25,6 @@ logs/
 \n+# Local packaging artifacts
 pack/
 dist-firefox/
+
+# Ignore the Firefox build output
+*/dist-firefox
