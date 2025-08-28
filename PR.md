@@ -1,49 +1,73 @@
-# Jan Extension — Options Models Refresh Fix
+Title: Firefox support + Nightly/Release artifacts + bump to 0.12.14
 
-## Summary
-Fixes a bug where the Options page required a hard refresh before the model list updated after changing provider/API settings.
+Summary
+- Add official Firefox build and attach Firefox zips in Nightly and tagged Releases.
+- Keep Chrome build unchanged, but publish separate artifacts for clarity.
+- Bump versions to 0.12.14 across root package and both manifests.
 
-## Root Cause
-`LIST_MODELS` in the background read from `chrome.storage.sync` only, while the Options UI had unsaved local state. The UI would fetch models before saving, and the background saw stale values, leading to "Missing API Base URL" or empty results until a reload.
+What’s included
+- CI: Add Firefox to Nightly and Release workflows
+  - Nightly: builds Firefox and uploads `jan-extension-firefox-nightly-<run>-<sha>.zip`.
+  - Release: builds Firefox and uploads `jan-extension-firefox-<tag>.zip`.
+  - Chrome artifacts are now explicitly `jan-extension-chrome-*.zip` to avoid confusion.
+- Version bumps
+  - package.json → 0.12.14
+  - manifest.json → 0.12.14
+  - manifest.firefox.json → 0.12.14
+- Local packaging
+  - `scripts/package-local.sh` now builds Firefox and produces a Firefox zip alongside Chrome.
+- Docs
+  - `RELEASE.md` updated to reflect Chrome/Firefox artifact names and Nightly behavior.
 
-## Files Changed
-```
-src/background.js
-ui/options/App.jsx
-```
+Rationale
+- Provide first-class Firefox support: a reproducible build and downloadable artifact.
+- Clear artifact naming (`-chrome-` / `-firefox-`) removes ambiguity for users and CI consumers.
 
-## Changes Overview
-- **Background (`src/background.js`)**: `LIST_MODELS` now accepts overrides in `message.payload` (`apiBase`, `apiKey`, `useApiKey`). Falls back to `getSettings()` only when overrides are not provided.
-- **Options UI (`ui/options/App.jsx`)**: Model fetch effect now sends overrides to `LIST_MODELS` with current config values, adds guards to avoid errors while editing, and immediately refetches models after Save.
+Files changed
+- .github/workflows/nightly.yml
+- .github/workflows/release.yml
+- scripts/package-local.sh
+- package.json
+- manifest.json
+- manifest.firefox.json
+- RELEASE.md
 
-## Type of Change
-- [x] Bug fix (non-breaking change which fixes an issue)
-- [ ] Hotfix (critical fix requiring immediate deployment)
-- [ ] New feature
-- [ ] Breaking change
-- [x] Code refactoring
-- [ ] TypeScript migration
+How to test locally
+1) Firefox build
+   - `bun run build:firefox` (or `npm run build:firefox`)
+   - Verify `dist-firefox/` contains: `manifest.json`, `icons/`, `src/`, `ui/`, `assets/`.
+2) Load in Firefox (temporary add-on)
+   - Open `about:debugging#/runtime/this-firefox` → Load Temporary Add-on… → select any file in `dist-firefox/`.
+   - Sanity checks:
+     - Sidebar opens and renders side panel UI.
+     - Inline Assistant shows on text selection and can Apply/Copy.
+     - Commands/shortcuts respond (e.g., open panel, custom prompt, toggle autocomplete).
+     - Page summarization works and streams output.
+3) Chrome sanity (unchanged flow)
+   - `bun run build` then load `dist/` via `chrome://extensions` → Load unpacked.
+4) Local packaging
+   - `TAG=test-local bash scripts/package-local.sh`
+   - Inspect `pack/jan-extension-chrome-test-local.zip` and `pack/jan-extension-firefox-test-local.zip` contents.
 
-## Testing Checklist
-- [ ] Changes tested locally
-- [ ] Model list updates immediately after changing settings without hard refresh
-- [ ] No error messages flash while typing in Options
-- [ ] Save functionality works correctly
-- [ ] Refresh button works as expected
-- [ ] Extension reload not required
+CI/Release behavior
+- Nightly (push to main):
+  - Uploads: Chrome and Firefox nightly zips, plus MCP zip if present.
+- Tagged release (push tag):
+  - Uploads: `jan-extension-chrome-<tag>.zip`, `jan-extension-firefox-<tag>.zip`, and `search-mcp-server-<tag>-dist.zip` (if present).
 
-## Deployment Notes
-Standard deployment process; extension reload required for users to see the fix.
+Release notes (proposed)
+- Firefox support: Official Firefox build and downloadable artifact on Releases and Nightlies.
+- Chrome + Firefox artifacts: Explicit platform suffixes for clarity.
+- Version: 0.12.14.
 
-## Additional Context 
-This fix addresses a UX issue in the Jan extension Options page where users had to reload the extension to see updated model lists after changing API settings. The changes are backward-compatible and only affect the Options page model fetching behavior.
+Compatibility / migration
+- No changes to runtime behavior for Chrome users.
+- Artifact names changed; any downstream automation that expected `jan-extension-<tag>.zip` should update to `jan-extension-chrome-<tag>.zip`.
 
-## Reviewer Focus Areas
-- [ ] Background message handling changes
-- [ ] Options UI state management
-- [ ] Error handling improvements
-- [ ] Backward compatibility
+Checklist
+- [ ] Firefox: sidebar opens and renders side panel UI
+- [ ] Firefox: Inline Assistant operates on selected text
+- [ ] Firefox: Page summarization streams and completes
+- [ ] Chrome: basic sanity unchanged
+- [ ] Release artifact names validated in CI logs
 
----
-
-**Ready for review and deployment** 🚀

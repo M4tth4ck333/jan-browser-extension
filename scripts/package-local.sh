@@ -26,6 +26,8 @@ if command -v bun >/dev/null 2>&1; then
   fi
   echo "[local-release] Building all targets with Bun"
   bun run build:all
+  echo "[local-release] Building Firefox extension"
+  bun run build:firefox
 else
   echo "[local-release] Bun not found; falling back to npm"
   echo "[local-release] Installing root deps..."
@@ -42,6 +44,8 @@ else
   fi
   echo "[local-release] Building all targets..."
   npm run build:all
+  echo "[local-release] Building Firefox extension"
+  npm run build:firefox
 fi
 
 echo "[local-release] Packaging extension..."
@@ -51,7 +55,14 @@ cp -r manifest.json dist icons src pack/extension/
 [[ -f LICENSE ]] && cp LICENSE pack/extension/ || true
 [[ -f README.md ]] && cp README.md pack/extension/ || true
 
-(cd pack/extension && zip -r "../jan-extension-${TAG}.zip" . >/dev/null)
+(cd pack/extension && zip -r "../jan-extension-chrome-${TAG}.zip" . >/dev/null)
+
+echo "[local-release] Packaging Firefox extension..."
+if [[ -d dist-firefox ]]; then
+  (cd dist-firefox && zip -r "../pack/jan-extension-firefox-${TAG}.zip" . >/dev/null)
+else
+  echo "[local-release] dist-firefox not found; skipping Firefox zip."
+fi
 
 echo "[local-release] Packaging MCP server (if present)..."
 if [[ -d mcp/search-server/dist ]]; then
