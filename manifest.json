@@ -72,8 +72,12 @@
   "options_page": "dist/ui/options/index.html",
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["src/content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "src/content.js"
+      ],
       "run_at": "document_idle",
       "all_frames": true,
       "match_about_blank": true
