@@ -45,6 +45,7 @@ chrome.runtime.onConnect.addListener((port) => {
   // Allow the side panel to register/update its tabId explicitly
   try {
     port.onMessage.addListener((msg) => {
+      // [JAN-BEHAVIOR:PORT-REGISTER] side panel port registration and routing map
       if (msg && msg.type === 'REGISTER_PORT' && msg.tabId) {
         sidepanelPorts.set(msg.tabId, port);
         try { console.log('[BG] REGISTER_PORT', { tabId: msg.tabId }); } catch (_) {}
@@ -204,6 +205,7 @@ async function chatCompletionsStream({ apiBase, apiKey, useApiKey, model, temper
   // Register the controller so UI can cancel
   try { streamingControllers.set(reqId, controller) } catch (_) {}
   const post = (msg) => {
+    // [JAN-BEHAVIOR:STREAM-EMIT] route stream events to side panel port(s)
     // Prefer tab-specific port, fall back to global, else broadcast to all
     const specific = sidepanelPorts.get(tabId);
     const global = sidepanelPorts.get(GLOBAL_KEY);
@@ -367,6 +369,7 @@ chrome.runtime.onStartup.addListener(async () => {
 
 // On action click, just ensure the correct panel path/options for the current tab.
 // Do NOT call sidePanel.open() here; Chrome will open it automatically due to setPanelBehavior.
+// [JAN-BEHAVIOR:SIDEPANEL-OPEN] ensure the side panel opens on a supported tab
 chrome.action.onClicked.addListener(async (tab) => {
   try {
     if (!tab) return;
@@ -706,6 +709,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'CHAT_COMPLETION_STREAM_STOP') {
     (async () => {
       try {
+        // [JAN-BEHAVIOR:STREAM-STOP] UI cancel routed to controller via reqId
         const { reqId } = message.payload || {};
         const ctl = reqId ? streamingControllers.get(reqId) : null;
         if (ctl) {
@@ -795,8 +799,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   // Forward selection updates to the side panel associated with the sender's tab
-  if (message?.type === 'SELECTION_UPDATED') {
+      if (message?.type === 'SELECTION_UPDATED') {
     try {
+      // [JAN-BEHAVIOR:SELECTION-FWD-BG] forward page selection to side panel port
       const tabId = sender?.tab?.id || null;
       const payload = message?.payload || {};
       const selection = String(payload?.selection || '');
@@ -1287,6 +1292,7 @@ async function getSettings() {
   return merged;
 }
 
+// [JAN-BEHAVIOR:INLINE-ASSIST-BUILD] construct system+user messages for inline assist
 function buildInlineAssistMessages({ mode, text, lang }) {
   const m = String(mode || 'rewrite');
   // Target language only used for translate; otherwise keep input language

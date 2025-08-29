@@ -71,6 +71,16 @@ html, body {
   --status-disconnected: #16a34a; /* green-600 */
 }
 
+/* Theme modifiers */
+.theme-blue {
+  --primary: #2563eb; /* blue-600 */
+  --ring: #93c5fd;    /* blue-300 */
+}
+.theme-yellow {
+  --primary: var(--brand-amber);
+  --ring: #FDE68A;    /* amber-200-ish */
+}
+
 /* No prefers-color-scheme overrides; extension is light-only */
 
 /* Tailwind v4 theme tokens mapped to our design system variables */

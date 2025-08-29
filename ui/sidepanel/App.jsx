@@ -9,7 +9,7 @@ import { Button } from '../components/ui/button.jsx'
 import { Textarea } from '../components/ui/textarea.jsx'
 import * as ScrollArea from '@radix-ui/react-scroll-area'
 import * as Popover from '@radix-ui/react-popover'
-import { User as UserIcon, ArrowUp, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Settings as SettingsIcon, Trash2 as TrashIcon, Paperclip as PaperclipIcon, Mic as MicIcon, Search as SearchIcon, Menu, SlidersHorizontal } from 'lucide-react'
+import { User as UserIcon, ArrowUp, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Settings as SettingsIcon, Trash2 as TrashIcon, Paperclip as PaperclipIcon, Mic as MicIcon, Search as SearchIcon, Menu, SlidersHorizontal, Palette as PaletteIcon } from 'lucide-react'
 import { Input } from '../components/ui/input.jsx'
 import { Checkbox } from '../components/ui/checkbox.tsx'
 import { animate } from 'motion'
@@ -46,14 +46,16 @@ const chipColorForTab = (tab) => { const host = hostFromUrl(tab?.url || ''); con
 // Animated wrapper for Radix Popover.Content (fade + slight scale/slide on mount)
 function AnimatedPopoverContent({ children, ...props }) {
   const popRef = useRef(null)
+  // [JAN-BEHAVIOR:PORT-REGISTER-UI] connect long-lived port and register active tab
+  // [JAN-BEHAVIOR:ACTIVATION-HANDLER] re-register port, refresh context, and switch session on tab activation
   useEffect(() => {
     const el = popRef.current
     if (!el) return
     try {
       animate(
         el,
-        { opacity: [0, 1], y: [4, 0], scale: [0.98, 1] },
-        { duration: 0.18, easing: 'ease-out' }
+        { opacity: [0, 1], y: [8, 0], scale: [0.95, 1] },
+        { duration: 0.25, easing: [0.25, 0.46, 0.45, 0.94] } // ease-out cubic-bezier
       )
     } catch (_) { /* no-op */ }
   }, [])
@@ -63,6 +65,7 @@ function AnimatedPopoverContent({ children, ...props }) {
 // Single tab chip with left-side remove and enter/exit animations
 function Chip({ tab, onRemove }) {
   const ref = useRef(null)
+  // [JAN-BEHAVIOR:AUTO-FOLLOW] on mount, mirror selection to current active tab
   useEffect(() => {
     const el = ref.current
     if (!el) return
@@ -495,6 +498,45 @@ export default function App() {
   const [showComposerSearchButton, setShowComposerSearchButton] = useState(true)
   const [searchMode, setSearchMode] = useState(false)
 
+  // Theme state (yellow | blue), persisted to chrome.storage.sync and mirrored to <html> for Radix portals
+  const [theme, setTheme] = useState('yellow')
+  useEffect(() => {
+    let mounted = true
+    const load = async () => {
+      try {
+        const { uiTheme } = await chrome.storage.sync.get(['uiTheme'])
+        const t = (uiTheme === 'blue' || uiTheme === 'yellow') ? uiTheme : 'yellow'
+        if (mounted) setTheme(t)
+      } catch (_) {}
+    }
+    load()
+    const onChanged = (changes, area) => {
+      try {
+        if (area === 'sync' && changes.uiTheme) {
+          const t = (changes.uiTheme.newValue === 'blue' || changes.uiTheme.newValue === 'yellow') ? changes.uiTheme.newValue : 'yellow'
+          setTheme(t)
+        }
+      } catch (_) {}
+    }
+    try { chrome.storage.onChanged.addListener(onChanged) } catch (_) {}
+    return () => {
+      mounted = false
+      try { chrome.storage.onChanged.removeListener(onChanged) } catch (_) {}
+    }
+  }, [])
+  useEffect(() => {
+    try { chrome.storage.sync.set({ uiTheme: theme }) } catch (_) {}
+    // Mirror theme class to <html> so Radix Portals inherit theme variables
+    try {
+      const doc = document?.documentElement
+      if (doc) {
+        doc.classList.remove('theme-blue', 'theme-yellow')
+        doc.classList.add(theme === 'blue' ? 'theme-blue' : 'theme-yellow')
+      }
+    } catch (_) {}
+  }, [theme])
+  const toggleTheme = useCallback(() => setTheme(t => t === 'blue' ? 'yellow' : 'blue'), [])
+
   const copyToClipboard = async (text) => {
     try { await navigator.clipboard.writeText(text) } catch (_) {}
   }
@@ -758,6 +800,7 @@ export default function App() {
     }
   }
 
+  // [JAN-BEHAVIOR:RESTRICTED-URL] block non-scriptable pages
   const isRestrictedUrl = (url = '') => {
     if (!url) return true
     // Chrome/Edge special pages and Chrome Web Store are not scriptable
@@ -769,6 +812,7 @@ export default function App() {
     return false
   }
 
+  // [JAN-BEHAVIOR:CONTEXT-READ] read active tab page data into context cache
   const readPage = useCallback(async () => {
     try {
       const tab = await getActiveTab()
@@ -802,6 +846,7 @@ export default function App() {
   }, [])
 
   // Sessions persistence
+  // [JAN-BEHAVIOR:SESSION-PERSIST] initialize sessions and load from storage
   const loadSessions = useCallback(async () => {
     const { sessions = [], activeSessionId = '' } = await chrome.storage.local.get(['sessions', 'activeSessionId'])
     if (sessions.length === 0) {
@@ -831,6 +876,7 @@ export default function App() {
     }
   }, [])
 
+  // [JAN-BEHAVIOR:SESSION-PERSIST] save sessions and active id
   const saveSessions = useCallback(async (nextSessions, nextActiveId) => {
     setSessions(nextSessions)
     if (nextActiveId) setActiveSessionId(nextActiveId)
@@ -1103,6 +1149,7 @@ export default function App() {
   }
 
   // Scrape content for a set of selected tab IDs (fresh reads)
+  // [JAN-BEHAVIOR:CONTEXT-SCRAPE] scrape selected tabs for fresh page data
   const scrapeSelectedTabs = useCallback(async (ids) => {
     const results = []
     const unique = Array.from(new Set(ids || []))
@@ -1158,6 +1205,7 @@ export default function App() {
     }
   }, [getActiveTab, isSupportedUrl, isRestrictedUrl, waitForTabComplete, sendToTabWithRetry, buildContextMessages])
 
+  // [JAN-BEHAVIOR:RESCRAPE] manual refresh of selected tabs' context
   const rescrapeSelected = useCallback(async () => {
     const ids = selectedTabIds && selectedTabIds.length ? selectedTabIds : []
     if (!ids.length) return
@@ -1169,6 +1217,7 @@ export default function App() {
     }
   }, [selectedTabIds, scrapeSelectedTabs, contextCache])
 
+  // [JAN-BEHAVIOR:SEND-CHAT] compose messages + context and start streaming
   const sendChat = useCallback(async () => {
     const text = input.trim()
     if (!text) return
@@ -1272,6 +1321,7 @@ export default function App() {
     }
   }, [input, sessions, activeSessionId, useContextThisMsg, useContextDefault, contextCache, selectedTabIds, autoFollowActiveTab, saveSessions, scrapeSelectedTabs])
 
+  // [JAN-BEHAVIOR:ASK-GOOGLE] run search+scrape, merge with context, stream
   const askWithGoogle = useCallback(async () => {
     const text = input.trim()
     if (!text) return
@@ -1579,7 +1629,7 @@ export default function App() {
 
   return (
     <div
-      className="h-screen ds-bg ds-text grid"
+      className={`h-screen ds-bg ds-text grid ${theme === 'blue' ? 'theme-blue' : 'theme-yellow'}`}
       style={{
         gridTemplateColumns: 'auto 1fr'
       }}
@@ -1597,13 +1647,24 @@ export default function App() {
       >
           <div className="p-2 flex items-center justify-between ds-card border-b ds-border pastel-grad">
             <div className="flex items-center gap-2"><span className="font-semibold">Chats</span></div>
-            <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(false)} aria-label="Collapse sidebar">←</Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleTheme}
+                aria-label="Toggle theme"
+                title={`Switch to ${theme === 'blue' ? 'Yellow' : 'Blue'} theme`}
+              >
+                <PaletteIcon size={16} />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(false)} aria-label="Collapse sidebar">←</Button>
+            </div>
           </div>
           <div className="p-2"><Button variant="secondary" className="w-full" onClick={newChat}>New Chat</Button></div>
           <div className="px-2 text-xs ds-muted-text">Chats</div>
           <div className="flex-1 overflow-auto px-2 space-y-1 py-2">
             {sessions.map(s => (
-              <div key={s.id} className={`w-full rounded-md px-2 py-2 border ${s.id === activeSessionId ? 'border-blue-500' : ''}`} style={{ borderColor: s.id === activeSessionId ? '#3b82f6' : 'var(--border)', background: 'var(--card)' }}>
+              <div key={s.id} className={`w-full rounded-md px-2 py-2 border`} style={{ borderColor: s.id === activeSessionId ? 'var(--primary)' : 'var(--border)', background: 'var(--card)' }}>
                 <div className="flex items-center gap-2">
                   <button onClick={() => switchSession(s.id)} className="flex-1 text-left min-w-0">
                     <div className="text-sm truncate">{s.title || 'Untitled'}</div>
@@ -1839,57 +1900,92 @@ export default function App() {
                     side="top"
                     align="start"
                     sideOffset={8}
-                    className="rounded-xl border ds-border ds-bg shadow-2xl p-2 w-[86vw] sm:w-[520px] max-h-[70vh] z-50"
+                    className="rounded-xl border ds-border ds-bg shadow-2xl w-[86vw] sm:w-[420px] max-h-[60vh] z-50 overflow-hidden"
                     style={{ backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
                   >
-                    <div className="flex flex-col gap-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-sm">Add tabs</span>
-                        <span className="text-[11px] ds-muted-text">
-                          {filteredTabs.filter(t2 => !selectedTabIds.includes(t2.id) && isSupportedUrl(t2.url)).length} results
-                        </span>
+                    {/* Header with avatar and greeting */}
+                    <div className="flex flex-col items-center pt-4 pb-3 px-4 border-b ds-border">
+                      <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center mb-2">
+                        <Bot size={20} className="text-primary-foreground" />
                       </div>
-                      <Input
-                        value={tabQuery}
-                        onChange={(e) => setTabQuery(e.target.value)}
-                        placeholder="Search open tabs by title or URL"
-                        className="h-8 text-sm rounded-full"
-                      />
-                      <div className="rounded-lg border ds-border overflow-hidden">
-                        <div className="overflow-y-auto" style={{ maxHeight: '48vh' }}>
-                          {filteredTabs
-                            .filter(t2 => !selectedTabIds.includes(t2.id) && isSupportedUrl(t2.url))
-                            .map(t2 => {
-                              let host = ''
-                              try { host = new URL(t2.url || '').hostname } catch {}
-                              return (
-                                <button
-                                  key={t2.id}
-                                  className="w-full text-left flex items-center gap-2 p-3 hover:bg-muted/20"
-                                  onClick={() => { toggleTab(t2.id); setTabPickerOpen(false) }}
-                                >
+                      <h2 className="text-base font-medium ds-text">Hello!</h2>
+                    </div>
+
+                    {/* Tab navigation - default to Tabs; removed "+ Add context" */}
+                    <div className="flex border-b ds-border">
+                      <button className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium border-b-2 text-primary" style={{ borderColor: 'var(--primary)' }} aria-current="page">
+                        <span className="w-3 h-3 rounded-sm bg-primary" />
+                        Tabs
+                      </button>
+                      <button className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm text-muted-foreground hover:text-foreground">
+                        <PaperclipIcon size={14} />
+                        Attach file
+                      </button>
+                    </div>
+
+                    {/* Search input */}
+                    <div className="p-3 border-b ds-border">
+                      <div className="relative">
+                        <SearchIcon size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          value={tabQuery}
+                          onChange={(e) => setTabQuery(e.target.value)}
+                          placeholder="Search using title or url"
+                          className="pl-9 h-8 text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Tab list - Fixed scrolling */}
+                    <div className="flex-1 min-h-0">
+                      <div className="h-full overflow-y-auto" style={{ maxHeight: '28vh' }}>
+                        {filteredTabs
+                          .filter(t2 => !selectedTabIds.includes(t2.id) && isSupportedUrl(t2.url))
+                          .map(t2 => {
+                            let host = ''
+                            try { host = new URL(t2.url || '').hostname } catch {}
+                            return (
+                              <button
+                                key={t2.id}
+                                className="w-full text-left flex items-center gap-3 p-3 hover:bg-muted/20 transition-colors group"
+                                onClick={() => { toggleTab(t2.id); setTabPickerOpen(false) }}
+                              >
+                                <div className="flex-shrink-0">
                                   {t2.favIconUrl ? (
-                                    <img src={t2.favIconUrl} alt="" className="h-4 w-4 rounded-sm" />
+                                    <img src={t2.favIconUrl} alt="" className="h-5 w-5 rounded-sm" />
                                   ) : (
-                                    <span className="h-4 w-4 rounded-sm bg-muted inline-block" />
+                                    <span className="h-5 w-5 rounded-sm bg-muted inline-block" />
                                   )}
-                                  <div className="min-w-0">
-                                    <div className="truncate text-sm">{t2.title || '(untitled tab)'}</div>
-                                    <div className="truncate text-xs text-muted-foreground">{host}</div>
-                                  </div>
-                                  <div className="ml-auto">
-                                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                                      <PlusIcon size={14} />
-                                    </span>
-                                  </div>
-                                </button>
-                              )
-                            })}
-                          {!filteredTabs.filter(t2 => !selectedTabIds.includes(t2.id) && isSupportedUrl(t2.url)).length ? (
-                            <div className="text-xs text-muted-foreground p-3">No tabs match your search.</div>
-                          ) : null}
-                        </div>
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="truncate text-sm font-medium ds-text group-hover:text-primary transition-colors">{t2.title || '(untitled tab)'}</div>
+                                  <div className="truncate text-xs text-muted-foreground">{host}</div>
+                                </div>
+                              </button>
+                            )
+                          })}
+                        {!filteredTabs.filter(t2 => !selectedTabIds.includes(t2.id) && isSupportedUrl(t2.url)).length ? (
+                          <div className="text-sm text-muted-foreground p-3 text-center">No tabs match your search.</div>
+                        ) : null}
                       </div>
+                    </div>
+
+                    {/* Footer with action buttons */}
+                    <div className="flex items-center justify-between p-3 border-t ds-border ds-muted-bg">
+                      <Button 
+                        variant="default" 
+                        size="sm"
+                        onClick={() => setTabPickerOpen(false)}
+                      >
+                        Save
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => setTabPickerOpen(false)}
+                      >
+                        Cancel
+                      </Button>
                     </div>
                   </AnimatedPopoverContent>
                 </Popover.Portal>
