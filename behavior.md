@@ -101,6 +101,16 @@ Controls & Reset
   - Fixed-position animated slide-in panel (320px width) with click-outside-to-close behavior.
   - In code: `ui/sidepanel/App.jsx` overlay scrim and fixed positioning with z-index layering.
   - Search: `sidebarOpen`, `setSidebarOpen`, `fixed inset-0 z-40`.
+- Sticky footer positioning:
+  - Input composer uses sticky positioning to remain at bottom while content scrolls above.
+  - Prevents text overlap with input area that was occurring with absolute positioning.
+  - In code: `ui/sidepanel/App.jsx` footer with `sticky bottom-0` classes.
+  - Search: `sticky bottom-0`, `composer shadow-lg`.
+- Enhanced error messaging:
+  - Error messages now use consistent design system styling with emoji and markdown formatting.
+  - Format: `🚨 **Error**: [message]` for better visual hierarchy and user recognition.
+  - In code: `ui/sidepanel/App.jsx` error handling in stream and chat functions.
+  - Search: `🚨 **Error**:`, `CHAT_STREAM_ERROR`.
 - Rescrape selected tabs:
   - Button wired to `rescrapeSelected()`.
   - In code: `ui/sidepanel/App.jsx` lines ~1624–1635 (button) and ~1162–1172 (handler).

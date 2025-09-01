@@ -15,6 +15,8 @@ Scenarios To Be Mindful Of
 - Research flows (multi-tab): When users add tabs, keep Auto-follow OFF and persist `selectedTabIds` per session until they remove them or re-enable Auto-follow.
 - @mention tab selection: Users expect LIFO ordering (most recent tabs first) when typing @mention to quickly find relevant tabs. Keep mention text in input after selection to allow multiple @mentions in one message.
 - Hamburger menu navigation: Full-screen overlay should feel prominent but not jarring. Click outside to close, ESC key support, and smooth animations maintain user flow.
+- Sticky footer UX: Input composer should remain accessible at bottom while allowing content to scroll naturally above it. Absolute positioning can cause text overlap issues, requiring sticky positioning for proper layering.
+- Error message clarity: Users need immediate visual recognition of errors. Consistent formatting with emoji indicators (🚨) and markdown styling helps distinguish errors from regular content and improves scannability.
 - Summarize this page vs multi-page: Default to single-tab for summarize; for compare/research prompts that include "compare"/"across these", suggest adding more tabs.
 - Restricted pages: If the active page is restricted (Chrome Web Store, chrome://, file://), show a non-blocking banner with a one-click "Open in supported tab" action.
 - Long pages and short selections: If selection < N chars but page is very long, consider summarizing selection first and offering an inline "Expand to whole page" option in the result.
