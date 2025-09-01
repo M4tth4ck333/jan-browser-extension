@@ -465,6 +465,7 @@ export default function App() {
   const [mentionQuery, setMentionQuery] = useState('')
   const [mentionIndex, setMentionIndex] = useState(0)
   const [mentionStart, setMentionStart] = useState(-1)
+  const [mentionResults, setMentionResults] = useState([])
   const inputRef = useRef(null)
 
   // Page/context state
@@ -556,9 +557,22 @@ export default function App() {
   // Derived active session (must be before effects that depend on `messages`)
   const activeSession = useMemo(() => sessions.find(s => s.id === activeSessionId) || null, [sessions, activeSessionId])
   const filteredTabs = useMemo(() => {
+    // LIFO: Unpinned first, then most recently accessed, fallback to rightmost (higher index)
+    const ordered = [...tabs].sort((a, b) => {
+      const ap = !!a.pinned, bp = !!b.pinned
+      if (ap !== bp) return ap ? 1 : -1
+      const la = Number(a.lastAccessed || 0), lb = Number(b.lastAccessed || 0)
+      if (la && lb && la !== lb) return lb - la
+      const ai = Number(a.index ?? 0), bi = Number(b.index ?? 0)
+      return bi - ai
+    })
     const q = tabQuery.trim().toLowerCase()
-    if (!q) return tabs
-    return tabs.filter(t => (t.title || '').toLowerCase().includes(q) || String(t.id).includes(q))
+    if (!q) return ordered
+    return ordered.filter(t => {
+      const title = (t.title || '').toLowerCase()
+      const url = (t.url || '').toLowerCase()
+      return title.includes(q) || url.includes(q) || String(t.id).includes(q)
+    })
   }, [tabs, tabQuery])
   const messages = activeSession?.messages || []
   // Selected tabs materialized for chips UI
@@ -1461,7 +1475,7 @@ export default function App() {
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault()
         const item = mentionResults[mentionIndex]
-        if (item) insertMentionTab(item)
+        if (item) handleMentionSelect(item)
         return
       }
       if (e.key === 'Escape') { setMentionOpen(false); return }
@@ -1483,7 +1497,6 @@ export default function App() {
   }
 
   // Compute mention candidates on input changes
-  const [mentionResults, setMentionResults] = useState([])
   const updateMentions = useCallback((text, caretPos) => {
     try {
       const upto = text.slice(0, caretPos)
@@ -1652,6 +1665,15 @@ export default function App() {
     }
   }, [sidebarOpen])
 
+  // Slide-in animation for overlay sidebar when opening
+  useEffect(() => {
+    const el = asideRef.current
+    if (!el || !sidebarOpen) return
+    try {
+      animate(el, { x: [-12, 0], opacity: [0.98, 1] }, { duration: 0.2, easing: 'ease-out' })
+    } catch (_) {}
+  }, [sidebarOpen])
+
   return (
     <div
       className={`h-screen ds-bg ds-text grid ${theme === 'blue' ? 'theme-blue' : 'theme-yellow'}`}
@@ -1659,15 +1681,29 @@ export default function App() {
         gridTemplateColumns: 'auto 1fr'
       }}
     >
-      {/* Sidebar */}
+      {/* Full-screen overlay scrim */}
+      {sidebarOpen ? (
+        <div className="fixed inset-0 z-40" aria-hidden="false">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px]" onClick={() => setSidebarOpen(false)} />
+        </div>
+      ) : null}
+
+      {/* Sidebar panel as fixed overlay */}
       <aside
         ref={asideRef}
         className="border-r ds-border flex flex-col overflow-hidden"
         aria-hidden={!sidebarOpen}
         style={{
-          width: sidebarOpen ? 280 : 0,
+          position: 'fixed',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: sidebarOpen ? 320 : 0,
           transition: 'width 220ms cubic-bezier(0.16, 1, 0.3, 1)',
-          willChange: 'width'
+          willChange: 'width',
+          zIndex: 50,
+          background: 'var(--background)',
+          boxShadow: sidebarOpen ? '0 10px 30px rgba(0,0,0,0.20)' : 'none'
         }}
       >
           <div className="p-2 flex items-center justify-between ds-card border-b ds-border pastel-grad">
@@ -1932,7 +1968,7 @@ export default function App() {
                         key={t.id}
                         className={`w-full text-left flex items-center gap-2 px-2 py-2 rounded ${active ? 'bg-muted/30' : 'hover:bg-muted/20'}`}
                         onMouseEnter={() => setMentionIndex(idx)}
-                        onMouseDown={(e) => { e.preventDefault(); insertMentionTab(t) }}
+                        onMouseDown={(e) => { e.preventDefault(); handleMentionSelect(t) }}
                       >
                         {t.favIconUrl ? (
                           <img src={t.favIconUrl} alt="" className="h-4 w-4 rounded-sm" />

@@ -11,11 +11,13 @@ Human-Centered Defaults
 
 Scenarios To Be Mindful Of
 - New active tab while composing: If the user switches tabs mid-draft, auto-follow can update the target tab. Preserve the current draft text and selected tabs; do not clear the message box. If Auto-follow is OFF, keep the previous selection of tabs.
-- Opening links in a new tab: Users often want the original tab’s context. Offer a lightweight hint to “Keep previous tab in context” the first time after a link-open. If clicked, pin the previous tab (add it to `selectedTabIds`).
+- Opening links in a new tab: Users often want the original tab's context. Offer a lightweight hint to "Keep previous tab in context" the first time after a link-open. If clicked, pin the previous tab (add it to `selectedTabIds`).
 - Research flows (multi-tab): When users add tabs, keep Auto-follow OFF and persist `selectedTabIds` per session until they remove them or re-enable Auto-follow.
-- Summarize this page vs multi-page: Default to single-tab for summarize; for compare/research prompts that include “compare”/“across these”, suggest adding more tabs.
-- Restricted pages: If the active page is restricted (Chrome Web Store, chrome://, file://), show a non-blocking banner with a one-click “Open in supported tab” action.
-- Long pages and short selections: If selection < N chars but page is very long, consider summarizing selection first and offering an inline “Expand to whole page” option in the result.
+- @mention tab selection: Users expect LIFO ordering (most recent tabs first) when typing @mention to quickly find relevant tabs. Keep mention text in input after selection to allow multiple @mentions in one message.
+- Hamburger menu navigation: Full-screen overlay should feel prominent but not jarring. Click outside to close, ESC key support, and smooth animations maintain user flow.
+- Summarize this page vs multi-page: Default to single-tab for summarize; for compare/research prompts that include "compare"/"across these", suggest adding more tabs.
+- Restricted pages: If the active page is restricted (Chrome Web Store, chrome://, file://), show a non-blocking banner with a one-click "Open in supported tab" action.
+- Long pages and short selections: If selection < N chars but page is very long, consider summarizing selection first and offering an inline "Expand to whole page" option in the result.
 - Switching sessions on tab activation: If a tab has a mapped session, switch; otherwise remain in the current session but update `selectedTabIds` to the active tab (Auto-follow ON) or keep manual selection (Auto-follow OFF).
 - Cancel vs Send again: On cancel, keep the partial assistant message out of history; on re-send, re-use the same assembled context, freshly scraped.
 

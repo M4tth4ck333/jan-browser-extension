@@ -37,6 +37,11 @@ Context Gathering (What text is read?)
   - Context cache: `contextCache` state and updates lines ~472–474, ~1166–1172, ~1305–1317.
   - Selected tabs and auto‑follow: `selectedTabIds`, `autoFollowActiveTab` state lines ~472–474; activation sync lines ~952–1000 and ~1460–1510.
   - Search: `scrapeSelectedTabs`, `contextCache`, `selectedTabIds`, `useContextDefault`.
+- Tab selection via @mention:
+  - Type `@` + query in chat input to trigger mention popup with LIFO-sorted tabs (unpinned first, then by lastAccessed desc, fallback to index desc).
+  - Arrow keys navigate, Enter/Tab/click selects tab and adds to context while keeping mention text in input.
+  - In code: `ui/sidepanel/App.jsx` `handleMentionSelect()`, `updateMentions()`, `filteredTabs` useMemo with LIFO sorting.
+  - Search: `mentionOpen`, `mentionResults`, `handleMentionSelect`, `@mention`.
 - Before sending chat/search:
   - Determine tabs, re‑scrape, enforce minimum content, and prepend context messages.
   - In code: `ui/sidepanel/App.jsx` `sendChat()` lines ~1194–1273 and `askWithGoogle()` lines ~1386–1470.
@@ -91,6 +96,11 @@ Controls & Reset
 - Use context toggle:
   - Global default and per‑message toggle; if OFF, no page snippets are prepended.
   - In code: `ui/sidepanel/App.jsx` state at ~470s and usage in `sendChat()`/`askWithGoogle()` around ~1194–1470.
+- Hamburger menu navigation:
+  - Opens as full-screen overlay with semi-transparent scrim covering conversation area.
+  - Fixed-position animated slide-in panel (320px width) with click-outside-to-close behavior.
+  - In code: `ui/sidepanel/App.jsx` overlay scrim and fixed positioning with z-index layering.
+  - Search: `sidebarOpen`, `setSidebarOpen`, `fixed inset-0 z-40`.
 - Rescrape selected tabs:
   - Button wired to `rescrapeSelected()`.
   - In code: `ui/sidepanel/App.jsx` lines ~1624–1635 (button) and ~1162–1172 (handler).

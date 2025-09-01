@@ -14,11 +14,11 @@ try {
 } catch (_) {}
 
 const DEFAULT_SETTINGS = {
-  provider: "custom", // 'jan-server' | 'openai' | 'anthropic' | 'openrouter' | 'cerebras' | 'jan' | 'custom'
-  apiBase: "", // e.g. https://comingsoon.ai, https://api.openai.com/v1, https://openrouter.ai/api/v1, https://api.cerebras.ai/v1, http://localhost:1337/v1
+  provider: "jan", // 'jan-server' | 'openai' | 'anthropic' | 'openrouter' | 'cerebras' | 'jan' | 'custom'
+  apiBase: "https://api.jan.ai/v1", // e.g. https://comingsoon.ai, https://api.openai.com/v1, https://openrouter.ai/api/v1, https://api.cerebras.ai/v1, http://localhost:1337/v1
   apiKey: "",
-  useApiKey: true,
-  model: "",
+  useApiKey: false,
+  model: "jan-v1-4b",
   temperature: 0.2,
   // For provider: 'custom', allow specifying a full chat completions URL (non-stream and stream)
   useCustomCompletionsUrl: false,
@@ -339,12 +339,12 @@ chrome.runtime.onInstalled.addListener(async () => {
 
   // Provide sensible presets if provider chosen but fields empty
   if (!merged.apiBase) {
-    if (merged.provider === 'jan-server') merged.apiBase = 'https://comingsoon.ai';
+    if (merged.provider === 'jan-server') merged.apiBase = 'https://api.jan.ai/v1i';
     else if (merged.provider === 'openai') merged.apiBase = 'https://api.openai.com/v1';
     else if (merged.provider === 'anthropic') merged.apiBase = 'https://api.anthropic.com/v1'; // Requires OpenAI-compatible shim
     else if (merged.provider === 'openrouter') merged.apiBase = 'https://openrouter.ai/api/v1';
     else if (merged.provider === 'cerebras') merged.apiBase = 'https://api.cerebras.ai/v1';
-    else if (merged.provider === 'jan') merged.apiBase = 'http://localhost:1337/v1';
+    else if (merged.provider === 'jan') merged.apiBase = 'https://api.jan.ai/v1';
   }
 
   await chrome.storage.sync.set(merged);
@@ -1321,7 +1321,7 @@ async function getSettings() {
     else if (merged.provider === 'anthropic') merged.apiBase = 'https://api.anthropic.com/v1'; // Requires OpenAI-compatible shim
     else if (merged.provider === 'openrouter') merged.apiBase = 'https://openrouter.ai/api/v1';
     else if (merged.provider === 'cerebras') merged.apiBase = 'https://api.cerebras.ai/v1';
-    else if (merged.provider === 'jan') merged.apiBase = 'http://localhost:1337/v1';
+    else if (merged.provider === 'jan') merged.apiBase = 'https://api.jan.ai/v1';
   }
   // Force-hide Jan Server base to comingsoon.ai until public release
   try {

@@ -1,73 +1,94 @@
-Title: Firefox support + Nightly/Release artifacts + bump to 0.12.14
+Title: UX Improvements: @mention Tab Selection, LIFO Sorting, Full-Screen Overlay Menu + Jan API Default
 
 Summary
-- Add official Firefox build and attach Firefox zips in Nightly and tagged Releases.
-- Keep Chrome build unchanged, but publish separate artifacts for clarity.
-- Bump versions to 0.12.14 across root package and both manifests.
+- Fix @mention tab selection bug preventing tabs from being added to context via chat input
+- Implement LIFO (Last-In-First-Out) sorting for Add context popup to prioritize recent tabs
+- Redesign hamburger menu as full-screen overlay with animated slide-in panel
+- Set Jan API (https://api.jan.ai/v1) as default endpoint with jan-v1-4b model
+- Update documentation with new UX patterns and behavior
 
-What’s included
-- CI: Add Firefox to Nightly and Release workflows
-  - Nightly: builds Firefox and uploads `jan-extension-firefox-nightly-<run>-<sha>.zip`.
-  - Release: builds Firefox and uploads `jan-extension-firefox-<tag>.zip`.
-  - Chrome artifacts are now explicitly `jan-extension-chrome-*.zip` to avoid confusion.
-- Version bumps
-  - package.json → 0.12.14
-  - manifest.json → 0.12.14
-  - manifest.firefox.json → 0.12.14
-- Local packaging
-  - `scripts/package-local.sh` now builds Firefox and produces a Firefox zip alongside Chrome.
-- Docs
-  - `RELEASE.md` updated to reflect Chrome/Firefox artifact names and Nightly behavior.
+What's included
+- **@mention Tab Selection Fix**
+  - Fixed undefined `insertMentionTab` references by wiring to existing `handleMentionSelect`
+  - Tab selection now adds to context AND keeps mention text in input with proper cursor positioning
+  - Supports multiple @mentions in single message
+- **LIFO Tab Sorting**
+  - Add context popup now shows unpinned tabs first, then by lastAccessed (desc), fallback to index (desc)
+  - Improves tab selection UX when working with many open tabs
+  - Enhanced search includes title, URL, and tab ID matching
+- **Full-Screen Overlay Menu**
+  - Hamburger menu opens as fixed overlay with semi-transparent scrim covering conversation area
+  - 320px animated slide-in panel with click-outside-to-close behavior
+  - Smooth motion animations and proper z-index layering
+- **Jan API as Default**
+  - Default provider changed from "custom" to "jan" 
+  - Default endpoint: https://api.jan.ai/v1 (was empty)
+  - Default model: jan-v1-4b (was empty)
+  - API key disabled by default (useApiKey: false)
+- **Documentation Updates**
+  - New ADR-003 documenting UX improvement decisions and implementation
+  - Updated behavior.md with @mention and overlay menu patterns
+  - Enhanced considerations.md with new UX scenarios
 
 Rationale
-- Provide first-class Firefox support: a reproducible build and downloadable artifact.
-- Clear artifact naming (`-chrome-` / `-firefox-`) removes ambiguity for users and CI consumers.
+- **Productivity**: LIFO tab sorting reduces time to find relevant tabs in multi-tab workflows
+- **Functionality**: @mention tab selection was broken due to undefined function references
+- **Visual Hierarchy**: Full-screen overlay provides clear navigation context vs narrow sidebar
+- **Onboarding**: Jan API default eliminates initial setup friction for new users
+- **Consistency**: Maintains design system tokens and theme compatibility
 
 Files changed
-- .github/workflows/nightly.yml
-- .github/workflows/release.yml
-- scripts/package-local.sh
-- package.json
-- manifest.json
-- manifest.firefox.json
-- RELEASE.md
+- src/background.js (default settings, Jan API endpoints)
+- ui/sidepanel/App.jsx (mention fix, LIFO sorting, overlay menu)
+- docs/adr-003-ux-improvements.md (new ADR)
+- behavior.md (@mention and overlay documentation)
+- considerations.md (UX scenarios)
 
 How to test locally
-1) Firefox build
-   - `bun run build:firefox` (or `npm run build:firefox`)
-   - Verify `dist-firefox/` contains: `manifest.json`, `icons/`, `src/`, `ui/`, `assets/`.
-2) Load in Firefox (temporary add-on)
-   - Open `about:debugging#/runtime/this-firefox` → Load Temporary Add-on… → select any file in `dist-firefox/`.
-   - Sanity checks:
-     - Sidebar opens and renders side panel UI.
-     - Inline Assistant shows on text selection and can Apply/Copy.
-     - Commands/shortcuts respond (e.g., open panel, custom prompt, toggle autocomplete).
-     - Page summarization works and streams output.
-3) Chrome sanity (unchanged flow)
-   - `bun run build` then load `dist/` via `chrome://extensions` → Load unpacked.
-4) Local packaging
-   - `TAG=test-local bash scripts/package-local.sh`
-   - Inspect `pack/jan-extension-chrome-test-local.zip` and `pack/jan-extension-firefox-test-local.zip` contents.
+1) **@mention Tab Selection**
+   - Type `@` in chat input to trigger mention popup
+   - Verify tabs appear in LIFO order (unpinned first, then by lastAccessed desc)
+   - Use arrow keys to navigate, Enter/Tab/click to select
+   - Confirm tab is added to context AND mention text remains in input
+   
+2) **Add Context Popup LIFO Sorting**
+   - Click "Add context" button
+   - Verify tabs show unpinned first, then most recently accessed
+   - Search should match title, URL, and tab ID
+   
+3) **Full-Screen Overlay Menu**
+   - Click hamburger menu (☰)
+   - Verify full-screen overlay with scrim covers conversation area
+   - Test click-outside-to-close behavior
+   - Check smooth slide-in animation
+   
+4) **Jan API Default**
+   - Fresh install should default to Jan provider with https://api.jan.ai/v1
+   - Model should default to jan-v1-4b
+   - API key should be disabled by default
 
-CI/Release behavior
-- Nightly (push to main):
-  - Uploads: Chrome and Firefox nightly zips, plus MCP zip if present.
-- Tagged release (push tag):
-  - Uploads: `jan-extension-chrome-<tag>.zip`, `jan-extension-firefox-<tag>.zip`, and `search-mcp-server-<tag>-dist.zip` (if present).
+5) **Build and Load Extension**
+   - `npm run build` then load `dist/` via `chrome://extensions` → Load unpacked
+   - Test all above functionality in browser
 
-Release notes (proposed)
-- Firefox support: Official Firefox build and downloadable artifact on Releases and Nightlies.
-- Chrome + Firefox artifacts: Explicit platform suffixes for clarity.
-- Version: 0.12.14.
+Behavioral Changes
+- **@mention**: Now functional - adds tabs to context while preserving mention text
+- **Tab Sorting**: LIFO ordering prioritizes recently accessed tabs for faster selection
+- **Menu UX**: Full-screen overlay provides better visual hierarchy than narrow sidebar
+- **Default Config**: Jan API eliminates setup friction for new users
 
-Compatibility / migration
-- No changes to runtime behavior for Chrome users.
-- Artifact names changed; any downstream automation that expected `jan-extension-<tag>.zip` should update to `jan-extension-chrome-<tag>.zip`.
+Technical Implementation
+- Fixed undefined function references in mention system
+- Added LIFO sort logic with unpinned-first priority
+- Implemented fixed-position overlay with scrim and animations
+- Updated default settings in background.js
+- Preserved theme system compatibility
 
 Checklist
-- [ ] Firefox: sidebar opens and renders side panel UI
-- [ ] Firefox: Inline Assistant operates on selected text
-- [ ] Firefox: Page summarization streams and completes
-- [ ] Chrome: basic sanity unchanged
-- [ ] Release artifact names validated in CI logs
+- [x] @mention tab selection adds to context and keeps text in input
+- [x] Add context popup shows LIFO-sorted tabs
+- [x] Hamburger menu opens as full-screen overlay with animations
+- [x] Jan API set as default endpoint with jan-v1-4b model
+- [x] Documentation updated (ADR-003, behavior.md, considerations.md)
+- [x] Build succeeds without errors
 
