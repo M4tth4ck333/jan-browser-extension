@@ -971,6 +971,18 @@ export default function App() {
         } else if (msg.type === 'SELECTION_UPDATED') {
           const s = String(msg.selection || '')
           setSelectionText(s)
+        } else if (msg.type === 'ADD_TAB_TO_CONTEXT') {
+          // Handle right-click context menu from main Chrome tabs
+          const { tabId, tab } = msg
+          if (tabId && tab && !selectedTabIds.includes(tabId)) {
+            setSelectedTabIds(prev => [...prev, tabId])
+            setAutoFollowActiveTab(false)
+            // Update tabs list if needed
+            setTabs(prev => {
+              const exists = prev.find(t => t.id === tabId)
+              return exists ? prev : [...prev, tab]
+            })
+          }
         }
       }
       p.onMessage.addListener(onMsg)
@@ -990,15 +1002,18 @@ export default function App() {
     loadSessions()
   }, [refreshTabs, loadSessions])
 
-  // When auto-follow is ON, always sync to the current active tab (override any stale selection)
+  // [JAN-BEHAVIOR:AUTO-FOLLOW] When auto-follow is ON, sync to the current active tab
+  // But preserve manual selections when auto-follow is OFF
   useEffect(() => {
     (async () => {
       try {
         const t = await getActiveTab()
-        if (t?.id && isSupportedUrl(t.url)) setSelectedTabIds([t.id])
+        if (t?.id && isSupportedUrl(t.url) && autoFollowActiveTab) {
+          setSelectedTabIds([t.id])
+        }
       } catch (_) {}
     })()
-  }, [])
+  }, [autoFollowActiveTab])
 
   // Load per-tab session map on mount
   useEffect(() => { loadTabSessionMap() }, [loadTabSessionMap])
@@ -1040,8 +1055,11 @@ export default function App() {
             await switchSession(sid)
           }
         }
-        // Auto-follow the active tab only if the user hasn't manually selected multiple tabs
-        if (autoFollowActiveTab) setSelectedTabIds([t.id])
+        // [JAN-BEHAVIOR:AUTO-FOLLOW] Auto-follow the active tab only if enabled
+        // Preserve manual selections when auto-follow is OFF (intent preservation)
+        if (autoFollowActiveTab) {
+          setSelectedTabIds([t.id])
+        }
       } catch (_) {}
     }
     try { chrome.tabs.onActivated.addListener(onActivated) } catch (_) {}
@@ -1460,6 +1478,7 @@ export default function App() {
 
   const toggleTab = (id) => {
     setSelectedTabIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
+    // [JAN-BEHAVIOR:AUTO-FOLLOW] Manual tab selection turns OFF auto-follow (intent preservation)
     setAutoFollowActiveTab(false)
   }
 
@@ -1483,26 +1502,32 @@ export default function App() {
     }
   }, [tabs, selectedTabIds, fuzzyRankTabs])
 
-  const insertMentionTab = useCallback((tab) => {
+  const handleMentionSelect = useCallback((tab) => {
     const el = inputRef.current
-    const text = String(input)
-    if (!el || mentionStart < 0) {
-      // Fallback: just toggle and keep text
+    if (!el) {
       toggleTab(tab.id)
       setMentionOpen(false)
       return
     }
+    const text = input
     const caret = el.selectionStart || text.length
     const before = text.slice(0, mentionStart)
     // Find end of token from '@' to caret
     const after = text.slice(caret)
-    const next = (before + after).replace(/\s{2,}/g, ' ').trimStart()
+    // Replace the @query with @tabname and keep it in the input
+    const tabName = tab.title || tab.url || 'tab'
+    const cleanTabName = tabName.replace(/[^a-zA-Z0-9\-_]/g, '').slice(0, 20)
+    const next = before + `@${cleanTabName} ` + after
     setInput(next)
     toggleTab(tab.id)
     setMentionOpen(false)
-    // Restore caret position
+    // Restore caret position after the mention
     setTimeout(() => {
-      try { el.focus(); el.selectionStart = el.selectionEnd = before.length } catch (_) {}
+      try { 
+        el.focus(); 
+        const newPos = before.length + cleanTabName.length + 2 // +2 for '@' and space
+        el.selectionStart = el.selectionEnd = newPos 
+      } catch (_) {}
     }, 0)
   }, [input, mentionStart, toggleTab])
 
@@ -1640,7 +1665,7 @@ export default function App() {
         className="border-r ds-border flex flex-col overflow-hidden"
         aria-hidden={!sidebarOpen}
         style={{
-          width: sidebarOpen ? 220 : 0,
+          width: sidebarOpen ? 280 : 0,
           transition: 'width 220ms cubic-bezier(0.16, 1, 0.3, 1)',
           willChange: 'width'
         }}
@@ -1681,9 +1706,16 @@ export default function App() {
             <div className="text-xs ds-muted-text mb-1">Context Tabs (default: current)</div>
             <div className="max-h-40 overflow-auto space-y-1">
               {tabs.map(t => (
-                <label key={t.id} className="flex items-center gap-2 text-xs">
+                <label 
+                key={t.id} 
+                className="flex items-center gap-2 text-xs cursor-pointer hover:bg-muted/20 rounded px-1 py-0.5"
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  toggleTab(t.id)
+                }}
+              >
                   <Checkbox checked={selectedTabIds.includes(t.id)} onCheckedChange={() => toggleTab(t.id)} />
-                  <span className="truncate" title={t.title}>{t.title}</span>
+                  <span className="truncate" title={`${t.title}\nRight-click to toggle`}>{t.title}</span>
                 </label>
               ))}
             </div>
@@ -1693,7 +1725,10 @@ export default function App() {
             </div>
             <div className="mt-2 flex items-center gap-2 text-xs">
               <label className="flex items-center gap-2"><Checkbox checked={useContextDefault} onCheckedChange={(v) => setUseContextDefault(!!v)} /> Use context by default</label>
-              <span className="ds-muted-text" title="Auto-follow is always on for fresh context">Following active tab</span>
+              <label className="flex items-center gap-2">
+                <Checkbox checked={autoFollowActiveTab} onCheckedChange={(v) => setAutoFollowActiveTab(!!v)} />
+                <span className={autoFollowActiveTab ? 'text-primary' : 'ds-muted-text'} title="When ON, automatically follows the active tab. When OFF, preserves manual tab selection.">Auto-follow</span>
+              </label>
             </div>
           </div>
       </aside>
@@ -1726,8 +1761,8 @@ export default function App() {
           </div>
         </header>
 
-          <ScrollArea.Root className="flex-1">
-          <ScrollArea.Viewport ref={listRef} className={`h-full w-full px-2 pt-3 ${hasUserMessage ? 'pb-24' : 'pb-3'} min-w-0`}>
+          <ScrollArea.Root className="flex-1 relative">
+          <ScrollArea.Viewport ref={listRef} className={`h-full w-full px-2 pt-3 ${hasUserMessage ? 'pb-32' : 'pb-3'} min-w-0`}>
             {(() => {
               const visible = messages
                 .filter(m => m.role !== 'system' && !(m.role === 'assistant' && typeof m.content === 'string' && m.content.startsWith('New chat created')))
@@ -1769,7 +1804,7 @@ export default function App() {
           </ScrollArea.Scrollbar>
         </ScrollArea.Root>
 
-        <footer className="px-1 py-1 sticky bottom-0 z-20 bg-background/60 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t ds-border composer">
+        <footer className="absolute bottom-0 left-0 right-0 px-1 py-1 z-20 bg-background/80 backdrop-blur-md supports-[backdrop-filter]:bg-background/80 border-t ds-border composer shadow-lg">
           {/* Chips row: selection chip + selected tabs */}
           <div className="mb-1 mx-0 flex items-center gap-2 overflow-x-auto no-scrollbar">
             {selectionText && selectionText.trim().length > 0 ? (
@@ -1811,7 +1846,39 @@ export default function App() {
             {selectedTabs.length > 0 && (
               <div className="flex items-center gap-1 mb-2 px-1 overflow-x-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                 {selectedTabs.map(tab => (
-                  <Chip key={tab.id} tab={tab} onRemove={() => toggleTab(tab.id)} />
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className="tab-chip cursor-pointer hover:bg-muted/20 transition-colors"
+                    title={`${tab.title}\n${hostFromUrl(tab.url)}\nClick to focus tab`}
+                    onClick={async () => {
+                      try {
+                        await chrome.tabs.update(tab.id, { active: true })
+                      } catch (e) {
+                        console.warn('Failed to focus tab:', e)
+                      }
+                    }}
+                  >
+                    <button 
+                      type="button" 
+                      className="chip-x ml-0 mr-1" 
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggleTab(tab.id)
+                      }} 
+                      aria-label="Remove tab"
+                    >
+                      <XIcon size={12} />
+                    </button>
+                    <span className="chip-ic" style={{ backgroundColor: chipColorForTab(tab) }}>
+                      {tab.favIconUrl ? (
+                        <img src={tab.favIconUrl} alt="" className="h-3 w-3" />
+                      ) : (
+                        <span className="h-3 w-3 rounded-full bg-muted inline-block" />
+                      )}
+                    </span>
+                    <span className="truncate chip-label">{tab.title || '(untitled tab)'}</span>
+                  </button>
                 ))}
               </div>
             )}
@@ -1949,6 +2016,12 @@ export default function App() {
                                 key={t2.id}
                                 className="w-full text-left flex items-center gap-3 p-3 hover:bg-muted/20 transition-colors group"
                                 onClick={() => { toggleTab(t2.id); setTabPickerOpen(false) }}
+                                onContextMenu={(e) => {
+                                  e.preventDefault()
+                                  toggleTab(t2.id)
+                                  setTabPickerOpen(false)
+                                }}
+                                title="Click or right-click to add tab"
                               >
                                 <div className="flex-shrink-0">
                                   {t2.favIconUrl ? (

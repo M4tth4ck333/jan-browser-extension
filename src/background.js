@@ -397,7 +397,7 @@ chrome.action.onClicked.addListener(async (tab) => {
       enabled: true
     });
 
-    // Open the panel AFTER the path has been set, so the correct bundle loads
+    // Force open the panel for reliable activation
     try {
       if (chrome.sidePanel && typeof chrome.sidePanel.open === 'function') {
         await chrome.sidePanel.open({ tabId: targetTabId });
@@ -422,27 +422,29 @@ try {
         } else {
           const created = await chrome.tabs.create({ url: 'https://example.com' });
           targetTabId = created.id;
+          // Wait for tab to load
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
 
       if (command === 'open_sidepanel') {
         try { await chrome.tabs.update(targetTabId, { active: true }); } catch (_) {}
         await chrome.sidePanel?.setOptions?.({ tabId: targetTabId, path: `dist/ui/sidepanel/index.html`, enabled: true });
+        // Force open the panel
         try { if (chrome.sidePanel?.open) await chrome.sidePanel.open({ tabId: targetTabId }); } catch (_) {}
       } else if (command === 'open_custom_prompt') {
         // Ask content script to show the custom prompt overlay
         try {
-          await sendMessageWithRetry(targetTabId, { type: 'SHOW_CUSTOM_PROMPT' }, 2, 300);
+          await chrome.tabs.sendMessage(targetTabId, { type: 'SHOW_CUSTOM_PROMPT' });
         } catch (e) {
-          // Best effort fallback (no retry helper available / first run)
-          try { await chrome.tabs.sendMessage(targetTabId, { type: 'SHOW_CUSTOM_PROMPT' }); } catch (_) {}
+          console.warn('Failed to send SHOW_CUSTOM_PROMPT:', e);
         }
       } else if (command === 'toggle_autocomplete') {
         // Ask content script to toggle autocomplete mode
         try {
-          await sendMessageWithRetry(targetTabId, { type: 'TOGGLE_AUTOCOMPLETE' }, 2, 300);
+          await chrome.tabs.sendMessage(targetTabId, { type: 'TOGGLE_AUTOCOMPLETE' });
         } catch (e) {
-          try { await chrome.tabs.sendMessage(targetTabId, { type: 'TOGGLE_AUTOCOMPLETE' }); } catch (_) {}
+          console.warn('Failed to send TOGGLE_AUTOCOMPLETE:', e);
         }
       }
     } catch (err) {
@@ -452,6 +454,44 @@ try {
 } catch (err) {
   console.warn('commands API not available:', err);
 }
+
+// Add context menu for tabs
+chrome.runtime.onInstalled.addListener(() => {
+  try {
+    chrome.contextMenus.create({
+      id: 'add-tab-to-jan',
+      title: 'Add to Jan context',
+      contexts: ['tab'],
+      documentUrlPatterns: ['http://*/*', 'https://*/*']
+    });
+  } catch (e) {
+    console.warn('Failed to create context menu:', e);
+  }
+});
+
+// Handle context menu clicks
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId === 'add-tab-to-jan' && tab?.id) {
+    try {
+      // Send message to sidepanel to add this tab
+      const ports = Array.from(sidepanelPorts.values());
+      if (ports.length > 0) {
+        ports[0].postMessage({
+          type: 'ADD_TAB_TO_CONTEXT',
+          tabId: tab.id,
+          tab: {
+            id: tab.id,
+            title: tab.title,
+            url: tab.url,
+            favIconUrl: tab.favIconUrl
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('Failed to add tab to context:', e);
+    }
+  }
+});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'SUMMARIZE') {
