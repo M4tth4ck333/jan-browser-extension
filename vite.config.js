@@ -10,6 +10,8 @@ export default {
       '@': resolve(__dirname, 'ui'),
     },
   },
+  // Minimal test config with a single setup file
+  test: { environment: 'jsdom', globals: true, setupFiles: ['./tests/setup.ts'] },
   build: {
     sourcemap: true,
     outDir: 'dist',
