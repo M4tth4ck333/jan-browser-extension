@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+@custom-variant dark (&:is(.dark *));
+
 @plugin "tailwindcss-animate";
 
 /* Reset body and html margins/padding */
@@ -334,8 +336,6 @@ html, body {
 .callout .callout-body > *:first-child { margin-top: 0; }
 .callout .callout-body > * + * { margin-top: 0.5rem; }
 
-
-
 /* Hide scrollbars for horizontal chip scrollers */
 .no-scrollbar {
   -ms-overflow-style: none; /* IE and Edge */
@@ -487,4 +487,61 @@ html, body {
 
 @media (min-width: 640px) {
   .typo-display { font-size: 2rem; }
+}
+
+/* Animated gradient overlay for working state (Linear-style) */
+.working-gradient {
+  position: absolute;
+  top: -2px;
+  left: -100%;
+  width: 100%;
+  height: calc(100% + 4px);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(234, 179, 8, 0.4) 20%,
+    rgba(234, 179, 8, 0.8) 50%,
+    rgba(234, 179, 8, 0.4) 80%,
+    transparent 100%
+  );
+  animation: working-shimmer 2s ease-in-out infinite;
+  pointer-events: none;
+  z-index: -1;
+  border-radius: inherit;
+}
+
+@keyframes working-shimmer {
+  0% {
+    left: -100%;
+  }
+  50% {
+    left: 100%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+@theme inline {
+  --animate-shine: shine var(--duration) infinite linear;
+  @keyframes shine {
+  0% {
+    background-position: 0% 0%;
+    }
+  50% {
+    background-position: 100% 100%;
+    }
+  to {
+    background-position: 0% 0%;
+    }
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
 }
