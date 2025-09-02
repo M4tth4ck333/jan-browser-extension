@@ -5,8 +5,12 @@
       "@/*": ["./ui/*"]
     },
     "allowJs": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "lib": ["ES2020", "DOM"],
+    "types": ["vitest", "vite/client"],
+    "noEmit": true,
+    "skipLibCheck": true
   },
-  "include": ["ui", "src", "vite.config.js", "postcss.config.js"],
+  "include": ["ui", "src", "tests", "vite.config.js", "postcss.config.js"],
   "exclude": ["dist", "node_modules"]
 }

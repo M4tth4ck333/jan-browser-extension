@@ -111,6 +111,13 @@ Controls & Reset
   - Format: `🚨 **Error**: [message]` for better visual hierarchy and user recognition.
   - In code: `ui/sidepanel/App.jsx` error handling in stream and chat functions.
   - Search: `🚨 **Error**:`, `CHAT_STREAM_ERROR`.
+- Auto-scroll during streaming:
+  - Chat automatically scrolls to bottom during streaming responses unless user has manually scrolled up.
+  - User scroll detection: scrolling up marks `userHasScrolledUp = true`, prevents forced auto-scroll.
+  - Scrolling back to bottom resets the flag, re-enables auto-scroll for future streaming.
+  - Reset on new streaming session to ensure fresh responses always auto-scroll initially.
+  - In code: `ui/sidepanel/App.jsx` scroll handlers, `scrollToBottom()`, `handleScroll()`, `CHAT_STREAM_DELTA`.
+  - Search: `userHasScrolledUp`, `scrollToBottom`, `handleScroll`, `isAtBottom`.
 - Rescrape selected tabs:
   - Button wired to `rescrapeSelected()`.
   - In code: `ui/sidepanel/App.jsx` lines ~1624–1635 (button) and ~1162–1172 (handler).

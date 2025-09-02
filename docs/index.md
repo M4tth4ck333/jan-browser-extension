@@ -1,6 +1,6 @@
-# Jan Browser Extension Documentation
+# Jan Browser Documentation
 
-This document provides an overview of the Jan Browser Extension and its architecture.
+This document provides an overview of the Jan Browser and its architecture.
 
 ## Architectural Decision Records (ADRs)
 

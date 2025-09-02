@@ -6,11 +6,11 @@ Accepted
 
 ## Context
 
-The Jan Browser Extension needs a user interface to display the summary of the current page and to provide controls for the user to interact with the extension. The choice of how to present this UI is critical for the user experience.
+The Jan Browser needs a user interface to display the summary of the current page and to provide controls for the user to interact with the extension. The choice of how to present this UI is critical for the user experience.
 
 ## Decision
 
-We chose to use the **Side Panel** feature of Chrome Extensions (Manifest V3) as the primary user interface for the extension.
+We chose to use the **Side Panel** feature of Chrome Extensions (Manifest V3) as the primary user interface for the app.
 
 ## Consequences
 

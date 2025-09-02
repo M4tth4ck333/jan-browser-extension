@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-The Jan Browser Extension requires storing user-specific settings, such as the API base URL, API key, and model preferences. This information needs to be persisted across browser sessions and, ideally, across different devices.
+The Jan Browser requires storing user-specific settings, such as the API base URL, API key, and model preferences. This information needs to be persisted across browser sessions and, ideally, across different devices.
 
 ## Decision
 
