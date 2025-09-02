@@ -14,11 +14,11 @@ try {
 } catch (_) {}
 
 const DEFAULT_SETTINGS = {
-  provider: "custom", // 'jan-server' | 'openai' | 'anthropic' | 'openrouter' | 'cerebras' | 'jan' | 'custom'
-  apiBase: "", // e.g. https://comingsoon.ai, https://api.openai.com/v1, https://openrouter.ai/api/v1, https://api.cerebras.ai/v1, http://localhost:1337/v1
+  provider: "jan", // 'jan-server' | 'openai' | 'anthropic' | 'openrouter' | 'cerebras' | 'jan' | 'custom'
+  apiBase: "https://api.jan.ai/v1", // e.g. https://comingsoon.ai, https://api.openai.com/v1, https://openrouter.ai/api/v1, https://api.cerebras.ai/v1, http://localhost:1337/v1
   apiKey: "",
-  useApiKey: true,
-  model: "",
+  useApiKey: false,
+  model: "jan-v1-4b",
   temperature: 0.2,
   // For provider: 'custom', allow specifying a full chat completions URL (non-stream and stream)
   useCustomCompletionsUrl: false,
@@ -45,6 +45,7 @@ chrome.runtime.onConnect.addListener((port) => {
   // Allow the side panel to register/update its tabId explicitly
   try {
     port.onMessage.addListener((msg) => {
+      // [JAN-BEHAVIOR:PORT-REGISTER] side panel port registration and routing map
       if (msg && msg.type === 'REGISTER_PORT' && msg.tabId) {
         sidepanelPorts.set(msg.tabId, port);
         try { console.log('[BG] REGISTER_PORT', { tabId: msg.tabId }); } catch (_) {}
@@ -204,6 +205,7 @@ async function chatCompletionsStream({ apiBase, apiKey, useApiKey, model, temper
   // Register the controller so UI can cancel
   try { streamingControllers.set(reqId, controller) } catch (_) {}
   const post = (msg) => {
+    // [JAN-BEHAVIOR:STREAM-EMIT] route stream events to side panel port(s)
     // Prefer tab-specific port, fall back to global, else broadcast to all
     const specific = sidepanelPorts.get(tabId);
     const global = sidepanelPorts.get(GLOBAL_KEY);
@@ -337,12 +339,12 @@ chrome.runtime.onInstalled.addListener(async () => {
 
   // Provide sensible presets if provider chosen but fields empty
   if (!merged.apiBase) {
-    if (merged.provider === 'jan-server') merged.apiBase = 'https://comingsoon.ai';
+    if (merged.provider === 'jan-server') merged.apiBase = 'https://api.jan.ai/v1i';
     else if (merged.provider === 'openai') merged.apiBase = 'https://api.openai.com/v1';
     else if (merged.provider === 'anthropic') merged.apiBase = 'https://api.anthropic.com/v1'; // Requires OpenAI-compatible shim
     else if (merged.provider === 'openrouter') merged.apiBase = 'https://openrouter.ai/api/v1';
     else if (merged.provider === 'cerebras') merged.apiBase = 'https://api.cerebras.ai/v1';
-    else if (merged.provider === 'jan') merged.apiBase = 'http://localhost:1337/v1';
+    else if (merged.provider === 'jan') merged.apiBase = 'https://api.jan.ai/v1';
   }
 
   await chrome.storage.sync.set(merged);
@@ -367,6 +369,7 @@ chrome.runtime.onStartup.addListener(async () => {
 
 // On action click, just ensure the correct panel path/options for the current tab.
 // Do NOT call sidePanel.open() here; Chrome will open it automatically due to setPanelBehavior.
+// [JAN-BEHAVIOR:SIDEPANEL-OPEN] ensure the side panel opens on a supported tab
 chrome.action.onClicked.addListener(async (tab) => {
   try {
     if (!tab) return;
@@ -394,7 +397,7 @@ chrome.action.onClicked.addListener(async (tab) => {
       enabled: true
     });
 
-    // Open the panel AFTER the path has been set, so the correct bundle loads
+    // Force open the panel for reliable activation
     try {
       if (chrome.sidePanel && typeof chrome.sidePanel.open === 'function') {
         await chrome.sidePanel.open({ tabId: targetTabId });
@@ -419,27 +422,29 @@ try {
         } else {
           const created = await chrome.tabs.create({ url: 'https://example.com' });
           targetTabId = created.id;
+          // Wait for tab to load
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
 
       if (command === 'open_sidepanel') {
         try { await chrome.tabs.update(targetTabId, { active: true }); } catch (_) {}
         await chrome.sidePanel?.setOptions?.({ tabId: targetTabId, path: `dist/ui/sidepanel/index.html`, enabled: true });
+        // Force open the panel
         try { if (chrome.sidePanel?.open) await chrome.sidePanel.open({ tabId: targetTabId }); } catch (_) {}
       } else if (command === 'open_custom_prompt') {
         // Ask content script to show the custom prompt overlay
         try {
-          await sendMessageWithRetry(targetTabId, { type: 'SHOW_CUSTOM_PROMPT' }, 2, 300);
+          await chrome.tabs.sendMessage(targetTabId, { type: 'SHOW_CUSTOM_PROMPT' });
         } catch (e) {
-          // Best effort fallback (no retry helper available / first run)
-          try { await chrome.tabs.sendMessage(targetTabId, { type: 'SHOW_CUSTOM_PROMPT' }); } catch (_) {}
+          console.warn('Failed to send SHOW_CUSTOM_PROMPT:', e);
         }
       } else if (command === 'toggle_autocomplete') {
         // Ask content script to toggle autocomplete mode
         try {
-          await sendMessageWithRetry(targetTabId, { type: 'TOGGLE_AUTOCOMPLETE' }, 2, 300);
+          await chrome.tabs.sendMessage(targetTabId, { type: 'TOGGLE_AUTOCOMPLETE' });
         } catch (e) {
-          try { await chrome.tabs.sendMessage(targetTabId, { type: 'TOGGLE_AUTOCOMPLETE' }); } catch (_) {}
+          console.warn('Failed to send TOGGLE_AUTOCOMPLETE:', e);
         }
       }
     } catch (err) {
@@ -449,6 +454,44 @@ try {
 } catch (err) {
   console.warn('commands API not available:', err);
 }
+
+// Add context menu for tabs
+chrome.runtime.onInstalled.addListener(() => {
+  try {
+    chrome.contextMenus.create({
+      id: 'add-tab-to-jan',
+      title: 'Add to Jan context',
+      contexts: ['tab'],
+      documentUrlPatterns: ['http://*/*', 'https://*/*']
+    });
+  } catch (e) {
+    console.warn('Failed to create context menu:', e);
+  }
+});
+
+// Handle context menu clicks
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId === 'add-tab-to-jan' && tab?.id) {
+    try {
+      // Send message to sidepanel to add this tab
+      const ports = Array.from(sidepanelPorts.values());
+      if (ports.length > 0) {
+        ports[0].postMessage({
+          type: 'ADD_TAB_TO_CONTEXT',
+          tabId: tab.id,
+          tab: {
+            id: tab.id,
+            title: tab.title,
+            url: tab.url,
+            favIconUrl: tab.favIconUrl
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('Failed to add tab to context:', e);
+    }
+  }
+});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'SUMMARIZE') {
@@ -706,6 +749,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'CHAT_COMPLETION_STREAM_STOP') {
     (async () => {
       try {
+        // [JAN-BEHAVIOR:STREAM-STOP] UI cancel routed to controller via reqId
         const { reqId } = message.payload || {};
         const ctl = reqId ? streamingControllers.get(reqId) : null;
         if (ctl) {
@@ -795,8 +839,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   // Forward selection updates to the side panel associated with the sender's tab
-  if (message?.type === 'SELECTION_UPDATED') {
+      if (message?.type === 'SELECTION_UPDATED') {
     try {
+      // [JAN-BEHAVIOR:SELECTION-FWD-BG] forward page selection to side panel port
       const tabId = sender?.tab?.id || null;
       const payload = message?.payload || {};
       const selection = String(payload?.selection || '');
@@ -1276,7 +1321,7 @@ async function getSettings() {
     else if (merged.provider === 'anthropic') merged.apiBase = 'https://api.anthropic.com/v1'; // Requires OpenAI-compatible shim
     else if (merged.provider === 'openrouter') merged.apiBase = 'https://openrouter.ai/api/v1';
     else if (merged.provider === 'cerebras') merged.apiBase = 'https://api.cerebras.ai/v1';
-    else if (merged.provider === 'jan') merged.apiBase = 'http://localhost:1337/v1';
+    else if (merged.provider === 'jan') merged.apiBase = 'https://api.jan.ai/v1';
   }
   // Force-hide Jan Server base to comingsoon.ai until public release
   try {
@@ -1287,6 +1332,7 @@ async function getSettings() {
   return merged;
 }
 
+// [JAN-BEHAVIOR:INLINE-ASSIST-BUILD] construct system+user messages for inline assist
 function buildInlineAssistMessages({ mode, text, lang }) {
   const m = String(mode || 'rewrite');
   // Target language only used for translate; otherwise keep input language

@@ -3,13 +3,13 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 
 const DEFAULTS = {
-  provider: 'custom', apiBase: '', apiKey: '', model: '', temperature: 0.2,
+  provider: 'jan', apiBase: 'https://api.jan.ai/v1', apiKey: '', model: 'jan-v1-4b', temperature: 0.2,
   bridgeToken: '', useBridgeToken: false,
   inlineAssistEnabled: true,
   // Only the supported actions; Custom Prompt is always available from the tooltip/shortcut.
   inlineAssistActions: ['rewrite','translate'],
   useModelList: false,
-  useApiKey: true,
+  useApiKey: false,
   // Custom full completions URL support (for provider: custom)
   useCustomCompletionsUrl: false,
   customCompletionsUrl: '',

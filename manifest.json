@@ -22,7 +22,8 @@
     "tabs",
     "scripting",
     "sidePanel",
-    "clipboardWrite"
+    "clipboardWrite",
+    "contextMenus"
   ],
   "host_permissions": [
     "https://*/*",

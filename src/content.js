@@ -103,6 +103,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message?.type === 'GET_PAGE_CONTENT') {
+    // [JAN-BEHAVIOR:GET-PAGE-CONTENT] return page context payload for side panel
     // Only the top frame should respond; it will aggregate from same-origin iframes when needed
     if (window.top !== window) { return false; }
     const maxChars = 100000; // safety cap
@@ -1117,6 +1118,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       const payload = { mode, text: src };
       if (mode === 'translate') payload.lang = 'English';
+      // [JAN-BEHAVIOR:INLINE-ASSIST-START] request inline assist from background
       const resp = await chrome.runtime.sendMessage({ type: 'INLINE_ASSIST_START', payload });
       if (!resp?.ok) {
         resultEl.textContent = resp?.error || 'Error';
@@ -1142,6 +1144,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
   }
 
+  // [JAN-BEHAVIOR:INLINE-ASSIST-APPLY] apply inline assistant output to the editable
   function applyReplacement(ed, range, text) {
     try {
       // Resolve target in case original element was detached or changed
@@ -1281,6 +1284,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (sel === lastSelSent) return;
         lastSelSent = sel;
         try {
+          // [JAN-BEHAVIOR:SELECTION-FWD] forward selection to background for side panel
           chrome.runtime.sendMessage({ type: 'SELECTION_UPDATED', payload: { selection: sel, url: location.href, title: document.title || '' } }).catch(() => {});
         } catch (_) {}
       } catch (_) {}
