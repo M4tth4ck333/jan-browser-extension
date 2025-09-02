@@ -4,8 +4,17 @@ The Jan companion for your browser: chat, inline writing help, search, and page 
 
 - Side panel app for chat and streaming summaries
 - Inline Assistant tooltip for selected text (rewrite/simplify/translate)
-- Google Search + SERP scraping tool (structured results)
+- Web search with DuckDuckGo first and Google fallback (structured results)
 - Optional MCP bridge to expose search/visit tools to LLM clients
+
+## What’s New in 0.12.15
+
+- @mention Tab Selection: type "@" in the composer to quickly select tabs for context.
+- LIFO Tab Ordering: unpinned first, then most recently accessed, then rightmost.
+- Overlay Sidebar: full‑screen overlay menu for session management and quick access.
+- Search Preferences: DuckDuckGo‑first with Google fallback, or DDG‑only via Options.
+- Model Dropdown: optionally fetch `/models` to pick from a list in Options.
+- Reading Overlay and Debug Tools toggles in Options.
 
 ## Quick Start
 
@@ -36,12 +45,23 @@ Open the Options page (⚙️ in the side panel) and set:
 
 - Provider Preset
   - Cerebras → sets base to `https://api.cerebras.ai/v1`
-  - Jan Server → sets base to `http://localhost:1337/v1`
+  - Jan (Local) → sets base to `http://localhost:1337/v1`
+  - Jan Server (Cloud) → currently locked to `https://comingsoon.ai`
   - Custom → any OpenAI-compatible base URL
 - API Base URL (required)
 - API Key (required)
 - Model (required)
 - Temperature (optional, default 0.2)
+
+Advanced/Optional:
+- Use API Key toggle and Show/Hide key
+- Use model list (fetch `/models`) to choose from a dropdown
+- Custom chat completions URL for provider "Custom" (streaming supported)
+- Search preferences:
+  - DuckDuckGo only (no Google fallback)
+  - Show Search button in composer
+- Bridge token and toggle for MCP local WebSocket auth
+- UI toggles: Reading overlay, Debug tools
 
 Click "Test" to verify connectivity.
 
@@ -50,25 +70,30 @@ Click "Test" to verify connectivity.
 - Summarize Page: summarize the whole page (trimmed for token safety)
 - Summarize Selection: prioritize current text selection if present
 - Inline Assistant: select text on any page to rewrite/simplify/translate via tooltip
-- Quick Search: trigger Google Search + scrape via side panel or agent call
+- Quick Search: trigger DuckDuckGo search (with Google fallback) via side panel or agent call; configure DDG‑only in Options
+- @mention tabs: in the chat composer, type "@" to select one or more tabs to use as context for that message. Auto‑follow active tab can also be enabled per session.
+- Overlay sidebar: use the menu button to open the full‑screen overlay to manage chats, switch themes, and tweak context.
 
 Output renders as Markdown in the side panel with streaming updates.
 
 ## How it Works
 
 - `src/content.js` collects page text/selection, title, URL, language, and meta description.
-- `src/background.js` builds prompts and calls your configured provider via `/v1/chat/completions` (streams when available). Also hosts Google Search + SERP scraping and the MCP bridge client.
+- `src/background.js` builds prompts and calls your configured provider via `/v1/chat/completions` (streams when available). Also hosts search (DuckDuckGo first with Google fallback), SERP scraping, and the MCP bridge client.
 - Side panel UI lives in `ui/sidepanel/` (React). Options UI lives in `ui/options/`.
 - Settings are stored in `chrome.storage.sync`.
+- Session context persistence and sharing use IndexedDB + BroadcastChannel in `src/lib/idb.js`.
 
 ## Files
 
 - `manifest.json` — MV3 manifest with side panel, background service worker, and content script
 - `src/background.js` — router/orchestrator; model calls, streaming, search tool, MCP bridge
 - `src/content.js` — page extraction + inline assistant tooltip host
+- `src/lib/idb.js` — minimal IndexedDB + BroadcastChannel wrapper for session context
 - `ui/sidepanel/` — side panel React app (entry: `index.html`, `main.jsx`, `App.jsx`)
 - `ui/options/` — options React app (entry: `index.html`, `main.jsx`, `App.jsx`)
 - `ui/styles.css` — shared styles
+- `mcp/search-server/` — optional MCP server bridging to the extension via local WebSocket
 
 ## Notes
 
@@ -181,6 +206,8 @@ Then reload the extension or wait for it to auto-reconnect.
 
 - ADR-004 (MCP Bridge Security – Optional Token): [docs/adr-004-mcp-bridge-security.md](./docs/adr-004-mcp-bridge-security.md)
 - ADR-005 (Bun-based Release Automation and Local Testing): [docs/adr-005-bun-release-automation.md](./docs/adr-005-bun-release-automation.md)
+- ADR-003 (UI Positioning and Error Handling): [docs/adr-003-ui-positioning-and-error-handling.md](./docs/adr-003-ui-positioning-and-error-handling.md)
+- ADR-003 (UX Improvements): [docs/adr-003-ux-improvements.md](./docs/adr-003-ux-improvements.md)
 - SPEC v2 (Inline writing assistant tooltip): [docs/SPEC-v2.md](./docs/SPEC-v2.md)
 - MCP server details: [mcp/search-server/README.md](./mcp/search-server/README.md)
 - Agents Guide (architecture & flows): [agents.md](./agents.md)
