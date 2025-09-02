@@ -1,3 +1,7 @@
+# Bun test configuration
+# - Preload a lightweight JSDOM + chrome API mock so `bun test`
+#   can run React DOM tests without Vitest's jsdom environment.
+# - The Vitest suite still uses vite.config.js -> tests/setup.ts
 [test]
 preload = ["tests/bun-setup.ts"]
-
+root = "tests"
