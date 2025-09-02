@@ -9,7 +9,8 @@ import { Button } from '../components/ui/button.jsx'
 import { Textarea } from '../components/ui/textarea.jsx'
 import * as ScrollArea from '@radix-ui/react-scroll-area'
 import * as Popover from '@radix-ui/react-popover'
-import { User as UserIcon, ArrowUp, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Settings as SettingsIcon, Trash2 as TrashIcon, Paperclip as PaperclipIcon, Mic as MicIcon, Search as SearchIcon, Menu, SlidersHorizontal, Palette as PaletteIcon } from 'lucide-react'
+import { User as UserIcon, ArrowUp, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Settings as SettingsIcon, Trash2 as TrashIcon, Paperclip as PaperclipIcon, Mic as MicIcon, Search as SearchIcon, Menu, SlidersHorizontal, Palette as PaletteIcon, NotebookPen as NotebookIcon } from 'lucide-react'
+import { ShineBorder } from '../../src/components/magicui/shine-border.tsx'
 import { Input } from '../components/ui/input.jsx'
 import { Checkbox } from '../components/ui/checkbox.tsx'
 import { animate } from 'motion'
@@ -1827,16 +1828,16 @@ export default function App() {
             <span className="font-geist font-medium text-lg">Jan</span>
           </div>
           <div className="flex items-center justify-end gap-1">
-            <SettingsTrigger />
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => deleteChat()}
-              aria-label="Close"
-              title="Close"
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={deleteChat}
+              className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground transition-colors"
+              title="New chat"
             >
-              <XIcon size={16} />
+              <NotebookIcon size={16} />
             </Button>
+            <SettingsTrigger />
           </div>
         </header>
 
@@ -1883,101 +1884,110 @@ export default function App() {
           </ScrollArea.Scrollbar>
         </ScrollArea.Root>
 
-        <footer className="px-1 py-1 z-20 bg-background/80 backdrop-blur-md supports-[backdrop-filter]:bg-background/80 border-t ds-border composer shadow-lg">
-          {/* Chips row: selection chip + selected tabs */}
-          <div className="mb-1 mx-0 flex items-center gap-2 overflow-x-auto no-scrollbar">
-            {selectionText && selectionText.trim().length > 0 ? (
-              <Popover.Root>
-                <Popover.Trigger asChild>
-                  <button type="button" className="tab-chip" title="View selection">
-                    <span className="h-4 w-4 rounded bg-muted inline-flex items-center justify-center text-[10px] font-medium">AI</span>
-                    <span>Selected Text</span>
-                    <span className="chip-x" role="button" aria-label="Clear selection preview" onClick={(e) => { e.stopPropagation(); setSelectionText('') }}>
-                      <XIcon size={12} />
-                    </span>
-                  </button>
-                </Popover.Trigger>
-                <Popover.Portal>
-                  <AnimatedPopoverContent
-                    side="top"
-                    align="start"
-                    sideOffset={8}
-                    className="rounded-xl border ds-border ds-bg shadow-2xl p-2 w-[86vw] sm:w-[460px] max-h-[60vh] z-50"
-                    style={{ backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium text-[11px] opacity-80">Selection</span>
-                      <div className="flex items-center gap-1 opacity-70">
-                        <span title={`${selectionText.length} chars`} className="text-[10px]">{selectionText.length}</span>
-                        <Button variant="ghost" size="icon" aria-label="Clear selection preview" onClick={() => setSelectionText('')}>
-                          <XIcon size={12} />
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="max-h-48 overflow-y-auto whitespace-pre-wrap leading-5 text-sm">
-                      {selectionText}
-                    </div>
-                  </AnimatedPopoverContent>
-                </Popover.Portal>
-              </Popover.Root>
-            ) : null}
-            {/* Tab chips area above input */}
-            {selectedTabs.length > 0 && (
-              <div className="flex items-center gap-1 mb-2 px-1 overflow-x-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-                {selectedTabs.map(tab => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    className="tab-chip cursor-pointer hover:bg-muted/20 transition-colors"
-                    title={`${tab.title}\n${hostFromUrl(tab.url)}\nClick to focus tab`}
-                    onClick={async () => {
-                      try {
-                        await chrome.tabs.update(tab.id, { active: true })
-                      } catch (e) {
-                        console.warn('Failed to focus tab:', e)
-                      }
-                    }}
-                  >
-                    <button 
-                      type="button" 
-                      className="chip-x ml-0 mr-1" 
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        toggleTab(tab.id)
-                      }} 
-                      aria-label="Remove tab"
-                    >
-                      <XIcon size={12} />
-                    </button>
-                    <span className="chip-ic" style={{ backgroundColor: chipColorForTab(tab) }}>
-                      {tab.favIconUrl ? (
-                        <img src={tab.favIconUrl} alt="" className="h-3 w-3" />
-                      ) : (
-                        <span className="h-3 w-3 rounded-full bg-muted inline-block" />
-                      )}
-                    </span>
-                    <span className="truncate chip-label">{tab.title || '(untitled tab)'}</span>
-                  </button>
-                ))}
-              </div>
+        <footer className="px-2 py-2 z-20 bg-background/80 backdrop-blur-md supports-[backdrop-filter]:bg-background/80">
+          {/* Main integrated input container */}
+          <div className="relative rounded-3xl border border-border/40 bg-card/95 backdrop-blur-xl shadow-xl overflow-hidden transition-all duration-300 hover:shadow-2xl hover:border-border/60">
+            {/* ShineBorder effect when working */}
+            {(busy || !!streamingReqId) && (
+              <ShineBorder 
+             shineColor="rgb(159, 238, 111)"
+                className="absolute inset-0"
+              />
             )}
-          </div>
-          
-          {/* Main input area */}
-          <div className="relative">
             {(busy && !streamingReqId && showReadingOverlay) ? (
-              <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px] pointer-events-none z-10" aria-hidden="true" />
+              <div className="absolute inset-0 bg-black/20 backdrop-blur-[1px] pointer-events-none z-10" aria-hidden="true" />
             ) : null}
             {(busy && !streamingReqId) ? (
-              <div className="relative z-20">
+              <div className="absolute top-3 left-4 z-20">
                 <ReadingIndicator />
               </div>
             ) : null}
-            <div className="relative">
+            
+            {/* Context tabs row inside container */}
+            {(selectionText?.trim() || selectedTabs.length > 0) && (
+              <div className="px-4 pt-3 pb-2">
+                <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+                  {selectionText && selectionText.trim().length > 0 ? (
+                    <Popover.Root>
+                      <Popover.Trigger asChild>
+                        <button type="button" className="tab-chip" title="View selection">
+                          <span className="h-4 w-4 rounded bg-muted inline-flex items-center justify-center text-[10px] font-medium">AI</span>
+                          <span>Selected Text</span>
+                          <span className="chip-x" role="button" aria-label="Clear selection preview" onClick={(e) => { e.stopPropagation(); setSelectionText('') }}>
+                            <XIcon size={12} />
+                          </span>
+                        </button>
+                      </Popover.Trigger>
+                      <Popover.Portal>
+                        <AnimatedPopoverContent
+                          side="top"
+                          align="start"
+                          sideOffset={8}
+                          className="rounded-xl border ds-border ds-bg shadow-2xl p-2 w-[86vw] sm:w-[460px] max-h-[60vh] z-50"
+                          style={{ backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-medium text-[11px] opacity-80">Selection</span>
+                            <div className="flex items-center gap-1 opacity-70">
+                              <span title={`${selectionText.length} chars`} className="text-[10px]">{selectionText.length}</span>
+                              <Button variant="ghost" size="icon" aria-label="Clear selection preview" onClick={() => setSelectionText('')}>
+                                <XIcon size={12} />
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="max-h-48 overflow-y-auto whitespace-pre-wrap leading-5 text-sm">
+                            {selectionText}
+                          </div>
+                        </AnimatedPopoverContent>
+                      </Popover.Portal>
+                    </Popover.Root>
+                  ) : null}
+                  
+                  {selectedTabs.map(tab => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      className="tab-chip cursor-pointer hover:bg-muted/20 transition-colors"
+                      title={`${tab.title}\n${hostFromUrl(tab.url)}\nClick to focus tab`}
+                      onClick={async () => {
+                        try {
+                          await chrome.tabs.update(tab.id, { active: true })
+                        } catch (e) {
+                          console.warn('Failed to focus tab:', e)
+                        }
+                      }}
+                    >
+                      <button 
+                        type="button" 
+                        className="chip-x ml-0 mr-1" 
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleTab(tab.id)
+                        }} 
+                        aria-label="Remove tab"
+                      >
+                        <XIcon size={12} />
+                      </button>
+                      <span className="chip-ic" style={{ backgroundColor: chipColorForTab(tab) }}>
+                        {tab.favIconUrl ? (
+                          <img src={tab.favIconUrl} alt="" className="h-3 w-3" />
+                        ) : (
+                          <span className="h-3 w-3 rounded-full bg-muted inline-block" />
+                        )}
+                      </span>
+                      <span className="truncate chip-label">{tab.title || '(untitled tab)'}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {/* Input area inside container */}
+            <div className="relative px-5 py-4">
               <Textarea
                 ref={inputRef}
-                className={`w-full flex-1 resize-none ${hasUserMessage ? 'min-h-[80px]' : 'min-h-[100px]'} max-h-[200px] rounded-2xl text-base leading-6 shadow-lg bg-card/80 border-border/60 backdrop-blur-sm px-4 py-3 pr-12`}
-                placeholder={(busy || !!streamingReqId) ? 'Working…' : 'Ask Jan …'}
+                className={`w-full flex-1 resize-none ${hasUserMessage ? 'min-h-[60px]' : 'min-h-[80px]'} max-h-[180px] text-base leading-6 bg-transparent border-0 focus:ring-0 focus:outline-none placeholder:text-muted-foreground/60 px-0 py-0 transition-all duration-200`}
+                placeholder={(busy || !!streamingReqId) ? '' : 'Ask Jan …'}
                 value={input}
                 onChange={e => { setInput(e.target.value); updateMentions(e.target.value, e.target.selectionStart || e.target.value.length) }}
                 onKeyDown={onKeyDown}
@@ -1985,23 +1995,10 @@ export default function App() {
                 onClick={e => updateMentions(e.currentTarget.value, e.currentTarget.selectionStart || e.currentTarget.value.length)}
                 disabled={busy || !!streamingReqId}
               />
-              {/* Send button */}
-              <div className="pointer-events-none absolute right-3 bottom-3 z-10">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="pointer-events-auto rounded-full h-7 w-7 bg-card/80 border border-border/70 text-foreground/60 shadow-sm"
-                  onClick={() => (searchMode ? askWithGoogle() : sendChat())}
-                  disabled={busy || !!streamingReqId || !(input && input.trim().length)}
-                  aria-label={searchMode ? 'Search and send' : 'Send'}
-                  title={searchMode ? 'Send with Google' : 'Send'}
-                >
-                  <ArrowUp size={12} />
-                </Button>
-              </div>
+              
               {/* @mention suggestions */}
               {mentionOpen && mentionResults.length > 0 ? (
-                <div className="absolute left-2 right-10 bottom-12 z-20 rounded-xl border ds-border ds-bg shadow-2xl p-1 max-h-60 overflow-y-auto">
+                <div className="absolute left-0 right-0 bottom-full mb-2 z-20 rounded-xl border ds-border ds-bg shadow-2xl p-1 max-h-60 overflow-y-auto">
                   {mentionResults.map((t, idx) => {
                     let host = ''
                     try { host = new URL(t.url || '').hostname } catch {}
@@ -2029,18 +2026,17 @@ export default function App() {
                 </div>
               ) : null}
             </div>
-          </div>
-          
-          {/* Context bar below input */}
-          <div className="flex items-center justify-between mt-2 px-1">
-            <div className="flex items-center gap-2">
-              <Popover.Root open={tabPickerOpen} onOpenChange={setTabPickerOpen}>
-                <Popover.Trigger asChild>
-                  <Button variant="ghost" size="sm" className="text-sm text-muted-foreground hover:text-foreground" aria-label="Add context">
-                    <PlusIcon size={16} className="mr-1" />
-                    Add context
-                  </Button>
-                </Popover.Trigger>
+            
+            {/* Bottom action bar inside container */}
+            <div className="flex items-center justify-between px-5 py-4">
+              <div className="flex items-center gap-3">
+                <Popover.Root open={tabPickerOpen} onOpenChange={setTabPickerOpen}>
+                  <Popover.Trigger asChild>
+                    <Button variant="ghost" size="sm" className="text-sm text-muted-foreground/80 hover:text-foreground rounded-full px-3 py-2 transition-all duration-200 hover:bg-muted/20" aria-label="Add context">
+                      <PlusIcon size={15} className="mr-1.5" />
+                      Context
+                    </Button>
+                  </Popover.Trigger>
                 <Popover.Portal>
                   <AnimatedPopoverContent
                     side="top"
@@ -2142,27 +2138,42 @@ export default function App() {
                   </AnimatedPopoverContent>
                 </Popover.Portal>
               </Popover.Root>
-            </div>
-            <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" className="h-8 w-8" title="Attach file">
-                <PaperclipIcon size={16} />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8" title="Voice input">
-                <MicIcon size={16} />
-              </Button>
-              {showComposerSearchButton ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={`h-8 w-8 ${searchMode ? 'bg-primary text-primary-foreground' : ''}`}
-                  onClick={() => setSearchMode(v => !v)}
-                  disabled={busy || !!streamingReqId}
-                  aria-pressed={searchMode}
-                  title={searchMode ? 'Google mode: ON' : 'Google mode: OFF'}
-                >
-                  <SearchIcon size={16} />
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-muted-foreground/70 hover:text-foreground hover:bg-muted/20 transition-all duration-200" title="Attach file">
+                  <PaperclipIcon size={16} />
                 </Button>
-              ) : null}
+                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-muted-foreground/70 hover:text-foreground hover:bg-muted/20 transition-all duration-200" title="Voice input">
+                  <MicIcon size={16} />
+                </Button>
+                {showComposerSearchButton ? (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={`h-9 w-9 rounded-full transition-all duration-200 ${searchMode ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground/70 hover:text-foreground hover:bg-muted/20'}`}
+                    onClick={() => setSearchMode(v => !v)}
+                    disabled={busy || !!streamingReqId}
+                    aria-pressed={searchMode}
+                    title={searchMode ? 'Google mode: ON' : 'Google mode: OFF'}
+                  >
+                    <SearchIcon size={16} />
+                  </Button>
+                ) : null}
+                
+                {/* Send button */}
+                <Button
+                  variant="default"
+                  size="icon"
+                  className="h-10 w-10 rounded-full bg-primary text-primary-foreground shadow-lg ml-3 transition-all duration-200 hover:shadow-xl hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                  onClick={() => (searchMode ? askWithGoogle() : sendChat())}
+                  disabled={busy || !!streamingReqId || !(input && input.trim().length)}
+                  aria-label={searchMode ? 'Search and send' : 'Send'}
+                  title={searchMode ? 'Send with Google' : 'Send'}
+                >
+                  <ArrowUp size={18} />
+                </Button>
+              </div>
             </div>
           </div>
         </footer>
