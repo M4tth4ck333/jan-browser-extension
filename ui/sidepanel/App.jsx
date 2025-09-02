@@ -494,10 +494,12 @@ export default function App() {
   const streamingReqIdRef = useRef(null)
   const sessionsRef = useRef(sessions)
   const activeSessionIdRef = useRef(activeSessionId)
+  const lastScrollTopRef = useRef(0)
   const [showReadingOverlay, setShowReadingOverlay] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
   const [showComposerSearchButton, setShowComposerSearchButton] = useState(true)
   const [searchMode, setSearchMode] = useState(false)
+  const [userHasScrolledUp, setUserHasScrolledUp] = useState(false)
 
   // Theme state (yellow | blue), persisted to chrome.storage.sync and mirrored to <html> for Radix portals
   const [theme, setTheme] = useState('yellow')
@@ -548,11 +550,6 @@ export default function App() {
     try { await chrome.runtime.sendMessage({ type: 'CHAT_COMPLETION_STREAM_STOP', payload: { reqId: id } }) } catch (_) {}
   }, [])
 
-  const scrollToBottom = () => {
-    const el = listRef.current
-    if (!el) return
-    try { el.scrollTop = el.scrollHeight } catch (_) {}
-  }
 
   // Derived active session (must be before effects that depend on `messages`)
   const activeSession = useMemo(() => sessions.find(s => s.id === activeSessionId) || null, [sessions, activeSessionId])
@@ -897,6 +894,48 @@ export default function App() {
     await chrome.storage.local.set({ sessions: nextSessions, activeSessionId: nextActiveId ?? activeSessionId })
   }, [activeSessionId])
 
+  // Auto-scroll to bottom during streaming if user hasn't scrolled up
+  const scrollToBottom = useCallback(() => {
+    if (listRef.current && !userHasScrolledUp) {
+      const element = listRef.current
+      // Use requestAnimationFrame for smooth scrolling
+      requestAnimationFrame(() => {
+        element.scrollTop = element.scrollHeight
+      })
+    }
+  }, [userHasScrolledUp])
+
+  // Check if user is at bottom of scroll area
+  const isAtBottom = useCallback(() => {
+    if (!listRef.current) return true
+    const { scrollTop, scrollHeight, clientHeight } = listRef.current
+    return scrollHeight - scrollTop - clientHeight < 50 // 50px threshold
+  }, [])
+
+  // Handle scroll events to detect user scroll behavior
+  const handleScroll = useCallback(() => {
+    if (!listRef.current) return
+    const { scrollTop } = listRef.current
+    const scrolledUp = scrollTop < lastScrollTopRef.current
+    lastScrollTopRef.current = scrollTop
+    
+    // If user scrolled up, mark as manually scrolled
+    if (scrolledUp && !isAtBottom()) {
+      setUserHasScrolledUp(true)
+    }
+    // If user scrolled to bottom, reset the flag
+    else if (isAtBottom()) {
+      setUserHasScrolledUp(false)
+    }
+  }, [isAtBottom])
+
+  // Auto-scroll when messages change during streaming
+  useEffect(() => {
+    if (streamingReqId && !userHasScrolledUp) {
+      scrollToBottom()
+    }
+  }, [messages, streamingReqId, userHasScrolledUp, scrollToBottom])
+
   // Keep refs in sync with state to avoid stale closures in listeners
   useEffect(() => { sessionsRef.current = sessions }, [sessions])
   useEffect(() => { activeSessionIdRef.current = activeSessionId }, [activeSessionId])
@@ -922,6 +961,8 @@ export default function App() {
         if (msg.type === 'CHAT_STREAM_BEGIN') {
           // Append empty assistant message to fill as deltas arrive
           const aId = activeSessionIdRef.current
+          // Reset scroll state when new streaming begins
+          setUserHasScrolledUp(false)
           setSessions(prev => {
             const idx = prev.findIndex(s => s.id === aId)
             if (idx < 0) return prev
@@ -944,6 +985,8 @@ export default function App() {
             if (last && last.role === 'assistant') {
               last.content = (last.content || '') + delta
               next[idx] = s
+              // Auto-scroll during streaming if user hasn't scrolled up
+              scrollToBottom()
               return next
             }
             return prev
@@ -1119,7 +1162,6 @@ export default function App() {
     if (!contexts || contexts.length === 0) return []
     const safe = Array.isArray(contexts) ? contexts : []
     const count = safe.length
-    const MAX_PER_TAB = 1500 // characters per tab snippet
 
     const parts = safe.map((c, i) => {
       const idx = i + 1
@@ -1128,7 +1170,7 @@ export default function App() {
       const url = (c?.url || '').trim()
       const meta = (c?.metaDescription || '').trim()
       const raw = (c?.selection?.trim() || c?.content?.trim() || '')
-      const snippet = String(raw).slice(0, MAX_PER_TAB)
+      const snippet = String(raw) // No more character limit!
       const headerLines = [
         `[Source: Tab ${tabId}]${title ? ` ${title}` : ''}`.trim(),
         url ? `URL: ${url}` : null,
@@ -1676,9 +1718,10 @@ export default function App() {
 
   return (
     <div
-      className={`h-screen ds-bg ds-text grid ${theme === 'blue' ? 'theme-blue' : 'theme-yellow'}`}
+      className={`fixed inset-0 ds-bg ds-text grid ${theme === 'blue' ? 'theme-blue' : 'theme-yellow'}`}
       style={{
-        gridTemplateColumns: 'auto 1fr'
+        gridTemplateColumns: '1fr',
+        gridTemplateRows: '1fr'
       }}
     >
       {/* Full-screen overlay scrim */}
@@ -1770,7 +1813,7 @@ export default function App() {
       </aside>
 
       {/* Main column */}
-      <div ref={mainRef} className="flex flex-col min-w-0 relative" style={{ willChange: 'transform' }}>
+      <div ref={mainRef} className="grid grid-rows-[auto_minmax(0,1fr)_auto] min-w-0 min-h-0 relative h-full" style={{ willChange: 'transform' }}>
         {(busy && !streamingReqId && showReadingOverlay) ? (
           <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px] pointer-events-none z-10" />
         ) : null}
@@ -1797,14 +1840,14 @@ export default function App() {
           </div>
         </header>
 
-          <ScrollArea.Root className="flex-1 relative">
-          <ScrollArea.Viewport ref={listRef} className={`h-full w-full px-2 pt-3 ${hasUserMessage ? 'pb-32' : 'pb-3'} min-w-0`}>
+          <ScrollArea.Root className="flex-1 relative min-h-0">
+          <ScrollArea.Viewport ref={listRef} className="h-full w-full px-2 pt-3 pb-2 min-w-0 min-h-0" onScroll={handleScroll}>
             {(() => {
               const visible = messages
                 .filter(m => m.role !== 'system' && !(m.role === 'assistant' && typeof m.content === 'string' && m.content.startsWith('New chat created')))
               if (!hasUserMessage) {
                 return (
-                  <div className="w-full h-full grid place-items-center">
+                  <div className="w-full h-full flex items-center justify-center">
                     <HeroSlogan />
                   </div>
                 )
@@ -1840,7 +1883,7 @@ export default function App() {
           </ScrollArea.Scrollbar>
         </ScrollArea.Root>
 
-        <footer className="absolute bottom-0 left-0 right-0 px-1 py-1 z-20 bg-background/80 backdrop-blur-md supports-[backdrop-filter]:bg-background/80 border-t ds-border composer shadow-lg">
+        <footer className="px-1 py-1 z-20 bg-background/80 backdrop-blur-md supports-[backdrop-filter]:bg-background/80 border-t ds-border composer shadow-lg">
           {/* Chips row: selection chip + selected tabs */}
           <div className="mb-1 mx-0 flex items-center gap-2 overflow-x-auto no-scrollbar">
             {selectionText && selectionText.trim().length > 0 ? (
@@ -1933,7 +1976,7 @@ export default function App() {
             <div className="relative">
               <Textarea
                 ref={inputRef}
-                className={`w-full flex-1 resize-none ${hasUserMessage ? 'min-h-[120px]' : 'min-h-[clamp(160px,28vh,320px)]'} rounded-2xl text-base leading-6 shadow-lg bg-card/80 border-border/60 backdrop-blur-sm px-4 py-3 pr-12`}
+                className={`w-full flex-1 resize-none ${hasUserMessage ? 'min-h-[80px]' : 'min-h-[100px]'} max-h-[200px] rounded-2xl text-base leading-6 shadow-lg bg-card/80 border-border/60 backdrop-blur-sm px-4 py-3 pr-12`}
                 placeholder={(busy || !!streamingReqId) ? 'Working…' : 'Ask Jan …'}
                 value={input}
                 onChange={e => { setInput(e.target.value); updateMentions(e.target.value, e.target.selectionStart || e.target.value.length) }}
