@@ -1,4 +1,4 @@
-# Jan Browser Extension MCP Tools
+# Jan Browser MCP Tools
 
 ## Overview
 This simplifies the MCP spec to the two tools the agent actually needs and already uses. Both tools return a single inner‑HTML string of nice, readable text (not a big JSON object). The HTML is sanitized and suitable to render directly in the UI.

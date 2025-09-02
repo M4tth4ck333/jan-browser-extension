@@ -1,4 +1,4 @@
-Jan Browser Extension — Product Spec
+Jan Browser — Product Spec
 
 The browser is where everything piles up: 12 tabs for one task, a few rabbit holes, and a “come back later” mental note. This extension keeps you in flow. You ask. It looks at the page (and a couple more if you want). It answers in the side panel. No context switching, no vendor lock‑in — your stack, your pace.
 
