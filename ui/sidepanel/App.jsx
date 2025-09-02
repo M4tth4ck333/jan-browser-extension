@@ -82,6 +82,23 @@ function Chip({ tab, onRemove }) {
     } catch (_) {}
     onRemove?.()
   }
+
+  // Create a brand new empty chat session and switch to it
+  const createNewChat = async () => {
+    const newId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now())
+    const initial = {
+      id: newId,
+      title: 'Jan',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messages: [
+        { role: 'assistant', content: 'New chat created. How can I help?', ts: Date.now() }
+      ],
+      context: { useContextDefault: true, selectedTabIds: [], contextCache: {}, autoFollowActiveTab: true },
+    }
+    const next = [initial, ...sessions]
+    await saveSessions(next, newId)
+  }
   const host = hostFromUrl(tab?.url || '')
   const bg = chipColorForTab(tab)
   return (
@@ -894,6 +911,29 @@ export default function App() {
     if (nextActiveId) setActiveSessionId(nextActiveId)
     await chrome.storage.local.set({ sessions: nextSessions, activeSessionId: nextActiveId ?? activeSessionId })
   }, [activeSessionId])
+
+  // Create a brand new empty chat session and switch to it (header notebook button)
+  const createNewChat = useCallback(async () => {
+    const newId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now())
+    const initial = {
+      id: newId,
+      title: 'Jan',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messages: [
+        { role: 'assistant', content: 'New chat created. How can I help?', ts: Date.now() }
+      ],
+      context: { useContextDefault: true, selectedTabIds: [], contextCache: {}, autoFollowActiveTab: true },
+    }
+    const next = [initial, ...(sessions || [])]
+    await saveSessions(next, newId)
+    // Reset per-session UI state to defaults for the new chat
+    setSessionTitle(initial.title)
+    setUseContextDefault(true)
+    setSelectedTabIds([])
+    setContextCache({})
+    setAutoFollowActiveTab(true)
+  }, [sessions, saveSessions])
 
   // Auto-scroll to bottom during streaming if user hasn't scrolled up
   const scrollToBottom = useCallback(() => {
@@ -1831,7 +1871,7 @@ export default function App() {
             <Button 
               variant="ghost" 
               size="icon" 
-              onClick={deleteChat}
+              onClick={createNewChat}
               className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground transition-colors"
               title="New chat"
             >
