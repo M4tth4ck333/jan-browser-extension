@@ -24,13 +24,23 @@ The Jan Browser companion: chat, inline writing help, search, and page context i
     cd jan-browser-extension
     ```
 2.  **Install dependencies:**
-    ```bash
-    npm install
-    ```
+    - With Bun (recommended)
+      ```bash
+      bun install
+      ```
+    - Or with npm
+      ```bash
+      npm install
+      ```
 3.  **Build the extension:**
-    ```bash
-    npm run build
-    ```
+    - With Bun
+      ```bash
+      bun run build
+      ```
+    - Or with npm
+      ```bash
+      npm run build
+      ```
 4.  **Load the extension in Chrome:**
     *   Open `chrome://extensions` in Chrome.
     *   Enable "Developer mode".
