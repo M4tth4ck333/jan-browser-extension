@@ -1,6 +1,6 @@
 {
   "name": "jan-browser-extension",
-  "version": "0.12.15",
+  "version": "0.12.16",
   "description": "A Manifest V3 Chrome extension that summarizes the current page (or selected text) using any OpenAI-compatible API, including Cerebras and Jan Server.",
   "type": "module",
   "main": "index.js",
@@ -18,7 +18,9 @@
     "preview": "vite preview",
     "export:icons": "node scripts/export-icons.mjs",
     "release:local": "bash scripts/package-local.sh",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:e2e": "npx playwright test"
   },
   "keywords": [],
   "author": "",
@@ -53,6 +55,13 @@
     "tailwindcss": "^4.1.11",
     "tw-animate-css": "^1.3.6",
     "vite": "^7.1.2",
-    "sharp": "^0.33.4"
+    "sharp": "^0.33.4",
+    "vitest": "^2.1.5",
+    "@vitest/coverage-v8": "^2.1.5",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/jest-dom": "^6.4.8",
+    "@testing-library/user-event": "^14.5.2",
+    "jsdom": "^24.1.0",
+    "@playwright/test": "^1.47.2"
   }
 }
