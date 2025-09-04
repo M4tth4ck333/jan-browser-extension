@@ -1,0 +1,255 @@
+---
+title: Usage Examples
+description: Practical examples and use cases for the Jan Browser Extension to enhance your browsing experience.
+---
+
+import { Aside, Card, CardGrid, Steps } from '@astrojs/starlight/components';
+
+## Core Use Cases
+
+The Jan Browser Extension excels in several key scenarios. Here are practical examples of how to get the most out of each feature.
+
+### Page Summarization
+
+Perfect for quickly understanding long articles, research papers, or documentation.
+
+<Steps>
+1. **Navigate to any webpage** with substantial content
+2. **Click the Jan extension icon** to open the side panel
+3. **Click "Summarize Page"** or use the summarize button
+4. **Review the generated summary** with key points and insights
+</Steps>
+
+![Page Summarization Example Placeholder](/assets/images/page-summary-example-placeholder.png)
+
+**Best for:**
+- Research articles and blog posts
+- News articles and reports  
+- Documentation and tutorials
+- Long-form content that needs quick scanning
+
+### Inline Text Assistance
+
+Transform your writing instantly without leaving the page context.
+
+<Steps>
+1. **Select any text** on a webpage (your own writing or existing content)
+2. **Wait for the tooltip** to appear near your selection
+3. **Choose an action**: Rewrite, Simplify, Translate, or custom prompt
+4. **Review the suggestion** and Apply, Copy, or Regenerate as needed
+</Steps>
+
+![Inline Assistant Example Placeholder](/assets/images/inline-assistant-example-placeholder.png)
+
+#### Common Use Cases
+
+<CardGrid>
+  <Card title="Email Enhancement" icon="email">
+    Select draft email text and use "Rewrite" to make it more professional or "Simplify" for clarity.
+  </Card>
+  
+  <Card title="Social Media Posts" icon="social">
+    Improve tone and engagement of social media posts before publishing.
+  </Card>
+  
+  <Card title="Translation" icon="translate">
+    Quickly translate foreign text or your own content to different languages.
+  </Card>
+  
+  <Card title="Academic Writing" icon="document">
+    Enhance clarity and formality of academic or professional documents.
+  </Card>
+</CardGrid>
+
+### Smart Web Search
+
+Research topics efficiently with integrated search that provides structured results.
+
+<Steps>
+1. **Open the side panel** by clicking the extension icon
+2. **Type your search query** in the chat composer
+3. **Click the search button** or trigger search via chat
+4. **Review structured results** with titles, links, and snippets
+5. **Click links to explore** or ask follow-up questions
+</Steps>
+
+![Smart Search Example Placeholder](/assets/images/smart-search-example-placeholder.png)
+
+**Advantages over standard search:**
+- Results appear directly in your workflow
+- Structured format with clean snippets  
+- Can ask follow-up questions about results
+- No need to open new tabs
+
+### Context-Aware Chat with @mentions
+
+Have conversations that reference specific tabs and content.
+
+<Steps>
+1. **Open multiple tabs** with relevant content
+2. **Start typing "@"** in the chat composer
+3. **Select tabs** to include in your conversation context
+4. **Ask questions** that reference the selected content
+5. **Get contextual responses** based on all selected pages
+</Steps>
+
+![Context Chat Example Placeholder](/assets/images/context-chat-example-placeholder.png)
+
+**Example workflows:**
+- Compare multiple product pages before purchasing
+- Analyze different news sources on the same topic
+- Cross-reference documentation from multiple sites
+- Research academic topics across various papers
+
+## Workflow Examples
+
+### Research Workflow
+
+**Scenario**: Researching a technical topic across multiple sources
+
+<Steps>
+1. **Search for your topic** using the integrated search
+2. **Open promising links** in new tabs
+3. **Summarize each page** to quickly understand key points
+4. **Use @mentions** to reference multiple tabs in conversation
+5. **Ask synthesis questions** to combine insights across sources
+</Steps>
+
+### Content Creation Workflow
+
+**Scenario**: Writing a blog post with research and editing
+
+<Steps>
+1. **Research your topic** using smart search
+2. **Summarize source material** to extract key points
+3. **Draft content** in your preferred editor
+4. **Select and enhance text** using inline assistant
+5. **Fact-check claims** by asking questions with page context
+</Steps>
+
+### Email & Communication Workflow
+
+**Scenario**: Crafting professional communications
+
+<Steps>
+1. **Draft your message** in your email client
+2. **Select the draft text** and use "Rewrite" for professionalism
+3. **Check tone** by asking the AI to evaluate your message
+4. **Translate if needed** for international communications
+5. **Summarize long threads** before responding
+</Steps>
+
+## Advanced Use Cases
+
+### MCP Bridge Integration
+
+For developers and power users who want to expose browser capabilities to other tools.
+
+**Setup Example:**
+
+```json
+{
+  "mcpServers": {
+    "browser": {
+      "command": "node",
+      "args": ["/path/to/jan-browser-extension/mcp/search-server/dist/src/index.js"],
+      "env": {
+        "BRIDGE_HOST": "127.0.0.1",
+        "BRIDGE_PORT": "17389"
+      }
+    }
+  }
+}
+```
+
+**Use cases:**
+- Automated research workflows in Claude Desktop
+- Integration with custom development tools
+- Bulk web content analysis
+- Structured data extraction from multiple sites
+
+![MCP Integration Example Placeholder](/assets/images/mcp-integration-example-placeholder.png)
+
+### Custom Provider Integration
+
+**Scenario**: Using with a custom OpenAI-compatible endpoint
+
+<Steps>
+1. **Set Provider to "Custom"** in settings
+2. **Enter your custom API base URL**
+3. **Configure authentication** if required
+4. **Test the connection** to verify compatibility
+5. **Optimize model and temperature** for your use case
+</Steps>
+
+### Multilingual Workflow
+
+**Scenario**: Working with content in multiple languages
+
+<Steps>
+1. **Browse foreign language content**
+2. **Select text and translate** to understand key points
+3. **Summarize pages** in your preferred language
+4. **Ask questions** about content in your native language
+5. **Draft responses** and translate back if needed
+</Steps>
+
+## Tips for Optimal Usage
+
+<Aside type="tip">
+**Performance Tips:**
+- Use lower temperature settings (0.1-0.3) for factual tasks
+- Enable "Auto-follow active tab" for seamless context switching
+- Pin frequently used tabs before using @mentions
+- Use DuckDuckGo-only mode for faster search if Google isn't needed
+</Aside>
+
+### Keyboard Shortcuts & Efficiency
+
+While the extension doesn't have custom keyboard shortcuts, you can optimize your workflow:
+
+- **Tab management**: Pin important tabs before @mentioning
+- **Quick access**: Pin the extension for one-click side panel access
+- **Context switching**: Enable auto-follow for hands-free tab context
+- **Search efficiency**: Use specific queries for better results
+
+### Privacy Considerations
+
+**For sensitive content:**
+- Use local Jan models instead of cloud providers
+- Disable auto-follow for sensitive tabs
+- Clear session history regularly
+- Consider turning off bridge token for air-gapped environments
+
+### Model Selection Best Practices
+
+**Different models for different tasks:**
+- **Fast models** (like GPT-3.5) for quick summaries and simple rewrites
+- **Advanced models** (like GPT-4) for complex analysis and creative writing
+- **Local models** for privacy-sensitive content
+- **Specialized models** for domain-specific tasks (code, creative, etc.)
+
+## Troubleshooting Common Scenarios
+
+**Inline assistant not appearing:**
+- Ensure text selection is substantial (more than a few words)
+- Check that content scripts are enabled for the current site
+- Refresh pages that were open before extension installation
+
+**Search returning poor results:**
+- Try more specific queries
+- Switch between DuckDuckGo and Google fallback
+- Clear browser cache if results seem cached
+
+**Context @mentions not working:**
+- Verify tabs are still active and loaded
+- Check that pages aren't blocked by content security policy
+- Refresh tabs if they were opened before extension installation
+
+For more detailed troubleshooting, see our [Configuration & Troubleshooting guide](./configuration).
+
+## Next Steps
+
+- [Configure advanced settings](./configuration) for your specific workflow
+- [Set up MCP Bridge](./mcp-bridge) for integration with development tools
+- [Learn about the architecture](./architecture) if you want to contribute or extend the extension

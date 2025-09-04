@@ -1,0 +1,403 @@
+---
+title: Configuration & Troubleshooting
+description: Complete guide to configuring the Jan Browser Extension and solving common issues.
+---
+
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+## Configuration Overview
+
+The Jan Browser Extension offers extensive configuration options to tailor your AI assistance experience. Access settings by clicking the gear (⚙️) icon in the side panel.
+
+![Extension Options Page Placeholder](/assets/images/extension-options-placeholder.png)
+
+## Provider Configuration
+
+### Provider Presets
+
+<Tabs>
+  <TabItem label="Cerebras">
+    **Cerebras (Recommended for Speed)**
+    - **Base URL**: `https://api.cerebras.ai/v1`
+    - **API Key**: Required (get from [Cerebras Console](https://cloud.cerebras.ai))
+    - **Models**: Llama 3.1 8B, 70B models available
+    - **Best for**: Fast responses, general use cases
+  </TabItem>
+  
+  <TabItem label="Jan Local">
+    **Jan (Local)**
+    - **Base URL**: `http://localhost:1337/v1`
+    - **API Key**: Usually not required for local
+    - **Prerequisites**: Jan app running locally
+    - **Best for**: Privacy, offline use, custom models
+    
+    <Aside type="note">
+    Ensure your Jan local server is running and accessible at port 1337 before testing the connection.
+    </Aside>
+  </TabItem>
+  
+  <TabItem label="Jan Server">
+    **Jan Server (Cloud)**
+    - **Base URL**: `https://comingsoon.ai`
+    - **API Key**: Required (from Jan account)
+    - **Status**: Currently in preview
+    - **Best for**: Hosted Jan experience
+  </TabItem>
+  
+  <TabItem label="OpenAI">
+    **OpenAI**
+    - **Base URL**: `https://api.openai.com/v1`
+    - **API Key**: Required (from OpenAI dashboard)
+    - **Models**: GPT-3.5, GPT-4, GPT-4 Turbo available
+    - **Best for**: High-quality responses, complex tasks
+  </TabItem>
+  
+  <TabItem label="Custom">
+    **Custom Provider**
+    - **Base URL**: Any OpenAI-compatible endpoint
+    - **API Key**: Varies by provider
+    - **Examples**: Ollama, LM Studio, Anthropic, etc.
+    - **Best for**: Specialized setups, self-hosted solutions
+  </TabItem>
+</Tabs>
+
+### Model Selection
+
+**Manual Model Entry:**
+- Enter the exact model name (e.g., `gpt-4-turbo`, `llama-3.1-8b`)
+- Ensure the model is available on your chosen provider
+
+**Automatic Model Discovery:**
+- Enable "Use model list" to fetch available models
+- The extension will call `/models` endpoint
+- Select from dropdown of available models
+
+![Model Selection Placeholder](/assets/images/model-selection-placeholder.png)
+
+### Advanced Provider Settings
+
+**Temperature Control:**
+- **Range**: 0.0 - 2.0
+- **Default**: 0.2
+- **Low (0.0-0.3)**: More focused, deterministic responses
+- **High (0.7-2.0)**: More creative, varied responses
+
+**Custom Chat Completions URL:**
+- Override the default `/chat/completions` endpoint
+- Useful for providers with non-standard endpoints
+- Supports streaming when available
+
+## Search Configuration
+
+### Search Preferences
+
+**DuckDuckGo Settings:**
+- **Default**: DuckDuckGo first with Google fallback
+- **DDG Only**: Disable Google fallback for privacy
+- **Show Search Button**: Display search button in composer
+
+**Search Behavior:**
+- Results integrated directly in side panel
+- Structured format with titles, URLs, snippets
+- Configurable number of results (default: 8, max: 20)
+
+![Search Configuration Placeholder](/assets/images/search-config-placeholder.png)
+
+## UI & Experience Settings
+
+### Side Panel Preferences
+
+**Auto-follow Active Tab:**
+- Automatically switch chat context as you change tabs
+- Can be enabled per-session in overlay menu
+- Useful for seamless context switching
+
+**Theme Options:**
+- Light/Dark theme toggle
+- Automatic based on system preference
+- Persistent across browser sessions
+
+### Advanced UI Features
+
+**Reading Overlay:**
+- Toggle full-screen reading mode for summaries
+- Enhanced typography for better readability
+- Optional feature for focused reading
+
+**Debug Tools:**
+- Enable additional debugging information
+- Useful for troubleshooting connection issues
+- Shows detailed API request/response info
+
+## MCP Bridge Configuration
+
+### Bridge Settings
+
+**Bridge Token Authentication:**
+- **Default**: Disabled (no authentication)
+- **Enable**: Set shared secret for security
+- **Token Storage**: Chrome sync storage
+
+**Connection Settings:**
+- **Host**: `127.0.0.1` (localhost only)
+- **Port**: `17389` (default WebSocket port)
+- **Auto-connect**: Enabled by default
+
+<Steps>
+1. **Generate a secure token**
+   ```bash
+   openssl rand -hex 32
+   ```
+
+2. **Set the token in extension settings**
+   - Open Options page
+   - Navigate to Bridge section
+   - Enter token and enable "Use token for bridge auth"
+
+3. **Start MCP server with token**
+   ```bash
+   BRIDGE_TOKEN="your-secure-token" npm run dev:mcp
+   ```
+
+4. **Verify connection**
+   - Check service worker console
+   - Look for "MCP Bridge connected" message
+</Steps>
+
+![MCP Bridge Configuration Placeholder](/assets/images/mcp-bridge-config-placeholder.png)
+
+### Server Command Helper
+
+The Options page provides a convenient "Copy server command" button:
+- **Without token**: Copies basic `npm run dev:mcp` command  
+- **With token**: Includes `BRIDGE_TOKEN` environment variable
+- Automatically adapts based on your current settings
+
+## Storage & Privacy
+
+### Data Storage
+
+**Local Storage (Chrome Sync):**
+- API keys and provider settings
+- User preferences and UI settings
+- Bridge tokens and connection settings
+- **Synchronized** across Chrome instances when logged in
+
+**Session Storage (IndexedDB):**
+- Chat history and conversation context
+- Tab context and @mention data
+- **Local only** - not synchronized
+
+**No External Storage:**
+- Extension doesn't store data on external servers
+- All processing happens via your configured provider
+- Session data remains in your browser
+
+### Privacy Considerations
+
+**API Key Security:**
+- Keys stored in Chrome's secure storage
+- Never transmitted except to your chosen provider
+- Use Chrome profile lock for additional security
+
+**Content Privacy:**
+- Page content only sent when you explicitly request AI assistance
+- No background monitoring or data collection
+- Content scripts only activate when extension is used
+
+## Troubleshooting
+
+### Connection Issues
+
+**"Connection failed" errors:**
+
+<Steps>
+1. **Verify API endpoint is accessible**
+   ```bash
+   curl -i https://api.cerebras.ai/v1/models
+   ```
+
+2. **Check API key validity**
+   - Test with a simple API call
+   - Ensure key has necessary permissions
+   - Verify key hasn't expired
+
+3. **Network connectivity**
+   - Check for corporate firewall blocks
+   - Verify proxy settings if applicable
+   - Try from different network if possible
+</Steps>
+
+**Local Jan connection issues:**
+
+<Steps>
+1. **Verify Jan is running**
+   - Check Jan app is open and active
+   - Verify server is running on port 1337
+   - Test with: `curl http://localhost:1337/v1/models`
+
+2. **Check CORS settings**
+   - Jan should allow browser extension requests
+   - Verify Jan's API server is properly configured
+   - Restart Jan if needed
+</Steps>
+
+### Extension Functionality Issues
+
+**Side panel not opening:**
+- Ensure extension is pinned to toolbar
+- Check extension is enabled in `chrome://extensions`
+- Try refreshing the page and clicking extension icon
+- Check browser console for errors (F12 → Console)
+
+**Inline assistant not appearing:**
+- Select more text (minimum ~10 characters)
+- Ensure page allows content scripts (not on chrome:// pages)
+- Refresh pages opened before extension installation
+- Check selection is on a supported page type
+
+**@mentions not working:**
+- Verify tabs are still loaded and active
+- Check tabs aren't showing error pages
+- Refresh tabs if they were opened before extension installation
+- Ensure tabs contain readable content
+
+### Search Issues
+
+**Search returning poor results:**
+- Try more specific search terms
+- Check search preferences (DDG vs Google fallback)
+- Verify internet connection
+- Clear browser cache and cookies
+
+**Search results not appearing:**
+- Check popup blockers aren't interfering
+- Verify JavaScript is enabled
+- Try disabling other extensions temporarily
+- Check network connectivity
+
+### MCP Bridge Issues
+
+**Bridge connection failing:**
+
+<Steps>
+1. **Check server is running**
+   ```bash
+   lsof -i :17389  # Should show Node.js process
+   ```
+
+2. **Verify token configuration**
+   - Ensure token matches between server and extension
+   - Check token is enabled in extension settings
+   - Try without token first to isolate issues
+
+3. **Network troubleshooting**
+   ```bash
+   # Check if port is accessible
+   telnet 127.0.0.1 17389
+   ```
+
+4. **Check server logs**
+   - Enable `MCP_LOG_FILE` for detailed logging
+   - Look for connection attempts and errors
+   - Verify WebSocket handshake completion
+</Steps>
+
+**Bridge tools not working:**
+- Verify extension is connected (check service worker console)
+- Test with `bridge_status` tool to confirm connection
+- Restart both server and extension
+- Check for firewall interference
+
+### Performance Issues
+
+**Slow response times:**
+- Switch to faster model (e.g., GPT-3.5 instead of GPT-4)
+- Lower temperature setting for more focused responses
+- Check network connectivity to provider
+- Try different provider if issues persist
+
+**High memory usage:**
+- Clear chat history in overlay menu
+- Limit number of open tabs with @mentions
+- Disable debug tools if enabled
+- Restart browser if memory usage is excessive
+
+### Browser-Specific Issues
+
+**Chrome/Chromium:**
+- Extension updates: Check `chrome://extensions` for updates
+- Profile issues: Try in incognito mode to isolate profile problems
+- Sync conflicts: Disable Chrome sync temporarily if settings aren't persisting
+
+**Firefox:**
+- Temporary installations reset on browser restart
+- Some APIs may behave differently than Chrome
+- Check `about:debugging` for extension status
+
+**Microsoft Edge:**
+- Same as Chrome for most issues
+- Check Edge-specific privacy settings
+- Verify extension permissions in Edge settings
+
+## Getting Help
+
+If you continue to experience issues:
+
+1. **Check service worker console**
+   - Go to `chrome://extensions`
+   - Find Jan Browser Extension
+   - Click "Service worker" → "Inspect"
+   - Look for error messages
+
+2. **Enable debug tools**
+   - Turn on debug tools in Options
+   - Recreate the issue
+   - Check for additional error information
+
+3. **Report issues**
+   - [GitHub Issues](https://github.com/menloresearch/jan-browser-extension/issues)
+   - Include browser version, extension version, and error messages
+   - Provide steps to reproduce the issue
+
+4. **Community support**
+   - Join Jan community forums
+   - Check existing documentation
+   - Search for similar issues in GitHub
+
+## Advanced Configuration
+
+### Developer Options
+
+**Content Security Policy:**
+- Some sites may block extension functionality
+- Try disabling strict CSP for testing
+- Report CSP conflicts for future fixes
+
+**Extension Permissions:**
+- Verify all required permissions are granted
+- Check for permission prompts in browser settings
+- Reload extension if permissions were recently granted
+
+### Custom Endpoints
+
+**Setting up custom OpenAI-compatible endpoints:**
+
+<Steps>
+1. **Verify endpoint compatibility**
+   - Test `/models` endpoint returns model list
+   - Verify `/chat/completions` accepts OpenAI format
+   - Check streaming support if needed
+
+2. **Configure authentication**
+   - API key in Authorization header
+   - Custom authentication if required
+   - Test with curl before configuring extension
+
+3. **Test integration**
+   - Use "Test" button in Options
+   - Verify responses are properly formatted
+   - Check for streaming functionality
+</Steps>
+
+For additional technical details, see the [agents guide](https://github.com/menloresearch/jan-browser-extension/blob/main/agents.md).

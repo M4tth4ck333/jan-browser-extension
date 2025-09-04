@@ -1,0 +1,236 @@
+---
+title: Installation
+description: How to install the Jan Browser Extension on Chromium and Firefox browsers.
+---
+
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+## Prerequisites
+
+Before installing the Jan Browser Extension, ensure you have:
+
+- A supported browser (Chrome, Chromium, Edge, Firefox)
+- A working Jan installation or access to an OpenAI-compatible API endpoint
+- Developer mode enabled (for manual installation)
+
+## Installation Methods
+
+<Tabs>
+  <TabItem label="Chrome/Chromium">
+    ### From Chrome Web Store
+    
+    <Aside type="caution">
+    The Jan Browser Extension is not yet available on the Chrome Web Store. Use the manual installation method below.
+    </Aside>
+    
+    ### Manual Installation (Developer Mode)
+    
+    <Steps>
+    1. **Download the extension**
+       
+       Clone the repository and build the extension:
+       ```bash
+       git clone https://github.com/menloresearch/jan-browser-extension.git
+       cd jan-browser-extension
+       ```
+    
+    2. **Install dependencies**
+       
+       Using Bun (recommended):
+       ```bash
+       bun install
+       ```
+       
+       Or using npm:
+       ```bash
+       npm install
+       ```
+    
+    3. **Build the extension**
+       
+       Using Bun:
+       ```bash
+       bun run build
+       ```
+       
+       Or using npm:
+       ```bash
+       npm run build
+       ```
+    
+    4. **Enable Developer Mode**
+       
+       - Open Chrome and navigate to `chrome://extensions`
+       - Toggle "Developer mode" in the top-right corner
+       
+       ![Chrome Developer Mode Placeholder](/assets/images/chrome-dev-mode-placeholder.png)
+    
+    5. **Load the Extension**
+       
+       - Click "Load unpacked"
+       - Select the `dist` folder from your project directory
+       - The extension should now appear in your extensions list
+       
+       ![Load Unpacked Extension Placeholder](/assets/images/chrome-load-unpacked-placeholder.png)
+    
+    6. **Pin the Extension**
+       
+       - Click the extensions puzzle icon in the toolbar
+       - Pin the Jan Browser Extension for easy access
+       
+       ![Pin Extension Placeholder](/assets/images/chrome-pin-extension-placeholder.png)
+    </Steps>
+  </TabItem>
+  
+  <TabItem label="Firefox">
+    ### From Firefox Add-ons Store
+    
+    <Aside type="caution">
+    The Jan Browser Extension is not yet available on Firefox Add-ons. Use the manual installation method below.
+    </Aside>
+    
+    ### Manual Installation (Temporary)
+    
+    <Steps>
+    1. **Build the extension**
+       
+       Follow steps 1-3 from the Chrome installation to clone, install dependencies, and build the extension.
+    
+    2. **Open Firefox Developer Tools**
+       
+       - Navigate to `about:debugging` in Firefox
+       - Click "This Firefox" in the sidebar
+       
+       ![Firefox Debugging Placeholder](/assets/images/firefox-debugging-placeholder.png)
+    
+    3. **Load Temporary Add-on**
+       
+       - Click "Load Temporary Add-on..."
+       - Navigate to your project's `dist` folder
+       - Select the `manifest.json` file
+       
+       ![Firefox Load Temporary Placeholder](/assets/images/firefox-load-temporary-placeholder.png)
+    
+    4. **Access the Extension**
+       
+       - The extension will appear in your toolbar
+       - Click the icon to open the side panel
+    </Steps>
+    
+    <Aside type="note">
+    **Temporary installations** in Firefox are removed when you close the browser. For persistent installation, you'll need to package the extension as an .xpi file or wait for the official Firefox Add-on store release.
+    </Aside>
+  </TabItem>
+  
+  <TabItem label="Microsoft Edge">
+    ### From Edge Add-ons Store
+    
+    <Aside type="caution">
+    The Jan Browser Extension is not yet available on the Edge Add-ons store. Use the manual installation method below.
+    </Aside>
+    
+    ### Manual Installation (Developer Mode)
+    
+    <Steps>
+    1. **Build the extension**
+       
+       Follow steps 1-3 from the Chrome installation to clone, install dependencies, and build the extension.
+    
+    2. **Enable Developer Mode**
+       
+       - Open Edge and navigate to `edge://extensions`
+       - Toggle "Developer mode" in the left sidebar
+       
+       ![Edge Developer Mode Placeholder](/assets/images/edge-dev-mode-placeholder.png)
+    
+    3. **Load the Extension**
+       
+       - Click "Load unpacked"
+       - Select the `dist` folder from your project directory
+       - The extension should now appear in your extensions list
+    
+    4. **Pin the Extension**
+       
+       - Click the extensions icon (puzzle piece) in the toolbar
+       - Pin the Jan Browser Extension for easy access
+    </Steps>
+  </TabItem>
+</Tabs>
+
+## Initial Configuration
+
+After installation, you'll need to configure the extension:
+
+<Steps>
+1. **Open the Extension**
+   
+   Click the Jan Browser Extension icon in your browser toolbar to open the side panel.
+
+2. **Access Settings**
+   
+   Click the settings (⚙️) icon in the side panel to open the Options page.
+   
+   ![Extension Settings Placeholder](/assets/images/extension-settings-placeholder.png)
+
+3. **Configure Your Provider**
+   
+   Choose from the available presets or set up a custom endpoint:
+   - **Cerebras**: `https://api.cerebras.ai/v1`
+   - **Jan (Local)**: `http://localhost:1337/v1`
+   - **Jan Server (Cloud)**: `https://comingsoon.ai`
+   - **Custom**: Any OpenAI-compatible base URL
+
+4. **Add Your API Key**
+   
+   Enter your API key for your chosen provider. Keys are stored locally in Chrome storage.
+
+5. **Select a Model**
+   
+   Choose an available model or enable the model dropdown to fetch available models from your endpoint.
+
+6. **Test the Connection**
+   
+   Click "Test" to verify your configuration is working correctly.
+</Steps>
+
+## Verification
+
+To verify the installation was successful:
+
+1. **Side Panel Access**: Click the extension icon and confirm the side panel opens
+2. **Basic Functionality**: Try summarizing the current page
+3. **Inline Assistant**: Select some text on any webpage and look for the assistant tooltip
+4. **Search**: Use the search functionality within the side panel
+
+![Extension Verification Placeholder](/assets/images/extension-verification-placeholder.png)
+
+## Troubleshooting
+
+### Common Issues
+
+**Extension not appearing after installation:**
+- Refresh the extensions page (`chrome://extensions`)
+- Ensure Developer mode is enabled
+- Check that you selected the correct `dist` folder
+
+**Side panel not opening:**
+- Ensure you've pinned the extension
+- Check browser console for errors (F12 → Console)
+- Verify the extension is enabled in your extensions list
+
+**API connection issues:**
+- Verify your API endpoint is accessible
+- Check that your API key is correct
+- Ensure your local Jan server is running (if using Jan Local)
+
+**Content script not working on some pages:**
+- Refresh pages that were loaded before extension installation
+- Some pages (like `chrome://` URLs) don't allow content scripts
+
+For more detailed troubleshooting, see our [Configuration & Troubleshooting guide](./configuration).
+
+## Next Steps
+
+- [Configure your settings](./configuration) for optimal performance
+- [Explore usage examples](./examples) to get the most out of the extension
+- [Set up MCP Bridge](./mcp-bridge) for integration with LLM clients
