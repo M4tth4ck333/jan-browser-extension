@@ -7,6 +7,7 @@ import 'highlight.js/styles/github.min.css'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import { Button } from '../components/ui/button.jsx'
 import { Composer } from './components/composer/index.js'
+import { Navbar } from './components/navbar/index.js'
 import * as ScrollArea from '@radix-ui/react-scroll-area'
 import * as Popover from '@radix-ui/react-popover'
 import { User as UserIcon, ArrowUp, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Settings as SettingsIcon, Trash2 as TrashIcon, Paperclip as PaperclipIcon, Mic as MicIcon, Search as SearchIcon, Menu, SlidersHorizontal, Palette as PaletteIcon, NotebookPen as NotebookIcon } from 'lucide-react'
@@ -19,28 +20,6 @@ import handSvg from '../assets/jan-hand.svg'
 // Helpers at module scope
 const hostFromUrl = (url = '') => { try { return new URL(url).hostname || '' } catch { return '' } }
 
-// Animated hamburger menu trigger for opening the sidebar
-function MenuTrigger({ onOpen }) {
-  const btnRef = useRef(null)
-  const handlePointerDown = useCallback(() => {
-    // Open immediately on press
-    onOpen?.()
-    // Fire-and-forget micro animation for tap feedback
-    const el = btnRef.current
-    try {
-      animate(
-        el,
-        { scale: [1, 1.08, 1], y: [0, -1, 0] },
-        { duration: 0.14, easing: 'ease-out' }
-      )
-    } catch (_) {}
-  }, [onOpen])
-  return (
-    <Button ref={btnRef} variant="ghost" size="icon" onPointerDown={handlePointerDown} aria-label="Open sidebar">
-      <Menu size={18} />
-    </Button>
-  )
-}
 const hueFromString = (s = '') => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h % 360 }
 const chipColorForTab = (tab) => { const host = hostFromUrl(tab?.url || ''); const h = hueFromString(host); return `hsl(${h}, 70%, 88%)` }
 
@@ -1834,28 +1813,12 @@ export default function App() {
         {(busy && !streamingReqId && showReadingOverlay) ? (
           <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px] pointer-events-none z-10" />
         ) : null}
-        <header className="sticky top-0 z-10 grid grid-cols-3 items-center px-2 py-1.5 bg-transparent">
-          <div className="flex items-center gap-2 min-w-0">
-            {!sidebarOpen && (
-              <MenuTrigger onOpen={() => setSidebarOpen(true)} />
-            )}
-          </div>
-          <div className="flex items-center justify-center">
-            <span className="font-geist font-medium text-lg">Jan</span>
-          </div>
-          <div className="flex items-center justify-end gap-1">
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={createNewChat}
-              className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground transition-colors"
-              title="New chat"
-            >
-              <NotebookIcon size={16} />
-            </Button>
-            <SettingsTrigger />
-          </div>
-        </header>
+        <Navbar
+          sidebarOpen={sidebarOpen}
+          setSidebarOpen={setSidebarOpen}
+          createNewChat={createNewChat}
+          SettingsTrigger={SettingsTrigger}
+        />
 
           <ScrollArea.Root className="flex-1 relative min-h-0">
           <ScrollArea.Viewport ref={listRef} className="h-full w-full px-2 pt-3 pb-2 min-w-0 min-h-0" onScroll={handleScroll}>
