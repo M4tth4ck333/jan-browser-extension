@@ -1,16 +1,16 @@
-name: Jan Astro Docs
+name: Jan Browser Docs
 
 on:
   push:
     branches:
-      - dev
+      - main
     paths:
-      - 'website/**'
-      - '.github/workflows/jan-astro-docs.yml'
+      - 'docs/**'
+      - '.github/workflows/jan-browser-docs.yml'
   pull_request:
     paths:
-      - 'website/**'
-      - '.github/workflows/jan-astro-docs.yml'
+      - 'docs/**'
+      - '.github/workflows/jan-browser-docs.yml'
     # Review gh actions docs if you want to further define triggers, paths, etc
     # https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#on
   workflow_dispatch:
@@ -19,7 +19,7 @@ jobs:
   deploy:
     name: Deploy to CloudFlare Pages
     env:
-      CLOUDFLARE_PROJECT_NAME: astro-docs # docs.jan.ai
+      CLOUDFLARE_PROJECT_NAME: jan-browser-docs
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -27,21 +27,6 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v3
-
-      - name: Ensure OpenAPI spec is available
-        run: |
-          # Check if OpenAPI spec exists in the root
-          if [ -f "openapi.json" ]; then
-            echo "✓ OpenAPI spec found in root directory"
-            # Copy to website public directory
-            mkdir -p website/public/openapi
-            cp openapi.json website/public/openapi/openapi.json
-            echo "✓ Copied OpenAPI spec to website directory"
-          else
-            echo "⚠️ OpenAPI spec not found in root directory"
-            echo "The API documentation may not be available"
-          fi
-
       - uses: actions/setup-node@v3
         with:
           node-version: 20
@@ -53,7 +38,7 @@ jobs:
 
       - name: Fill env vars
         continue-on-error: true
-        working-directory: website
+        working-directory: docs
         run: |
           env_example_file=".env.example"
           touch .env
@@ -69,15 +54,15 @@ jobs:
           SECRETS: '${{ toJson(secrets) }}'
 
       - name: Install dependencies
-        working-directory: website
+        working-directory: docs
         run: bun install
-      - name: Build website
-        working-directory: website
+      - name: Build docs
+        working-directory: docs
         run: bun run build
 
       - name: copy redirects and headers
         continue-on-error: true
-        working-directory: website
+        working-directory: docs
         run: |
           cp _redirects dist/_redirects
           cp _headers dist/_headers
@@ -89,7 +74,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           projectName: ${{ env.CLOUDFLARE_PROJECT_NAME }}
-          directory: ./website/dist
+          directory: ./docs/dist
           # Optional: Enable this if you want to have GitHub Deployments triggered
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
         id: deployCloudflarePages
@@ -98,16 +83,16 @@ jobs:
         if: github.event_name == 'pull_request'
         with:
           message: |
-            Preview URL Astro Docs: ${{ steps.deployCloudflarePages.outputs.url }}
+            Preview URL Jan Browser Docs: ${{ steps.deployCloudflarePages.outputs.url }}
 
       - name: Publish to Cloudflare Pages Production
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/dev') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev')
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
         uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           projectName: ${{ env.CLOUDFLARE_PROJECT_NAME }}
-          directory: ./website/dist
+          directory: ./docs/dist
           branch: main
           # Optional: Enable this if you want to have GitHub Deployments triggered
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
