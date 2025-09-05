@@ -10,11 +10,24 @@ export const Input = React.forwardRef(function Input(
       ref={ref}
       type={type}
       className={cn(
-        'flex h-9 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground',
-        'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        'disabled:cursor-not-allowed disabled:opacity-50',
+        'flex h-9 w-full rounded-md border px-3 py-2 text-sm',
+        'focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50',
         className
       )}
+      style={{
+        backgroundColor: 'var(--theme-field)',
+        borderColor: 'var(--theme-border-interactive)',
+        color: 'var(--theme-high-em-text)',
+        '--placeholder-color': 'var(--theme-field-fg)'
+      }}
+      onFocus={(e) => {
+        e.target.style.backgroundColor = 'var(--theme-field-active)'
+        e.target.style.borderColor = 'var(--theme-primary)'
+      }}
+      onBlur={(e) => {
+        e.target.style.backgroundColor = 'var(--theme-field)'
+        e.target.style.borderColor = 'var(--theme-border-interactive)'
+      }}
       {...props}
     />
   )
