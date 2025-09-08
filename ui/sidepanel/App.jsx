@@ -21,24 +21,6 @@ const hostFromUrl = (url = '') => { try { return new URL(url).hostname || '' } c
 const hueFromString = (s = '') => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h % 360 }
 const chipColorForTab = (tab) => { const host = hostFromUrl(tab?.url || ''); const h = hueFromString(host); return `hsl(${h}, 70%, 88%)` }
 
-// Animated wrapper for Radix Popover.Content (fade + slight scale/slide on mount)
-function AnimatedPopoverContent({ children, ...props }) {
-  const popRef = useRef(null)
-  // [JAN-BEHAVIOR:PORT-REGISTER-UI] connect long-lived port and register active tab
-  // [JAN-BEHAVIOR:ACTIVATION-HANDLER] re-register port, refresh context, and switch session on tab activation
-  useEffect(() => {
-    const el = popRef.current
-    if (!el) return
-    try {
-      animate(
-        el,
-        { opacity: [0, 1], y: [8, 0], scale: [0.95, 1] },
-        { duration: 0.25, easing: [0.25, 0.46, 0.45, 0.94] } // ease-out cubic-bezier
-      )
-    } catch (_) { /* no-op */ }
-  }, [])
-  return <Popover.Content ref={popRef} {...props}>{children}</Popover.Content>
-}
 
 // Single tab chip with left-side remove and enter/exit animations
 function Chip({ tab, onRemove }) {
@@ -161,7 +143,7 @@ function dayLabel(ts) {
   } catch { return '' }
 }
 
-function Message({ role, content, ts, isFirst, isLast, onCopy }) {
+function Message({ role, content, ts, isFirst, isLast }) {
   const isUser = role === 'user'
   // Bubble for user; assistant will be clean typography (no bubble)
   const radius = [
@@ -394,9 +376,6 @@ export default function App() {
   }, [theme])
   const toggleTheme = useCallback(() => setTheme(t => t === 'blue' ? 'yellow' : 'blue'), [])
 
-  const copyToClipboard = async (text) => {
-    try { await navigator.clipboard.writeText(text) } catch (_) {}
-  }
 
   const stopStreaming = useCallback(async () => {
     const id = streamingReqIdRef.current
@@ -1749,14 +1728,13 @@ export default function App() {
                     const showDayDivider = false
                     return (
                       <React.Fragment key={i}>
-                        {showDayDivider ? null : null}
                         <Message
+                          key={m.id}
                           role={m.role}
                           content={m.content}
                           ts={m.ts}
                           isFirst={isFirst}
                           isLast={isLast}
-                          onCopy={copyToClipboard}
                         />
                       </React.Fragment>
                     )
@@ -1794,6 +1772,7 @@ export default function App() {
           showComposerSearchButton={showComposerSearchButton}
           searchMode={searchMode}
           setSearchMode={setSearchMode}
+          theme={theme}
           onKeyDown={onKeyDown}
           updateMentions={updateMentions}
           handleMentionSelect={handleMentionSelect}

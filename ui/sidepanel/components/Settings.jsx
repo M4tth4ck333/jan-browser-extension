@@ -117,13 +117,19 @@ export function Settings({
   ]
 
   return (
-    <div className="flex flex-col h-full ds-bg">
+    <div className="flex flex-col h-full" style={{ backgroundColor: theme === 'dark' ? '#111827' : '#f9fafb' }}>
       {/* Header */}
-      <div className="p-3 border-b ds-border bg-card/50">
+      <div className="p-3 border-b" style={{ 
+        borderColor: theme === 'dark' ? '#374151' : '#e5e7eb',
+        backgroundColor: theme === 'dark' ? '#1f2937' : '#ffffff'
+      }}>
         <div className="flex items-center justify-between mb-4">
           <button
             onClick={onClose}
-            className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-2 transition-colors"
+            style={{
+              color: theme === 'dark' ? '#9ca3af' : '#6b7280'
+            }}
           >
             <ArrowLeft size={16} />
           </button>
@@ -148,7 +154,9 @@ export function Settings({
           </div>
         </div>
         
-        <h1 className="text-lg font-inter-display mb-4">Settings</h1>
+        <h1 className="text-lg font-inter-display mb-4" style={{
+          color: theme === 'dark' ? '#f9fafb' : '#111827'
+        }}>Settings</h1>
         
         {/* Tab Navigation */}
         <div className="flex gap-1">
@@ -158,11 +166,15 @@ export function Settings({
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors ${
-                  activeTab === tab.id
-                    ? 'bg-muted text-foreground'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                }`}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors"
+                style={{
+                  backgroundColor: activeTab === tab.id 
+                    ? (theme === 'dark' ? '#374151' : '#f3f4f6')
+                    : 'transparent',
+                  color: activeTab === tab.id
+                    ? (theme === 'dark' ? '#f9fafb' : '#111827')
+                    : (theme === 'dark' ? '#9ca3af' : '#6b7280')
+                }}
               >
                 <Icon size={12} />
                 {tab.label}
@@ -187,7 +199,10 @@ export function Settings({
               </div>
               
               {/* Jan Nano Model */}
-              <div className="bg-card border ds-border rounded-lg p-3 mb-3">
+              <div className="rounded-lg p-3 mb-3" style={{
+                backgroundColor: theme === 'dark' ? '#1f2937' : '#ffffff',
+                border: `1px solid ${theme === 'dark' ? '#374151' : '#e5e7eb'}`
+              }}>
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-2">
                     <div className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center">
@@ -195,8 +210,12 @@ export function Settings({
                     </div>
                     <span className="text-lg">👋</span>
                     <div>
-                      <div className="font-medium text-sm">Jan Nano</div>
-                      <div className="text-xs text-muted-foreground">Jan</div>
+                      <div className="font-medium text-sm" style={{
+                        color: theme === 'dark' ? '#f9fafb' : '#111827'
+                      }}>Jan Nano</div>
+                      <div className="text-xs" style={{
+                        color: theme === 'dark' ? '#9ca3af' : '#6b7280'
+                      }}>Jan</div>
                     </div>
                   </div>
                   <div className="ml-auto">
@@ -208,7 +227,10 @@ export function Settings({
               </div>
 
               {/* Add Model Card */}
-              <div className="bg-card border ds-border rounded-lg p-4 relative">
+              <div className="rounded-lg p-4 relative" style={{
+                backgroundColor: theme === 'dark' ? '#1f2937' : '#ffffff',
+                border: `1px solid ${theme === 'dark' ? '#374151' : '#e5e7eb'}`
+              }}>
                 <Button
                   variant="ghost"
                   size="icon" 
@@ -227,8 +249,12 @@ export function Settings({
                 </div>
                 
                 <div className="space-y-2">
-                  <div className="font-medium text-sm">Add your favorite model to Jan</div>
-                  <div className="text-xs text-muted-foreground">
+                  <div className="font-medium text-sm" style={{
+                    color: theme === 'dark' ? '#f9fafb' : '#111827'
+                  }}>Add your favorite model to Jan</div>
+                  <div className="text-xs" style={{
+                    color: theme === 'dark' ? '#9ca3af' : '#6b7280'
+                  }}>
                     Use OpenAI, Anthropic, your own API, or connect via Cerebrus and OpenRouter for even more options.
                   </div>
                 </div>
@@ -237,14 +263,19 @@ export function Settings({
 
             {/* Tone & Style Section */}
             <div>
-              <h2 className="font-inter-display text-sm mb-3">Tone & style</h2>
+              <h2 className="font-inter-display text-sm mb-3" style={{
+                color: theme === 'dark' ? '#f9fafb' : '#111827'
+              }}>Tone & style</h2>
               <div className="space-y-2">
                 {toneOptions.map((option) => (
                   <label
                     key={option.id}
-                    className={`flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors ${
-                      toneStyle === option.id ? 'bg-muted' : 'hover:bg-muted/50'
-                    }`}
+                    className="flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors"
+                    style={{
+                      backgroundColor: toneStyle === option.id 
+                        ? (theme === 'dark' ? '#374151' : '#f3f4f6')
+                        : 'transparent'
+                    }}
                   >
                     <div className="flex items-center">
                       <input
@@ -258,8 +289,12 @@ export function Settings({
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{option.label}</span>
-                        <span className="text-xs text-muted-foreground">{option.description}</span>
+                        <span className="text-sm font-medium" style={{
+                          color: theme === 'dark' ? '#f9fafb' : '#111827'
+                        }}>{option.label}</span>
+                        <span className="text-xs" style={{
+                          color: theme === 'dark' ? '#9ca3af' : '#6b7280'
+                        }}>{option.description}</span>
                       </div>
                     </div>
                     {option.id === 'Custom' && toneStyle === 'Custom' && (
@@ -289,8 +324,12 @@ export function Settings({
           <div className="p-4">
             <div className="space-y-4">
               <div>
-                <h2 className="font-inter-display text-sm mb-2">Bridge Settings</h2>
-                <p className="text-sm text-muted-foreground mb-4">
+                <h2 className="font-inter-display text-sm mb-2" style={{
+                  color: theme === 'dark' ? '#f9fafb' : '#111827'
+                }}>Bridge Settings</h2>
+                <p className="text-sm mb-4" style={{
+                  color: theme === 'dark' ? '#9ca3af' : '#6b7280'
+                }}>
                   Configure the bridge connection for external model providers.
                 </p>
               </div>
@@ -302,8 +341,12 @@ export function Settings({
           <div className="p-4">
             <div className="space-y-4">
               <div>
-                <h2 className="font-inter-display text-sm mb-2">Keyboard Shortcuts</h2>
-                <p className="text-sm text-muted-foreground mb-4">
+                <h2 className="font-inter-display text-sm mb-2" style={{
+                  color: theme === 'dark' ? '#f9fafb' : '#111827'
+                }}>Keyboard Shortcuts</h2>
+                <p className="text-sm mb-4" style={{
+                  color: theme === 'dark' ? '#9ca3af' : '#6b7280'
+                }}>
                   Configure keyboard shortcuts for quick actions.
                 </p>
               </div>
@@ -315,51 +358,85 @@ export function Settings({
           <div className="p-4">
             <div className="space-y-6">
               <div>
-                <h2 className="font-inter-display text-sm mb-3">Theme Selection</h2>
-                <p className="text-sm text-muted-foreground mb-4">
+                <h2 className="font-inter-display text-sm mb-3" style={{
+                  color: theme === 'dark' ? '#f9fafb' : '#111827'
+                }}>Theme Selection</h2>
+                <p className="text-sm mb-4" style={{
+                  color: theme === 'dark' ? '#9ca3af' : '#6b7280'
+                }}>
                   Choose from predefined themes or create your own custom theme.
                 </p>
                 
                 <div className="space-y-3">
-                  <div className="bg-card border ds-border rounded-lg p-3">
+                  <div className="rounded-lg p-3" style={{
+                    backgroundColor: theme === 'dark' ? '#1f2937' : '#ffffff',
+                    border: `1px solid ${theme === 'dark' ? '#374151' : '#e5e7eb'}`
+                  }}>
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded border flex items-center justify-center" style={{ background: 'linear-gradient(45deg, #F17455 0%, #FAFAFA 50%, #3D3D3D 100%)' }}>
                         <CheckIcon size={14} className="text-white" />
                       </div>
                       <div className="flex-1">
-                        <div className="font-medium text-sm">Default Theme</div>
-                        <div className="text-xs text-muted-foreground">Clean and modern interface</div>
+                        <div className="font-medium text-sm" style={{
+                          color: theme === 'dark' ? '#f9fafb' : '#111827'
+                        }}>Default Theme</div>
+                        <div className="text-xs" style={{
+                          color: theme === 'dark' ? '#9ca3af' : '#6b7280'
+                        }}>Clean and modern interface</div>
                       </div>
-                      <div className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">Active</div>
+                      <div className="text-xs px-2 py-1 rounded" style={{
+                        backgroundColor: theme === 'dark' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(37, 99, 235, 0.1)',
+                        color: theme === 'dark' ? '#3b82f6' : '#2563eb'
+                      }}>Active</div>
                     </div>
                   </div>
                   
-                  <div className="bg-card border ds-border rounded-lg p-3 opacity-50">
+                  <div className="rounded-lg p-3 opacity-50" style={{
+                    backgroundColor: theme === 'dark' ? '#1f2937' : '#ffffff',
+                    border: `1px solid ${theme === 'dark' ? '#374151' : '#e5e7eb'}`
+                  }}>
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded border bg-gradient-to-br from-slate-900 to-slate-700"></div>
                       <div className="flex-1">
-                        <div className="font-medium text-sm">Dark Theme</div>
-                        <div className="text-xs text-muted-foreground">Coming soon...</div>
+                        <div className="font-medium text-sm" style={{
+                          color: theme === 'dark' ? '#f9fafb' : '#111827'
+                        }}>Dark Theme</div>
+                        <div className="text-xs" style={{
+                          color: theme === 'dark' ? '#9ca3af' : '#6b7280'
+                        }}>Coming soon...</div>
                       </div>
-                      <div className="text-xs text-muted-foreground">Soon</div>
+                      <div className="text-xs" style={{
+                        color: theme === 'dark' ? '#9ca3af' : '#6b7280'
+                      }}>Soon</div>
                     </div>
                   </div>
                   
-                  <div className="bg-card border ds-border rounded-lg p-3 opacity-50">
+                  <div className="rounded-lg p-3 opacity-50" style={{
+                    backgroundColor: theme === 'dark' ? '#1f2937' : '#ffffff',
+                    border: `1px solid ${theme === 'dark' ? '#374151' : '#e5e7eb'}`
+                  }}>
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded border bg-gradient-to-br from-blue-500 to-purple-500"></div>
                       <div className="flex-1">
-                        <div className="font-medium text-sm">Custom Theme</div>
-                        <div className="text-xs text-muted-foreground">Create your own colors</div>
+                        <div className="font-medium text-sm" style={{
+                          color: theme === 'dark' ? '#f9fafb' : '#111827'
+                        }}>Custom Theme</div>
+                        <div className="text-xs" style={{
+                          color: theme === 'dark' ? '#9ca3af' : '#6b7280'
+                        }}>Create your own colors</div>
                       </div>
-                      <div className="text-xs text-muted-foreground">Soon</div>
+                      <div className="text-xs" style={{
+                        color: theme === 'dark' ? '#9ca3af' : '#6b7280'
+                      }}>Soon</div>
                     </div>
                   </div>
                 </div>
               </div>
               
               <div>
-                <h2 className="font-inter-display text-sm mb-3">Theme Development (TODO)</h2>
+                <h2 className="font-inter-display text-sm mb-3" style={{
+                  color: theme === 'dark' ? '#f9fafb' : '#111827'
+                }}>Theme Development (TODO)</h2>
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-orange-500"></div>
@@ -403,7 +480,9 @@ export function Settings({
           <div className="p-4">
             <div className="space-y-4">
               <div>
-                <h2 className="font-inter-display text-sm mb-3">Debug & Development</h2>
+                <h2 className="font-inter-display text-sm mb-3" style={{
+                  color: theme === 'dark' ? '#f9fafb' : '#111827'
+                }}>Debug & Development</h2>
                 <div className="space-y-3">
                   <label className="flex items-center gap-3 cursor-pointer">
                     <Checkbox
@@ -411,8 +490,12 @@ export function Settings({
                       onCheckedChange={handleDebugToggle}
                     />
                     <div>
-                      <div className="text-sm font-medium">Show debug tools</div>
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-sm font-medium" style={{
+                        color: theme === 'dark' ? '#f9fafb' : '#111827'
+                      }}>Show debug tools</div>
+                      <div className="text-xs" style={{
+                        color: theme === 'dark' ? '#9ca3af' : '#6b7280'
+                      }}>
                         Display debug information and development tools
                       </div>
                     </div>
@@ -424,8 +507,12 @@ export function Settings({
                       onCheckedChange={handleReadingOverlayToggle}
                     />
                     <div>
-                      <div className="text-sm font-medium">Show reading overlay</div>
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-sm font-medium" style={{
+                        color: theme === 'dark' ? '#f9fafb' : '#111827'
+                      }}>Show reading overlay</div>
+                      <div className="text-xs" style={{
+                        color: theme === 'dark' ? '#9ca3af' : '#6b7280'
+                      }}>
                         Display overlay when reading page content
                       </div>
                     </div>
@@ -437,8 +524,12 @@ export function Settings({
                       onCheckedChange={handleComposerSearchToggle}
                     />
                     <div>
-                      <div className="text-sm font-medium">Show composer search button</div>
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-sm font-medium" style={{
+                        color: theme === 'dark' ? '#f9fafb' : '#111827'
+                      }}>Show composer search button</div>
+                      <div className="text-xs" style={{
+                        color: theme === 'dark' ? '#9ca3af' : '#6b7280'
+                      }}>
                         Display search button in the message composer
                       </div>
                     </div>
@@ -447,8 +538,12 @@ export function Settings({
               </div>
 
               <div>
-                <h2 className="font-inter-display text-sm mb-3">Legacy Theme Toggle</h2>
-                <p className="text-xs text-muted-foreground mb-2">This will be replaced by the new theme system</p>
+                <h2 className="font-inter-display text-sm mb-3" style={{
+                  color: theme === 'dark' ? '#f9fafb' : '#111827'
+                }}>Legacy Theme Toggle</h2>
+                <p className="text-xs mb-2" style={{
+                  color: theme === 'dark' ? '#9ca3af' : '#6b7280'
+                }}>This will be replaced by the new theme system</p>
                 <Button
                   variant="outline"
                   onClick={toggleTheme}

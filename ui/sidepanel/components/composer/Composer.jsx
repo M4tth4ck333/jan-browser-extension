@@ -1,11 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import * as Tooltip from '@radix-ui/react-tooltip'
 import { Button } from '../../../components/ui/button.jsx'
 import { Textarea } from '../../../components/ui/textarea.jsx'
-import { User as UserIcon, ArrowUp, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Trash2 as TrashIcon, Paperclip as PaperclipIcon, Mic as MicIcon, Search as SearchIcon, Menu, SlidersHorizontal, Palette as PaletteIcon, NotebookPen as NotebookIcon } from 'lucide-react'
-import { SettingsIcon } from '../icons/SettingsIcon.jsx'
+import { User as UserIcon, ArrowUp, Plus as PlusIcon, X as XIcon } from 'lucide-react'
 import { ShineBorder } from '../../../../src/components/magicui/shine-border.tsx'
-import { Input } from '../../../components/ui/input.jsx'
 import { AddContextModal } from '../AddContextModal.jsx'
 import { animate } from 'motion'
 import handSvg from '../../../assets/jan-hand.svg'
@@ -41,22 +38,6 @@ function ReadingIndicator() {
   )
 }
 
-// Animated wrapper for Radix Popover.Content (fade + slight scale/slide on mount)
-function AnimatedPopoverContent({ children, ...props }) {
-  const popRef = useRef(null)
-  useEffect(() => {
-    const el = popRef.current
-    if (!el) return
-    try {
-      animate(
-        el,
-        { opacity: [0, 1], y: [8, 0], scale: [0.95, 1] },
-        { duration: 0.25, easing: [0.25, 0.46, 0.45, 0.94] } // ease-out cubic-bezier
-      )
-    } catch (_) { /* no-op */ }
-  }, [])
-  return <Popover.Content ref={popRef} {...props}>{children}</Popover.Content>
-}
 
 export function Composer({
   // Input state

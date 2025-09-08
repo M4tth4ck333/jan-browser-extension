@@ -2,43 +2,33 @@ import React, { useState, useEffect } from 'react'
 import * as Popover from '@radix-ui/react-popover'
 import { Button } from '../../components/ui/button.jsx'
 import { Input } from '../../components/ui/input.jsx'
-import { X as XIcon, Search as SearchIcon } from 'lucide-react'
+import { X as XIcon, Search as SearchIcon, Check as CheckIcon, Paperclip as PaperclipIcon } from 'lucide-react'
 
 export function AddContextModal({ 
   isOpen, 
   onClose, 
   onSave, 
-  allTabs = [], 
+  tabs = [], 
+  selectedTabIds = [],
+  tabQuery = '',
+  setTabQuery,
+  onTabToggle,
   theme 
 }) {
-  const [activeTab, setActiveTab] = useState('Add context')
-  const [selectedTabs, setSelectedTabs] = useState([])
-  const [searchQuery, setSearchQuery] = useState('')
+  const [activeTab, setActiveTab] = useState('Tabs')
 
   // Filter tabs based on search query
-  const filteredTabs = allTabs.filter(tab => 
-    tab.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    tab.url?.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredTabs = tabs.filter(tab => 
+    tab.title?.toLowerCase().includes(tabQuery.toLowerCase()) ||
+    tab.url?.toLowerCase().includes(tabQuery.toLowerCase())
   )
 
-  const handleTabToggle = (tab) => {
-    setSelectedTabs(prev => 
-      prev.find(t => t.id === tab.id)
-        ? prev.filter(t => t.id !== tab.id)
-        : [...prev, tab]
-    )
-  }
-
   const handleSave = () => {
-    onSave?.(selectedTabs)
-    setSelectedTabs([])
-    setSearchQuery('')
     onClose?.()
   }
 
   const handleCancel = () => {
-    setSelectedTabs([])
-    setSearchQuery('')
+    setTabQuery?.('')
     onClose?.()
   }
 
@@ -50,7 +40,7 @@ export function AddContextModal({
     return `https://www.google.com/s2/favicons?domain=${new URL(tab.url).hostname}&sz=16`
   }
 
-  const tabs = [
+  const modalTabs = [
     { id: 'Add context', label: 'Add context' },
     { id: 'Tabs', label: 'Tabs' },
     { id: 'Attach file', label: 'Attach file' }
@@ -62,18 +52,19 @@ export function AddContextModal({
     <Popover.Root open={isOpen} onOpenChange={onClose}>
       <Popover.Portal>
         <Popover.Content
-          className="z-50 w-96 rounded-2xl border shadow-lg bg-background p-0 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+          className="z-50 w-96 rounded-2xl border shadow-lg bg-background p-0 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
           style={{
             backgroundColor: theme === 'dark' ? '#1f2937' : '#ffffff',
             borderColor: theme === 'dark' ? '#374151' : '#e5e7eb',
             color: theme === 'dark' ? '#f9fafb' : '#111827'
           }}
           sideOffset={8}
+          avoidCollisions={false}
         >
           {/* Header with tabs */}
           <div className="border-b px-4 py-3" style={{ borderColor: theme === 'dark' ? '#374151' : '#e5e7eb' }}>
             <div className="flex gap-1">
-              {tabs.map((tab) => (
+              {modalTabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
@@ -114,8 +105,8 @@ export function AddContextModal({
                   <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
                     placeholder="Search using title or url"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    value={tabQuery}
+                    onChange={(e) => setTabQuery?.(e.target.value)}
                     className="pl-10"
                     style={{
                       backgroundColor: theme === 'dark' ? '#374151' : '#f9fafb',
@@ -129,11 +120,11 @@ export function AddContextModal({
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {filteredTabs.length > 0 ? (
                     filteredTabs.map((tab) => {
-                      const isSelected = selectedTabs.find(t => t.id === tab.id)
+                      const isSelected = selectedTabIds.includes(tab.id)
                       return (
                         <button
                           key={tab.id}
-                          onClick={() => handleTabToggle(tab)}
+                          onClick={() => onTabToggle?.(tab.id)}
                           className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${
                             isSelected 
                               ? 'border-primary bg-primary/5' 
@@ -198,14 +189,14 @@ export function AddContextModal({
             </Button>
             <Button
               onClick={handleSave}
-              disabled={selectedTabs.length === 0}
+              disabled={selectedTabIds.length === 0}
               className="bg-primary text-primary-foreground hover:bg-primary/90"
               style={{
                 backgroundColor: theme === 'dark' ? '#3b82f6' : '#2563eb',
                 color: '#ffffff'
               }}
             >
-              Save {selectedTabs.length > 0 && selectedTabs.length}
+              Save {selectedTabIds.length > 0 && selectedTabIds.length}
             </Button>
           </div>
         </Popover.Content>
