@@ -76,3 +76,23 @@ These talk over a long‑lived port so streaming is smooth and cancellable.
   1) UI or an agent calls `performGoogleSearchAndScrape({ query, closeTab? })`.
   2) Background opens an inactive Google tab, waits for load + hydration, then scrapes.
   3) Returns structured JSON; URLs are also mirrored to `_meta.urls` for compatibility.
+
+## Extending Agents
+
+- Add a tool/agent in `src/background.js`.
+- Define a message type and handler; wire it from the side panel or content script.
+- Prefer streaming when supported; keep UI cancellable and responsive.
+
+## Permissions & Privacy
+
+- Manifest (`manifest.json`) requests `tabs`, `activeTab`, `sidePanel`, `storage`, and wide host permissions for dev.
+- For production, restrict host permissions and sanitize logs.
+- Do not persist secrets; users configure API keys in Options.
+
+## References
+
+- Background: `src/background.js`
+- Content: `src/content.js`
+- Side Panel: `ui/sidepanel/`
+- Options: `ui/options/`
+- MCP Server: `mcp/search-server/`
