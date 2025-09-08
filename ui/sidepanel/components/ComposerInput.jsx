@@ -1,152 +1,151 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useRef } from 'react'
 import { Textarea } from '../../components/ui/textarea.jsx'
+import { Plus, Paperclip, Mic, ArrowUp, X } from 'lucide-react'
 
 export function ComposerInput({
   inputRef,
   value,
   onChange,
   onKeyDown,
-  onCursorUpdate,
   disabled,
-  placeholder,
-  hasUserMessage,
-  mentionOpen,
-  mentionResults = [],
-  mentionIndex = 0,
-  setMentionIndex,
-  onMentionSelect,
+  placeholder = "Ask Jan ...",
+  activeTab,
+  onTabClose,
+  onContextClick,
+  onAttachClick,
+  onMicClick,
+  onSendClick,
 }) {
-  const [caretPos, setCaretPos] = useState({ x: 0, y: 0 })
-  const mirrorRef = useRef(null)
+  const [isFocused, setIsFocused] = useState(false)
 
-  // Calculate caret position using a hidden mirror element
-  const updateCaretPosition = (textarea, selectionStart) => {
-    if (!textarea || !mirrorRef.current) {
-      // Fallback positioning if mirror fails
-      setCaretPos({ x: 20, y: 20 })
-      return
-    }
-
-    const mirror = mirrorRef.current
-    const textareaStyles = window.getComputedStyle(textarea)
-    
-    // Copy textarea styles to mirror
-    mirror.style.font = textareaStyles.font
-    mirror.style.fontSize = textareaStyles.fontSize
-    mirror.style.fontFamily = textareaStyles.fontFamily
-    mirror.style.fontWeight = textareaStyles.fontWeight
-    mirror.style.lineHeight = textareaStyles.lineHeight
-    mirror.style.letterSpacing = textareaStyles.letterSpacing
-    mirror.style.padding = textareaStyles.padding
-    mirror.style.border = textareaStyles.border
-    mirror.style.width = textarea.offsetWidth + 'px'
-    mirror.style.whiteSpace = 'pre-wrap'
-    mirror.style.wordWrap = 'break-word'
-
-    // Get text up to caret position
-    const textBeforeCaret = value.substring(0, selectionStart)
-    mirror.textContent = textBeforeCaret
-
-    // Create a span to measure caret position
-    const caretSpan = document.createElement('span')
-    caretSpan.textContent = '|'
-    mirror.appendChild(caretSpan)
-
-    try {
-      const textareaRect = textarea.getBoundingClientRect()
-      const spanRect = caretSpan.getBoundingClientRect()
-      
-      setCaretPos({
-        x: Math.max(0, spanRect.left - textareaRect.left),
-        y: Math.max(0, spanRect.top - textareaRect.top - textarea.scrollTop)
-      })
-    } catch (e) {
-      // Fallback if positioning calculation fails
-      setCaretPos({ x: 20, y: 20 })
+  const handleSend = () => {
+    if (value.trim() && onSendClick) {
+      onSendClick()
     }
   }
 
-  const handleKeyUp = (e) => {
-    const pos = e.currentTarget.selectionStart || e.currentTarget.value.length
-    updateCaretPosition(e.currentTarget, pos)
-    try { onCursorUpdate?.(e.currentTarget.value, pos) } catch (_) {}
-  }
-  
-  const handleClick = (e) => {
-    const pos = e.currentTarget.selectionStart || e.currentTarget.value.length
-    updateCaretPosition(e.currentTarget, pos)
-    try { onCursorUpdate?.(e.currentTarget.value, pos) } catch (_) {}
-  }
-
-  // Update caret position when mention opens
-  useEffect(() => {
-    if (mentionOpen && inputRef?.current) {
-      const pos = inputRef.current.selectionStart || value.length
-      updateCaretPosition(inputRef.current, pos)
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
     }
-  }, [mentionOpen, value])
-
-  const hostFrom = (url) => {
-    try { return new URL(url || '').hostname } catch { return '' }
+    onKeyDown?.(e)
   }
 
   return (
-    <div className="relative px-5 py-4">
-      {/* Hidden mirror element for caret position calculation */}
-      <div
-        ref={mirrorRef}
-        className="absolute top-0 left-0 opacity-0 pointer-events-none z-[-1] overflow-hidden"
-        style={{ height: '1px' }}
-        aria-hidden="true"
-      />
-
-      <Textarea
-        ref={inputRef}
-        className={`w-full flex-1 resize-none ${hasUserMessage ? 'min-h-[60px]' : 'min-h-[80px]'} max-h-[180px] text-base leading-6 bg-transparent border-0 focus:ring-0 focus:outline-none placeholder:text-muted-foreground/60 px-0 py-0 transition-all duration-200`}
-        placeholder={placeholder}
-        value={value}
-        onChange={onChange}
-        onKeyDown={onKeyDown}
-        onKeyUp={handleKeyUp}
-        onClick={handleClick}
-        disabled={disabled}
-      />
-
-      {mentionOpen && mentionResults.length > 0 ? (
+    <div 
+      className="mx-4 mb-4 rounded-2xl shadow-lg"
+      style={{
+        backgroundColor: '#FFFFFF',
+        border: '1px solid var(--theme-border)',
+      }}
+    >
+      {/* Tab Header */}
+      {activeTab && (
         <div 
-          className="absolute z-20 rounded-xl border ds-border ds-bg shadow-2xl p-1 max-h-60 overflow-y-auto"
+          className="flex items-center justify-between px-4 py-3 border-b"
           style={{
-            left: `${Math.max(5, caretPos.x)}px`,
-            top: `${Math.max(10, caretPos.y - 240)}px`, // Position above caret, fallback if too high
-            minWidth: '300px',
-            maxWidth: '400px',
+            borderColor: 'var(--theme-border)',
+            backgroundColor: '#F7F7F7',
           }}
         >
-          {mentionResults.map((t, idx) => {
-            const host = hostFrom(t.url)
-            const active = idx === mentionIndex
-            return (
-              <button
-                key={t.id}
-                className={`w-full text-left flex items-center gap-2 px-2 py-2 rounded ${active ? 'bg-muted/30' : 'hover:bg-muted/20'}`}
-                onMouseEnter={() => setMentionIndex?.(idx)}
-                onMouseDown={(e) => { e.preventDefault(); onMentionSelect?.(t) }}
-              >
-                {t.favIconUrl ? (
-                  <img src={t.favIconUrl} alt="" className="h-4 w-4 rounded-sm" />
-                ) : (
-                  <span className="h-4 w-4 rounded-sm bg-muted inline-block" />
-                )}
-                <div className="min-w-0">
-                  <div className="truncate text-sm">{t.title || '(untitled tab)'}</div>
-                  <div className="truncate text-[11px] text-muted-foreground">{host}</div>
-                </div>
-                <div className="ml-auto text-[10px] opacity-60">#{t.id}</div>
-              </button>
-            )
-          })}
+          <div className="flex items-center gap-3 min-w-0">
+            {activeTab.favIconUrl ? (
+              <img 
+                src={activeTab.favIconUrl} 
+                alt="" 
+                className="h-4 w-4 rounded-sm flex-shrink-0" 
+              />
+            ) : (
+              <div className="h-4 w-4 rounded-sm bg-orange-500 flex-shrink-0 flex items-center justify-center">
+                <span className="text-white text-xs font-bold">a</span>
+              </div>
+            )}
+            <span 
+              className="truncate text-sm font-medium"
+              style={{ color: 'var(--theme-high-em-text)' }}
+            >
+              {activeTab.title || 'Untitled Tab'}
+            </span>
+          </div>
+          {onTabClose && (
+            <button
+              onClick={onTabClose}
+              className="p-1 rounded hover:bg-black/5 transition-colors flex-shrink-0"
+              style={{ color: 'var(--theme-mid-em-text)' }}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
-      ) : null}
+      )}
+
+      {/* Input Area */}
+      <div className="p-4">
+        <Textarea
+          ref={inputRef}
+          className="w-full resize-none border-0 bg-transparent focus:ring-0 focus:outline-none text-base leading-relaxed min-h-[80px] max-h-[200px] p-0"
+          placeholder={placeholder}
+          value={value}
+          onChange={onChange}
+          onKeyDown={handleKeyDown}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+          disabled={disabled}
+          style={{
+            color: value ? 'var(--theme-high-em-text)' : 'var(--theme-low-em-text)',
+          }}
+        />
+      </div>
+
+      {/* Bottom Toolbar */}
+      <div className="flex items-center justify-between px-4 pb-4">
+        <div className="flex items-center gap-2">
+          {/* Context Button */}
+          <button
+            onClick={onContextClick}
+            className="flex items-center gap-2 px-3 py-2 rounded-full transition-colors hover:bg-black/5"
+            style={{
+              backgroundColor: 'var(--theme-emphasized-bg)',
+              color: 'var(--theme-mid-em-text)',
+            }}
+          >
+            <Plus className="h-4 w-4" />
+            <span className="text-sm font-medium">Context</span>
+          </button>
+
+          {/* Attachment Button */}
+          <button
+            onClick={onAttachClick}
+            className="p-2 rounded-full transition-colors hover:bg-black/5"
+            style={{ color: 'var(--theme-mid-em-text)' }}
+          >
+            <Paperclip className="h-4 w-4" />
+          </button>
+
+          {/* Microphone Button */}
+          <button
+            onClick={onMicClick}
+            className="p-2 rounded-full transition-colors hover:bg-black/5"
+            style={{ color: 'var(--theme-mid-em-text)' }}
+          >
+            <Mic className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Send Button */}
+        <button
+          onClick={handleSend}
+          disabled={!value.trim() || disabled}
+          className="p-2 rounded-full transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{
+            backgroundColor: value.trim() ? 'var(--theme-accent)' : 'var(--theme-emphasized-bg)',
+            color: value.trim() ? 'white' : 'var(--theme-mid-em-text)',
+          }}
+        >
+          <ArrowUp className="h-4 w-4" />
+        </button>
+      </div>
     </div>
   )
 }

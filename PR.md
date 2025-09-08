@@ -1,94 +1,81 @@
-Title: UX Improvements: @mention Tab Selection, LIFO Sorting, Full-Screen Overlay Menu + Jan API Default
+Title: Side Panel UX + Settings Page — Composer Refactor, Suggestion Pills, Theming, and New Components
 
 Summary
-- Fix @mention tab selection bug preventing tabs from being added to context via chat input
-- Implement LIFO (Last-In-First-Out) sorting for Add context popup to prioritize recent tabs
-- Redesign hamburger menu as full-screen overlay with animated slide-in panel
-- Set Jan API (https://api.jan.ai/v1) as default endpoint with jan-v1-4b model
-- Update documentation with new UX patterns and behavior
+- Introduces a dedicated Settings panel in the side panel UI to configure provider, model, and behavior without leaving the flow.
+- Adds Suggestion Pills for quick-start prompts and common actions in the composer.
+- Refactors Composer and ComposerInput for cleaner structure, better shortcuts, and more predictable behavior.
+- Adds Tooltip and ScrollArea UI components; standardizes global theming with new tokens and a Settings icon.
+- Tightens auto-follow active tab behavior in `App.jsx` and streamlines state management.
 
-What's included
-- **@mention Tab Selection Fix**
-  - Fixed undefined `insertMentionTab` references by wiring to existing `handleMentionSelect`
-  - Tab selection now adds to context AND keeps mention text in input with proper cursor positioning
-  - Supports multiple @mentions in single message
-- **LIFO Tab Sorting**
-  - Add context popup now shows unpinned tabs first, then by lastAccessed (desc), fallback to index (desc)
-  - Improves tab selection UX when working with many open tabs
-  - Enhanced search includes title, URL, and tab ID matching
-- **Full-Screen Overlay Menu**
-  - Hamburger menu opens as fixed overlay with semi-transparent scrim covering conversation area
-  - 320px animated slide-in panel with click-outside-to-close behavior
-  - Smooth motion animations and proper z-index layering
-- **Jan API as Default**
-  - Default provider changed from "custom" to "jan" 
-  - Default endpoint: https://api.jan.ai/v1 (was empty)
-  - Default model: jan-v1-4b (was empty)
-  - API key disabled by default (useApiKey: false)
-- **Documentation Updates**
-  - New ADR-003 documenting UX improvement decisions and implementation
-  - Updated behavior.md with @mention and overlay menu patterns
-  - Enhanced considerations.md with new UX scenarios
+What’s Included
+- Side Panel
+  - Settings panel UI (`ui/sidepanel/components/Settings.jsx`).
+  - Suggestion pills component (`ui/sidepanel/components/SuggestionPills.jsx`).
+  - Add Context modal (`ui/sidepanel/components/AddContextModal.jsx`).
+  - Composer refactors (`ui/sidepanel/components/composer/Composer.jsx`, `ui/sidepanel/components/ComposerInput.jsx`).
+  - App state/auto-follow adjustments (`ui/sidepanel/App.jsx`).
+- UI Components
+  - Tooltip (`ui/components/ui/tooltip.tsx`) and ScrollArea (`ui/components/ui/scroll-area.tsx`).
+  - Button and Input refinements (`ui/components/ui/button.jsx`, `ui/components/ui/input.jsx`).
+  - Settings icon (`ui/sidepanel/components/icons/SettingsIcon.jsx`).
+- Theming & Styles
+  - Theme tokens (`ui/themes.css`) and global tweaks (`ui/styles.css`).
 
 Rationale
-- **Productivity**: LIFO tab sorting reduces time to find relevant tabs in multi-tab workflows
-- **Functionality**: @mention tab selection was broken due to undefined function references
-- **Visual Hierarchy**: Full-screen overlay provides clear navigation context vs narrow sidebar
-- **Onboarding**: Jan API default eliminates initial setup friction for new users
-- **Consistency**: Maintains design system tokens and theme compatibility
+- Improve onboarding and control with an integrated Settings panel.
+- Speed common tasks with Suggestion Pills and better keyboard ergonomics.
+- Prepare for future UI scale with reusable Tooltip/ScrollArea primitives.
+- Consolidate theme tokens for consistent styling and easier iteration.
 
-Files changed
-- src/background.js (default settings, Jan API endpoints)
-- ui/sidepanel/App.jsx (mention fix, LIFO sorting, overlay menu)
-- docs/adr-003-ux-improvements.md (new ADR)
-- behavior.md (@mention and overlay documentation)
-- considerations.md (UX scenarios)
+How to Test
+1) Build and load the extension
+   - `npm run build` (or `bun run build`) and load `dist/` via `chrome://extensions` → Load unpacked.
+2) Settings Panel
+   - Open side panel → gear icon. Verify provider, model, and options render and persist.
+   - Toggle relevant options and confirm they affect new sessions where applicable.
+3) Suggestion Pills
+   - In the side panel composer, confirm pills render and insert text/context when clicked.
+   - Verify keyboard focus/selection works with Tab/Enter.
+4) Composer/ComposerInput
+   - Type, submit, and edit messages. Confirm shortcuts (Enter to send, Shift+Enter newline) behave consistently.
+   - Validate streaming, cancel, and retry work without focus loss.
+5) Auto-follow Active Tab
+   - Switch browser tabs with auto-follow enabled; confirm session follows active tab without losing state.
+6) Tooltip/ScrollArea
+   - Confirm tooltips render on hover/focus in updated UI. Validate long lists scroll smoothly.
+7) Theming/Styles
+   - Sanity-check themes and global styles; ensure contrast and spacing look consistent.
 
-How to test locally
-1) **@mention Tab Selection**
-   - Type `@` in chat input to trigger mention popup
-   - Verify tabs appear in LIFO order (unpinned first, then by lastAccessed desc)
-   - Use arrow keys to navigate, Enter/Tab/click to select
-   - Confirm tab is added to context AND mention text remains in input
-   
-2) **Add Context Popup LIFO Sorting**
-   - Click "Add context" button
-   - Verify tabs show unpinned first, then most recently accessed
-   - Search should match title, URL, and tab ID
-   
-3) **Full-Screen Overlay Menu**
-   - Click hamburger menu (☰)
-   - Verify full-screen overlay with scrim covers conversation area
-   - Test click-outside-to-close behavior
-   - Check smooth slide-in animation
-   
-4) **Jan API Default**
-   - Fresh install should default to Jan provider with https://api.jan.ai/v1
-   - Model should default to jan-v1-4b
-   - API key should be disabled by default
+Files Touched (high-level)
+- `ui/sidepanel/App.jsx`
+- `ui/sidepanel/components/ComposerInput.jsx`
+- `ui/sidepanel/components/composer/Composer.jsx`
+- `ui/sidepanel/components/SuggestionPills.jsx`
+- `ui/sidepanel/components/AddContextModal.jsx`
+- `ui/sidepanel/components/Settings.jsx`
+- `ui/components/ui/button.jsx`, `ui/components/ui/input.jsx`
+- `ui/components/ui/tooltip.tsx`, `ui/components/ui/scroll-area.tsx`
+- `ui/sidepanel/components/icons/SettingsIcon.jsx`
+- `ui/themes.css`, `ui/styles.css`
 
-5) **Build and Load Extension**
-   - `npm run build` then load `dist/` via `chrome://extensions` → Load unpacked
-   - Test all above functionality in browser
+Behavioral Notes
+- Auto-follow reads from `context.autoFollowActiveTab`; side panel re-registers active tab as needed.
+- Composer shortcuts and focus handling are more predictable; streaming remains cancellable.
 
-Behavioral Changes
-- **@mention**: Now functional - adds tabs to context while preserving mention text
-- **Tab Sorting**: LIFO ordering prioritizes recently accessed tabs for faster selection
-- **Menu UX**: Full-screen overlay provides better visual hierarchy than narrow sidebar
-- **Default Config**: Jan API eliminates setup friction for new users
-
-Technical Implementation
-- Fixed undefined function references in mention system
-- Added LIFO sort logic with unpinned-first priority
-- Implemented fixed-position overlay with scrim and animations
-- Updated default settings in background.js
-- Preserved theme system compatibility
+Screenshots
+- Add Settings panel, Suggestion Pills, and composer before/after screenshots (attach).
 
 Checklist
-- [x] @mention tab selection adds to context and keeps text in input
-- [x] Add context popup shows LIFO-sorted tabs
-- [x] Hamburger menu opens as full-screen overlay with animations
-- [x] Jan API set as default endpoint with jan-v1-4b model
-- [x] Documentation updated (ADR-003, behavior.md, considerations.md)
-- [x] Build succeeds without errors
+- [x] Builds cleanly and loads in Chromium.
+- [x] Settings persist and apply in new sessions.
+- [x] Suggestion pills insert as expected; accessible via keyboard.
+- [x] Composer shortcuts correct; streaming is responsive and cancellable.
+- [x] Tooltip/ScrollArea render and behave consistently.
+- [x] Theming tokens apply without regressions.
+
+Breaking Changes
+- None expected. UI-only additions and refactors; no storage schema changes.
+
+Release Notes
+- Side panel Settings, Suggestion Pills, and composer refactors improve UX and configurability. New Tooltip/ScrollArea primitives and theme tokens standardize UI going forward.
 

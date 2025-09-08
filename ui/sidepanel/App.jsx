@@ -1,20 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { animate } from 'framer-motion/dom'
 import { Streamdown } from 'streamdown'
-import remarkGfm from 'remark-gfm'
-import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
-import rehypeHighlight from 'rehype-highlight'
-import 'highlight.js/styles/github.min.css'
-import * as Tooltip from '@radix-ui/react-tooltip'
 import { Button } from '../components/ui/button.jsx'
-import { Composer } from './components/composer/index.js'
-import { Navbar } from './components/navbar/index.js'
-import * as ScrollArea from '@radix-ui/react-scroll-area'
-import * as Popover from '@radix-ui/react-popover'
-import { User as UserIcon, ArrowUp, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Settings as SettingsIcon, Trash2 as TrashIcon, Paperclip as PaperclipIcon, Mic as MicIcon, Search as SearchIcon, Menu, SlidersHorizontal, Palette as PaletteIcon, NotebookPen as NotebookIcon } from 'lucide-react'
+import { Checkbox } from '../components/ui/checkbox.tsx'
+import { ScrollArea } from '../components/ui/scroll-area.tsx'
+import * as Tooltip from '../components/ui/tooltip.tsx'
+import { Composer } from './components/composer/Composer.jsx'
+import { Settings } from './components/Settings.jsx'
+import { SuggestionPills } from './components/SuggestionPills.jsx'
+import { Navbar } from './components/navbar/Navbar.jsx'
+import { User as UserIcon, ArrowUp, Copy as CopyIcon, Bot, X as XIcon, Plus as PlusIcon, RefreshCw as RefreshIcon, Check as CheckIcon, Trash2 as TrashIcon, Paperclip as PaperclipIcon, Mic as MicIcon, Search as SearchIcon, Menu, SlidersHorizontal, Palette as PaletteIcon, NotebookPen as NotebookIcon } from 'lucide-react'
+import { SettingsIcon } from './components/icons/SettingsIcon.jsx'
 import { ShineBorder } from '../../src/components/magicui/shine-border.tsx'
 import { Input } from '../components/ui/input.jsx'
-import { Checkbox } from '../components/ui/checkbox.tsx'
-import { animate } from 'motion'
 import handSvg from '../assets/jan-hand.svg'
 
 // Helpers at module scope
@@ -23,24 +21,6 @@ const hostFromUrl = (url = '') => { try { return new URL(url).hostname || '' } c
 const hueFromString = (s = '') => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h % 360 }
 const chipColorForTab = (tab) => { const host = hostFromUrl(tab?.url || ''); const h = hueFromString(host); return `hsl(${h}, 70%, 88%)` }
 
-// Animated wrapper for Radix Popover.Content (fade + slight scale/slide on mount)
-function AnimatedPopoverContent({ children, ...props }) {
-  const popRef = useRef(null)
-  // [JAN-BEHAVIOR:PORT-REGISTER-UI] connect long-lived port and register active tab
-  // [JAN-BEHAVIOR:ACTIVATION-HANDLER] re-register port, refresh context, and switch session on tab activation
-  useEffect(() => {
-    const el = popRef.current
-    if (!el) return
-    try {
-      animate(
-        el,
-        { opacity: [0, 1], y: [8, 0], scale: [0.95, 1] },
-        { duration: 0.25, easing: [0.25, 0.46, 0.45, 0.94] } // ease-out cubic-bezier
-      )
-    } catch (_) { /* no-op */ }
-  }, [])
-  return <Popover.Content ref={popRef} {...props}>{children}</Popover.Content>
-}
 
 // Single tab chip with left-side remove and enter/exit animations
 function Chip({ tab, onRemove }) {
@@ -117,8 +97,8 @@ function HeroSlogan() {
   )
 }
 
-// Settings button with Motion click animation, opens the Options page
-function SettingsTrigger() {
+// Settings button with Motion click animation, opens the Settings component
+function SettingsTrigger({ onSettingsOpen }) {
   const btnRef = useRef(null)
   const [active, setActive] = useState(false)
   const onClick = useCallback(async () => {
@@ -132,12 +112,9 @@ function SettingsTrigger() {
         { duration: 0.22, easing: 'ease-out' }
       )
     } catch (_) {}
-    // Open Options page via Chrome API so it works in MV3
-    try {
-      if (chrome?.runtime?.openOptionsPage) chrome.runtime.openOptionsPage()
-      else window.open(chrome.runtime.getURL('dist/ui/options/index.html'), '_blank')
-    } catch (_) {}
-  }, [])
+    // Open Settings component in sidebar
+    onSettingsOpen?.()
+  }, [onSettingsOpen])
   return (
     <Button
       ref={btnRef}
@@ -148,7 +125,7 @@ function SettingsTrigger() {
       aria-label="Settings"
       title="Settings"
     >
-      <SlidersHorizontal size={16} className={active ? 'text-foreground' : 'text-foreground/80'} />
+      <SettingsIcon size={16} className={active ? 'text-foreground' : 'text-foreground/80'} />
     </Button>
   )
 }
@@ -166,7 +143,7 @@ function dayLabel(ts) {
   } catch { return '' }
 }
 
-function Message({ role, content, ts, isFirst, isLast, onCopy }) {
+function Message({ role, content, ts, isFirst, isLast }) {
   const isUser = role === 'user'
   // Bubble for user; assistant will be clean typography (no bubble)
   const radius = [
@@ -187,25 +164,6 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
       )
     } catch (_) { /* no-op */ }
   }, [isUser])
-  const sanitizeSchema = useMemo(() => ({
-    ...defaultSchema,
-    attributes: {
-      ...defaultSchema.attributes,
-      code: [...(defaultSchema.attributes?.code || []), ['className']],
-      pre: [...(defaultSchema.attributes?.pre || []), ['className']],
-      span: [...(defaultSchema.attributes?.span || []), ['className']],
-      div: [...(defaultSchema.attributes?.div || []), ['className']],
-      table: [...(defaultSchema.attributes?.table || []), ['className']],
-      thead: [...(defaultSchema.attributes?.thead || []), ['className']],
-      tbody: [...(defaultSchema.attributes?.tbody || []), ['className']],
-      tr: [...(defaultSchema.attributes?.tr || []), ['className']],
-      th: [...(defaultSchema.attributes?.th || []), ['className']],
-      td: [...(defaultSchema.attributes?.td || []), ['className']],
-      hr: [...(defaultSchema.attributes?.hr || []), ['className']],
-      blockquote: [...(defaultSchema.attributes?.blockquote || []), ['className']],
-      a: [ ...(defaultSchema.attributes?.a || []), ['target'], ['rel'] ],
-    },
-  }), [])
   const formatTime = (t) => {
     if (!t) return ''
     try {
@@ -249,9 +207,9 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
     <div ref={rootRef} className={`w-full ${isUser ? 'justify-end' : 'justify-start'} mb-1 flex`}>
       <div className={`group flex items-end gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
         <div className={`hidden sm:flex shrink-0 h-6 w-6 rounded-full bg-muted text-muted-foreground items-center justify-center ${isFirst ? '' : 'invisible'}`}>
-          {isUser ? <UserIcon size={14} /> : <Bot size={14} />}
+          {isUser ? <UserIcon size={14} /> : null}
         </div>
-        <div className={`${isUser ? `group pastel-grad pastel-fore relative max-w-[100%] sm:max-w-[75%] ${radius} px-3 py-2 text-sm` : 'group relative max-w-[100%] sm:max-w-[75%]'}`}>
+        <div className={`${isUser ? `group relative max-w-[100%] sm:max-w-[75%] ${radius} px-3 py-2 text-sm` : 'group relative max-w-[100%] sm:max-w-[75%]'}`} style={isUser ? { backgroundColor: '#E5E5E5', color: '#374151' } : {}}>
           {isUser ? (
             <div className="whitespace-pre-wrap">{content}</div>
           ) : (
@@ -259,51 +217,8 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
               {(content && String(content).trim().length > 0) ? (
                 <Streamdown
                   parseIncompleteMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[[rehypeSanitize, sanitizeSchema], rehypeHighlight]}
                   components={{
                     code: (props) => <CodeBlock {...props} />,
-                    blockquote({ children, ...props }) {
-                      const fullText = React.Children.toArray(children).map(c => {
-                        if (typeof c === 'string') return c
-                        if (c && typeof c === 'object' && 'props' in c && c.props?.children) {
-                          return Array.isArray(c.props.children)
-                            ? c.props.children.join(' ')
-                            : String(c.props.children)
-                        }
-                        return ''
-                      }).join(' ').trim()
-                      let kind = ''
-                      if (/^(note|info)\s*:/i.test(fullText)) kind = 'note'
-                      else if (/^(tip|pro tip)\s*:/i.test(fullText)) kind = 'tip'
-                      else if (/^(warn|warning|caution)\s*:/i.test(fullText)) kind = 'warn'
-                      if (kind) {
-                        return (
-                          <div className={`callout callout-${kind}`} {...props}>
-                            <div className="callout-body">{children}</div>
-                          </div>
-                        )
-                      }
-                      return <blockquote {...props}>{children}</blockquote>
-                    },
-                    hr() { return <hr className="my-4" /> },
-                    a({ href, children, ...props }) {
-                      const url = String(href || '')
-                      return (
-                        <a href={url} target="_blank" rel="noopener noreferrer" {...props}>
-                          {children}
-                        </a>
-                      )
-                    },
-                    table({ children }) {
-                      return (
-                        <div className="my-2 overflow-x-auto">
-                          <table className="w-full">
-                            {children}
-                          </table>
-                        </div>
-                      )
-                    },
                   }}
                 >
                   {content || ''}
@@ -316,9 +231,6 @@ function Message({ role, content, ts, isFirst, isLast, onCopy }) {
             </div>
           )}
         </div>
-        {!isUser ? (
-          <AssistantControls content={content} onCopy={onCopy} />
-        ) : null}
       </div>
     </div>
   )
@@ -370,67 +282,18 @@ function HelloFloat() {
   }, [])
   return (
     <div ref={ref} className="mb-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full border ds-border bg-card/90 shadow-sm text-sm">
-      <span className="font-medium">hello</span>
+      <span className="font-medium">hi</span>
     </div>
   )
 }
 
-// Compact assistant controls (Copy) rendered to the right of assistant messages
-function AssistantControls({ content, onCopy }) {
-  const ref = useRef(null)
-  const [copied, setCopied] = useState(false)
-  const canCopy = !!String(content || '').trim()
-
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    try { animate(el, { opacity: [0, 1], y: [4, 0] }, { duration: 0.18, easing: 'ease-out' }) } catch (_) {}
-  }, [])
-
-  const hoverIn = () => { try { animate(ref.current, { scale: 1.04 }, { duration: 0.12 }) } catch (_) {} }
-  const hoverOut = () => { try { animate(ref.current, { scale: 1.0 }, { duration: 0.12 }) } catch (_) {} }
-  const down = () => { try { animate(ref.current, { scale: 0.97 }, { duration: 0.06 }) } catch (_) {} }
-  const up = () => { try { animate(ref.current, { scale: 1.02 }, { duration: 0.08 }) } catch (_) {} }
-
-  const handleCopy = async () => {
-    if (!canCopy) return
-    const text = String(content || '').trim()
-    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1100); onCopy?.(text) } catch (_) {}
-  }
-
-  return (
-    <div className="ml-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-      <Tooltip.Root>
-        <Tooltip.Trigger asChild>
-          <button
-            ref={ref}
-            type="button"
-            className={`inline-flex items-center gap-1 h-7 px-2 rounded-full border ds-border bg-card/80 shadow-sm text-xs ${canCopy ? 'text-muted-foreground hover:text-foreground' : 'opacity-50 cursor-not-allowed'}`}
-            onMouseEnter={hoverIn}
-            onMouseLeave={hoverOut}
-            onMouseDown={down}
-            onMouseUp={up}
-            onClick={handleCopy}
-            aria-label={copied ? 'Copied' : 'Copy message'}
-            disabled={!canCopy}
-          >
-            {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
-            <span>{copied ? 'Copied' : 'Copy'}</span>
-          </button>
-        </Tooltip.Trigger>
-        <Tooltip.Content sideOffset={6} className="text-xs ds-card ds-text border ds-border rounded px-2 py-1">
-          {copied ? 'Copied!' : (canCopy ? 'Copy message' : 'Nothing to copy yet')}
-        </Tooltip.Content>
-      </Tooltip.Root>
-    </div>
-  )
-}
 
 export default function App() {
   // UI state
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [tabPickerOpen, setTabPickerOpen] = useState(false)
   const [tabQuery, setTabQuery] = useState('')
   // @mention state
@@ -513,9 +376,6 @@ export default function App() {
   }, [theme])
   const toggleTheme = useCallback(() => setTheme(t => t === 'blue' ? 'yellow' : 'blue'), [])
 
-  const copyToClipboard = async (text) => {
-    try { await navigator.clipboard.writeText(text) } catch (_) {}
-  }
 
   const stopStreaming = useCallback(async () => {
     const id = streamingReqIdRef.current
@@ -1714,8 +1574,10 @@ export default function App() {
 
   return (
     <div
-      className={`fixed inset-0 ds-bg ds-text grid ${theme === 'blue' ? 'theme-blue' : 'theme-yellow'}`}
+      className={`fixed inset-0 grid ${theme === 'blue' ? 'theme-blue' : 'theme-yellow'}`}
       style={{
+        backgroundColor: '#F5F5F5',
+        color: 'var(--theme-high-em-text)',
         gridTemplateColumns: '1fr',
         gridTemplateRows: '1fr'
       }}
@@ -1741,75 +1603,96 @@ export default function App() {
           transition: 'width 220ms cubic-bezier(0.16, 1, 0.3, 1)',
           willChange: 'width',
           zIndex: 50,
-          background: 'var(--background)',
+          backgroundColor: 'var(--theme-container)',
+          borderColor: 'var(--theme-border)',
           boxShadow: sidebarOpen ? '0 10px 30px rgba(0,0,0,0.20)' : 'none'
         }}
       >
-          <div className="p-2 flex items-center justify-between ds-card border-b ds-border pastel-grad">
-            <div className="flex items-center gap-2"><span className="font-semibold">Chats</span></div>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={toggleTheme}
-                aria-label="Toggle theme"
-                title={`Switch to ${theme === 'blue' ? 'Yellow' : 'Blue'} theme`}
-              >
-                <PaletteIcon size={16} />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(false)} aria-label="Collapse sidebar">←</Button>
-            </div>
-          </div>
-          <div className="p-2"><Button variant="secondary" className="w-full" onClick={newChat}>New Chat</Button></div>
-          <div className="px-2 text-xs ds-muted-text">Chats</div>
-          <div className="flex-1 overflow-auto px-2 space-y-1 py-2">
-            {sessions.map(s => (
-              <div key={s.id} className={`w-full rounded-md px-2 py-2 border`} style={{ borderColor: s.id === activeSessionId ? 'var(--primary)' : 'var(--border)', background: 'var(--card)' }}>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => switchSession(s.id)} className="flex-1 text-left min-w-0">
-                    <div className="text-sm truncate">{s.title || 'Untitled'}</div>
-                    <div className="text-[10px] ds-muted-text">{new Date(s.updatedAt).toLocaleString()}</div>
-                  </button>
-                  <Button variant="ghost" size="icon" title="Delete" onClick={(e) => { e.stopPropagation(); deleteChat(s.id) }}>
-                    <TrashIcon size={14} />
-                  </Button>
-                </div>
+        {settingsOpen ? (
+          <Settings
+            onClose={() => { setSettingsOpen(false); setSidebarOpen(false); }}
+            onNewChat={() => { setSettingsOpen(false); createNewChat(); }}
+            theme={theme}
+            toggleTheme={toggleTheme}
+            showDebug={showDebug}
+            setShowDebug={setShowDebug}
+            showReadingOverlay={showReadingOverlay}
+            setShowReadingOverlay={setShowReadingOverlay}
+            showComposerSearchButton={showComposerSearchButton}
+            setShowComposerSearchButton={setShowComposerSearchButton}
+          />
+        ) : (
+          <>
+            <div className="p-2 flex items-center justify-between border-b" style={{ backgroundColor: 'var(--theme-container)', borderColor: 'var(--theme-border-interactive)', background: 'linear-gradient(90deg, var(--theme-container) 0%, var(--theme-container-emphasized) 100%)' }}>
+              <div className="flex items-center gap-2"><span className="font-semibold" style={{ color: 'var(--theme-high-em-text)' }}>Chats</span></div>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleTheme}
+                  aria-label="Toggle theme"
+                  title={`Switch to ${theme === 'blue' ? 'Yellow' : 'Blue'} theme`}
+                >
+                  <PaletteIcon size={16} />
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(false)} aria-label="Collapse sidebar">←</Button>
               </div>
-            ))}
-          </div>
-          <div className="p-2 border-t ds-border">
-            <div className="text-xs ds-muted-text mb-1">Context Tabs (default: current)</div>
-            <div className="max-h-40 overflow-auto space-y-1">
-              {tabs.map(t => (
-                <label 
-                key={t.id} 
-                className="flex items-center gap-2 text-xs cursor-pointer hover:bg-muted/20 rounded px-1 py-0.5"
-                onContextMenu={(e) => {
-                  e.preventDefault()
-                  toggleTab(t.id)
-                }}
-              >
-                  <Checkbox checked={selectedTabIds.includes(t.id)} onCheckedChange={() => toggleTab(t.id)} />
-                  <span className="truncate" title={`${t.title}\nRight-click to toggle`}>{t.title}</span>
-                </label>
+            </div>
+            <div className="p-2"><Button variant="secondary" className="w-full" onClick={newChat}>New Chat</Button></div>
+            <div className="px-2 text-xs" style={{ color: 'var(--theme-mid-em-text)' }}>Chats</div>
+            <div className="flex-1 overflow-auto px-2 space-y-1 py-2">
+              {sessions.map(s => (
+                <div key={s.id} className={`w-full rounded-md px-2 py-2 border`} style={{ borderColor: s.id === activeSessionId ? 'var(--theme-primary)' : 'var(--theme-border-interactive)', backgroundColor: 'var(--theme-container)' }}>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => switchSession(s.id)} className="flex-1 text-left min-w-0">
+                      <div className="text-sm truncate" style={{ color: 'var(--theme-high-em-text)' }}>{s.title || 'Untitled'}</div>
+                      <div className="text-[10px]" style={{ color: 'var(--theme-low-em-text)' }}>{new Date(s.updatedAt).toLocaleString()}</div>
+                    </button>
+                    <Button variant="ghost" size="icon" title="Delete" onClick={(e) => { e.stopPropagation(); deleteChat(s.id) }}>
+                      <TrashIcon size={14} />
+                    </Button>
+                  </div>
+                </div>
               ))}
             </div>
-            <div className="mt-2 flex items-center gap-2">
-              <Button variant="secondary" onClick={refreshTabs}>Refresh</Button>
-              <Button variant="pastelReverse" onClick={rescrapeSelected} disabled={!selectedTabIds.length}>Scrape</Button>
+            <div className="p-2 border-t" style={{ borderColor: 'var(--theme-border-interactive)' }}>
+              <div className="text-xs mb-1" style={{ color: 'var(--theme-mid-em-text)' }}>Context Tabs (default: current)</div>
+              <div className="max-h-40 overflow-auto space-y-1">
+                {tabs.map(t => (
+                  <label 
+                  key={t.id} 
+                  className="flex items-center gap-2 text-xs cursor-pointer rounded px-1 py-0.5"
+                  style={{ color: 'var(--theme-high-em-text)' }}
+                  onMouseEnter={(e) => e.target.style.backgroundColor = 'var(--theme-container-emphasized)'}
+                  onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    toggleTab(t.id)
+                  }}
+                >
+                    <Checkbox checked={selectedTabIds.includes(t.id)} onCheckedChange={() => toggleTab(t.id)} />
+                    <span className="truncate" title={`${t.title}\nRight-click to toggle`}>{t.title}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <Button variant="secondary" onClick={refreshTabs}>Refresh</Button>
+                <Button variant="pastelReverse" onClick={rescrapeSelected} disabled={!selectedTabIds.length}>Scrape</Button>
+              </div>
+              <div className="mt-2 flex items-center gap-2 text-xs">
+                <label className="flex items-center gap-2"><Checkbox checked={useContextDefault} onCheckedChange={(v) => setUseContextDefault(!!v)} /> Use context by default</label>
+                <label className="flex items-center gap-2">
+                  <Checkbox checked={autoFollowActiveTab} onCheckedChange={(v) => setAutoFollowActiveTab(!!v)} />
+                  <span style={{ color: autoFollowActiveTab ? 'var(--theme-primary)' : 'var(--theme-mid-em-text)' }} title="When ON, automatically follows the active tab. When OFF, preserves manual tab selection.">Auto-follow</span>
+                </label>
+              </div>
             </div>
-            <div className="mt-2 flex items-center gap-2 text-xs">
-              <label className="flex items-center gap-2"><Checkbox checked={useContextDefault} onCheckedChange={(v) => setUseContextDefault(!!v)} /> Use context by default</label>
-              <label className="flex items-center gap-2">
-                <Checkbox checked={autoFollowActiveTab} onCheckedChange={(v) => setAutoFollowActiveTab(!!v)} />
-                <span className={autoFollowActiveTab ? 'text-primary' : 'ds-muted-text'} title="When ON, automatically follows the active tab. When OFF, preserves manual tab selection.">Auto-follow</span>
-              </label>
-            </div>
-          </div>
+          </>
+        )}
       </aside>
 
       {/* Main column */}
-      <div ref={mainRef} className="grid grid-rows-[auto_minmax(0,1fr)_auto] min-w-0 min-h-0 relative h-full" style={{ willChange: 'transform' }}>
+      <div ref={mainRef} className="grid grid-rows-[auto_minmax(0,1fr)_auto] min-w-0 min-h-0 relative h-full" style={{ willChange: 'transform', backgroundColor: 'var(--theme-emphasized-bg)' }}>
         {(busy && !streamingReqId && showReadingOverlay) ? (
           <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px] pointer-events-none z-10" />
         ) : null}
@@ -1817,7 +1700,7 @@ export default function App() {
           sidebarOpen={sidebarOpen}
           setSidebarOpen={setSidebarOpen}
           createNewChat={createNewChat}
-          SettingsTrigger={SettingsTrigger}
+          SettingsTrigger={() => <SettingsTrigger onSettingsOpen={() => { setSidebarOpen(true); setSettingsOpen(true); }} />}
         />
 
           <ScrollArea.Root className="flex-1 relative min-h-0">
@@ -1828,7 +1711,10 @@ export default function App() {
               if (!hasUserMessage) {
                 return (
                   <div className="w-full h-full flex items-center justify-center">
-                    <HeroSlogan />
+                    <SuggestionPills onPillClick={(prompt) => {
+                      setInput(prompt)
+                      setTimeout(() => sendChat(), 100)
+                    }} />
                   </div>
                 )
               }
@@ -1842,14 +1728,13 @@ export default function App() {
                     const showDayDivider = false
                     return (
                       <React.Fragment key={i}>
-                        {showDayDivider ? null : null}
                         <Message
+                          key={m.id}
                           role={m.role}
                           content={m.content}
                           ts={m.ts}
                           isFirst={isFirst}
                           isLast={isLast}
-                          onCopy={copyToClipboard}
                         />
                       </React.Fragment>
                     )
@@ -1887,6 +1772,7 @@ export default function App() {
           showComposerSearchButton={showComposerSearchButton}
           searchMode={searchMode}
           setSearchMode={setSearchMode}
+          theme={theme}
           onKeyDown={onKeyDown}
           updateMentions={updateMentions}
           handleMentionSelect={handleMentionSelect}
