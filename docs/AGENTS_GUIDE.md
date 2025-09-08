@@ -51,3 +51,28 @@ These talk over a long‑lived port so streaming is smooth and cancellable.
 - MCP Bridge Agent
   - Goal: Expose `search` and `visit_tool` over MCP so local tools are accessible from LLM apps.
   - Lives in `mcp/search-server/` (TypeScript). Structured outputs are planned with Zod.
+
+## Message & Port Routing
+
+- Long‑lived port: Side panel registers a persistent port with background.
+  - On tab activation, the side panel re‑registers the active `tabId` via `{ type: 'REGISTER_PORT', tabId }` so streaming routes to the right place.
+- Session ↔ tab mapping: Background maintains a tab→session map; side panel switches sessions as the active tab changes.
+  - Recent fix: Auto‑follow reads from the target session’s `context.autoFollowActiveTab` (see `ui/sidepanel/App.jsx`).
+- Content script messaging: Background requests page/selection text; content script returns selection/caret details and hosts the inline UI.
+
+## Core Flows
+
+- Summarize Current Page (Side Panel)
+  1) Side panel asks content script for page/selection data.
+  2) Background builds the LLM prompt and streams to the provider.
+  3) Side panel renders streaming Markdown; user can copy/export.
+
+- Inline Assistant
+  1) User selects text; content script shows the tooltip.
+  2) Background builds messages (`buildInlineAssistMessages`) and calls the provider.
+  3) Content script previews the result; user Apply/Copy/Regenerate.
+
+- Google Search + Scrape
+  1) UI or an agent calls `performGoogleSearchAndScrape({ query, closeTab? })`.
+  2) Background opens an inactive Google tab, waits for load + hydration, then scrapes.
+  3) Returns structured JSON; URLs are also mirrored to `_meta.urls` for compatibility.
