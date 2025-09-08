@@ -96,3 +96,5 @@ These talk over a long‑lived port so streaming is smooth and cancellable.
 - Side Panel: `ui/sidepanel/`
 - Options: `ui/options/`
 - MCP Server: `mcp/search-server/`
+
+Note: This guide mirrors the root-level `agents.md` for convenience and discoverability under `docs/`.
