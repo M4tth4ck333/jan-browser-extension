@@ -66,6 +66,13 @@ jobs:
         run: |
           cp _redirects dist/_redirects
           cp _headers dist/_headers
+      
+      - name: Upload Bun lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: bun-lockfile
+          path: docs/bun.lock
+          retention-days: 30
 
       - name: Publish to Cloudflare Pages PR Preview and Staging
         if: github.event_name == 'pull_request'
