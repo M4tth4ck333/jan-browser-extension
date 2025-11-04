@@ -1,0 +1,41 @@
+{
+  "provider": "jan",
+  "apiBase": "http://127.0.0.1:1337/v1",
+  "apiKey": "secret-key-123",
+  "useApiKey": false,
+  "model": "Jan-v1-4B-Q4_K_M",
+  "temperature": 0.2,
+  "useCustomCompletionsUrl": false,
+  "customCompletionsUrl": "",
+  "ddgOnly": false,
+  "useModelList": false,
+  "bridgeToken": "",
+  "useBridgeToken": false,
+  "inlineAssistEnabled": true,
+  "inlineAssistActions": ["rewrite", "translate"],
+  "showReadingOverlay": false,
+  "showDebug": false,
+  "showComposerSearchButton": true,
+  "providers": {
+    "jan-server": {
+      "name": "Jan Server",
+      "apiBase": "https://api.jan.ai/v1i",
+      "description": "Jan Cloud Server"
+    },
+    "jan": {
+      "name": "Jan (Local)",
+      "apiBase": "http://127.0.0.1:1337/v1",
+      "description": "Local Jan server"
+    },
+    "openai": {
+      "name": "OpenAI",
+      "apiBase": "https://api.openai.com/v1",
+      "description": "OpenAI API"
+    },
+    "custom": {
+      "name": "Custom",
+      "apiBase": "",
+      "description": "Custom OpenAI-compatible endpoint"
+    }
+  }
+}

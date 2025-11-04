@@ -1,26 +1,26 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
+import defaultConfig from '../../src/config/defaults.json'
 
 const DEFAULTS = {
-  provider: 'jan', apiBase: 'https://api.jan.ai/v1', apiKey: '', model: 'jan-v1-4b', temperature: 0.2,
-  bridgeToken: '', useBridgeToken: false,
-  inlineAssistEnabled: true,
-  // Only the supported actions; Custom Prompt is always available from the tooltip/shortcut.
-  inlineAssistActions: ['rewrite','translate'],
-  useModelList: false,
-  useApiKey: false,
-  // Custom full completions URL support (for provider: custom)
-  useCustomCompletionsUrl: false,
-  customCompletionsUrl: '',
-  // UI: dim overlay behind reading indicator (busy pre-stream)
-  showReadingOverlay: false,
-  // Developer: show debug popover/tools in side panel
-  showDebug: false,
-  // Search preferences
-  ddgOnly: false,
-  // Side panel: show Search button in composer
-  showComposerSearchButton: true,
+  provider: defaultConfig.provider,
+  apiBase: defaultConfig.apiBase,
+  apiKey: defaultConfig.apiKey,
+  model: defaultConfig.model,
+  temperature: defaultConfig.temperature,
+  bridgeToken: defaultConfig.bridgeToken,
+  useBridgeToken: defaultConfig.useBridgeToken,
+  inlineAssistEnabled: defaultConfig.inlineAssistEnabled,
+  inlineAssistActions: defaultConfig.inlineAssistActions,
+  useModelList: defaultConfig.useModelList,
+  useApiKey: defaultConfig.useApiKey,
+  useCustomCompletionsUrl: defaultConfig.useCustomCompletionsUrl,
+  customCompletionsUrl: defaultConfig.customCompletionsUrl,
+  showReadingOverlay: defaultConfig.showReadingOverlay,
+  showDebug: defaultConfig.showDebug,
+  ddgOnly: defaultConfig.ddgOnly,
+  showComposerSearchButton: defaultConfig.showComposerSearchButton,
 }
 
 export default function OptionsApp() {
@@ -87,30 +87,27 @@ export default function OptionsApp() {
 
   // Known provider defaults (locked endpoints)
   const getDefaultBase = useCallback((provider) => {
+    // Use centralized config for known providers
+    const providerConfig = defaultConfig.providers[provider]
+    if (providerConfig) {
+      return providerConfig.apiBase
+    }
+    // Fallback for providers not in config
     switch (provider) {
       case 'jan-server':
-        // Hidden until public release
-        return 'https://comingsoon.ai'
-      case 'openai':
-        return 'https://api.openai.com/v1'
+        return 'http://127.0.0.1:1337/v1' // Hidden until public release
       case 'anthropic':
-        // Note: Anthropic's native API is not OpenAI-compatible for chat completions.
-        // Use only if your endpoint implements an OpenAI-compatible shim.
-        return 'https://api.anthropic.com/v1'
+        return 'https://api.anthropic.com/v1' // Note: Requires OpenAI-compatible shim
       case 'openrouter':
         return 'https://openrouter.ai/api/v1'
-      case 'cerebras':
-        return 'https://api.cerebras.ai/v1'
-      case 'jan':
-        return 'http://localhost:1337/v1'
       default:
-        return ''
+        return 'http://127.0.0.1:1337/v1'
     }
   }, [])
 
-  const isLockedProvider = useCallback((provider) => (
-    provider === 'jan-server' || provider === 'openai' || provider === 'anthropic' || provider === 'openrouter' || provider === 'cerebras' || provider === 'jan'
-  ), [])
+  const isLockedProvider = useCallback((provider) => {
+    return !!defaultConfig.providers[provider] || provider === 'anthropic' || provider === 'openrouter'
+  }, [])
 
   const onProviderChange = (e) => {
     const provider = e.target.value

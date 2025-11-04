@@ -68,9 +68,9 @@
     }
   },
   "side_panel": {
-    "default_path": "dist/ui/sidepanel/index.html"
+    "default_path": "ui/sidepanel/index.html"
   },
-  "options_page": "dist/ui/options/index.html",
+  "options_page": "ui/options/index.html",
   "content_scripts": [
     {
       "matches": [
@@ -82,6 +82,12 @@
       "run_at": "document_idle",
       "all_frames": true,
       "match_about_blank": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/config/defaults.json"],
+      "matches": ["<all_urls>"]
     }
   ]
 }

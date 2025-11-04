@@ -6,7 +6,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && cp manifest.json dist/ && cp -r icons src dist/",
     "build:firefox": "vite build --outDir dist-firefox && cp manifest.firefox.json dist-firefox/manifest.json && cp -r icons src dist-firefox/",
     "dev:ext": "vite build --watch",
     "dev:mcp": "bash -lc 'cd mcp/search-server && if command -v bun >/dev/null 2>&1; then bun run dev; else npm run dev; fi'",

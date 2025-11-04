@@ -1,10 +1,25 @@
 import { resolve } from 'path';
+import { copyFileSync, cpSync } from 'fs';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
+// Plugin to copy extension files after build
+function copyExtensionFiles() {
+  return {
+    name: 'copy-extension-files',
+    closeBundle() {
+      // Copy manifest
+      copyFileSync('manifest.json', 'dist/manifest.json');
+      // Copy icons and src directories
+      cpSync('icons', 'dist/icons', { recursive: true });
+      cpSync('src', 'dist/src', { recursive: true });
+    }
+  };
+}
+
 export default {
   base: '',
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), copyExtensionFiles()],
   resolve: {
     alias: {
       '@': resolve(__dirname, 'ui'),

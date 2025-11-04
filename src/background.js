@@ -13,17 +13,47 @@ try {
   }
 } catch (_) {}
 
+// Load centralized default settings
+let defaultConfig = null;
+async function loadConfig() {
+  if (defaultConfig) return defaultConfig;
+  try {
+    const response = await fetch(chrome.runtime.getURL('src/config/defaults.json'));
+    defaultConfig = await response.json();
+    return defaultConfig;
+  } catch (err) {
+    console.error('Failed to load config:', err);
+    // Fallback defaults if config load fails
+    return {
+      provider: 'jan',
+      apiBase: 'http://127.0.0.1:1337/v1',
+      apiKey: 'secret-key-123',
+      useApiKey: false,
+      model: 'Jan-v1-4B-Q4_K_M',
+      temperature: 0.2,
+      useCustomCompletionsUrl: false,
+      customCompletionsUrl: '',
+      ddgOnly: false,
+      providers: {
+        jan: { apiBase: 'http://127.0.0.1:1337/v1' },
+        'jan-server': { apiBase: 'https://api.jan.ai/v1i' },
+        cerebras: { apiBase: 'https://api.cerebras.ai/v1' },
+        openai: { apiBase: 'https://api.openai.com/v1' },
+      }
+    };
+  }
+}
+
+// Initialize default settings from config
 const DEFAULT_SETTINGS = {
-  provider: "jan", // 'jan-server' | 'openai' | 'anthropic' | 'openrouter' | 'cerebras' | 'jan' | 'custom'
-  apiBase: "https://api.jan.ai/v1", // e.g. https://comingsoon.ai, https://api.openai.com/v1, https://openrouter.ai/api/v1, https://api.cerebras.ai/v1, http://localhost:1337/v1
-  apiKey: "",
+  provider: 'jan',
+  apiBase: 'http://127.0.0.1:1337/v1',
+  apiKey: '',
   useApiKey: false,
-  model: "jan-v1-4b",
+  model: 'jan-v1-4b',
   temperature: 0.2,
-  // For provider: 'custom', allow specifying a full chat completions URL (non-stream and stream)
   useCustomCompletionsUrl: false,
-  customCompletionsUrl: "",
-  // Search preferences
+  customCompletionsUrl: '',
   ddgOnly: false,
 };
 
@@ -333,18 +363,23 @@ async function chatCompletionsStream({ apiBase, apiKey, useApiKey, model, temper
 }
 
 chrome.runtime.onInstalled.addListener(async () => {
+  // Load config first
+  const config = await loadConfig();
+
   // Initialize defaults without clobbering user settings
   const existing = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
   const merged = { ...DEFAULT_SETTINGS, ...existing };
 
   // Provide sensible presets if provider chosen but fields empty
   if (!merged.apiBase) {
-    if (merged.provider === 'jan-server') merged.apiBase = 'https://api.jan.ai/v1i';
-    else if (merged.provider === 'openai') merged.apiBase = 'https://api.openai.com/v1';
-    else if (merged.provider === 'anthropic') merged.apiBase = 'https://api.anthropic.com/v1'; // Requires OpenAI-compatible shim
-    else if (merged.provider === 'openrouter') merged.apiBase = 'https://openrouter.ai/api/v1';
-    else if (merged.provider === 'cerebras') merged.apiBase = 'https://api.cerebras.ai/v1';
-    else if (merged.provider === 'jan') merged.apiBase = 'https://api.jan.ai/v1';
+    const providerConfig = config.providers?.[merged.provider];
+    if (providerConfig) {
+      merged.apiBase = providerConfig.apiBase;
+    } else if (merged.provider === 'anthropic') {
+      merged.apiBase = 'https://api.anthropic.com/v1'; // Requires OpenAI-compatible shim
+    } else if (merged.provider === 'openrouter') {
+      merged.apiBase = 'https://openrouter.ai/api/v1';
+    }
   }
 
   await chrome.storage.sync.set(merged);
@@ -461,7 +496,7 @@ chrome.runtime.onInstalled.addListener(() => {
     chrome.contextMenus.create({
       id: 'add-tab-to-jan',
       title: 'Add to Jan context',
-      contexts: ['tab'],
+      contexts: ['page', 'selection'],  // Changed from 'tab' to valid contexts
       documentUrlPatterns: ['http://*/*', 'https://*/*']
     });
   } catch (e) {
@@ -1312,21 +1347,24 @@ async function performDuckDuckGoSearchAndScrape(payload) {
 }
 
 async function getSettings() {
+  const config = await loadConfig();
   const s = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
   const merged = { ...DEFAULT_SETTINGS, ...s };
   // Fill in provider defaults if fields missing
   if (!merged.apiBase) {
-    if (merged.provider === 'jan-server') merged.apiBase = 'https://comingsoon.ai';
-    if (merged.provider === 'openai') merged.apiBase = 'https://api.openai.com/v1';
-    else if (merged.provider === 'anthropic') merged.apiBase = 'https://api.anthropic.com/v1'; // Requires OpenAI-compatible shim
-    else if (merged.provider === 'openrouter') merged.apiBase = 'https://openrouter.ai/api/v1';
-    else if (merged.provider === 'cerebras') merged.apiBase = 'https://api.cerebras.ai/v1';
-    else if (merged.provider === 'jan') merged.apiBase = 'https://api.jan.ai/v1';
+    const providerConfig = config.providers?.[merged.provider];
+    if (providerConfig) {
+      merged.apiBase = providerConfig.apiBase;
+    } else if (merged.provider === 'anthropic') {
+      merged.apiBase = 'https://api.anthropic.com/v1'; // Requires OpenAI-compatible shim
+    } else if (merged.provider === 'openrouter') {
+      merged.apiBase = 'https://openrouter.ai/api/v1';
+    }
   }
   // Force-hide Jan Server base to comingsoon.ai until public release
   try {
-    if (merged.provider === 'jan-server') {
-      merged.apiBase = 'https://comingsoon.ai';
+    if (merged.provider === 'jan') {
+      merged.apiBase = 'http://127.0.0.1:1337/v1';
     }
   } catch (_) { /* ignore */ }
   return merged;
