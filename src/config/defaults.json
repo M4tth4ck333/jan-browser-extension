@@ -2,7 +2,7 @@
   "provider": "jan",
   "apiBase": "http://127.0.0.1:1337/v1",
   "apiKey": "secret-key-123",
-  "useApiKey": false,
+  "useApiKey": true,
   "model": "Jan-v1-4B-Q4_K_M",
   "temperature": 0.2,
   "useCustomCompletionsUrl": false,

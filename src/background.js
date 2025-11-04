@@ -28,7 +28,7 @@ async function loadConfig() {
       provider: 'jan',
       apiBase: 'http://127.0.0.1:1337/v1',
       apiKey: 'secret-key-123',
-      useApiKey: false,
+      useApiKey: true,
       model: 'Jan-v1-4B-Q4_K_M',
       temperature: 0.2,
       useCustomCompletionsUrl: false,
@@ -48,9 +48,9 @@ async function loadConfig() {
 const DEFAULT_SETTINGS = {
   provider: 'jan',
   apiBase: 'http://127.0.0.1:1337/v1',
-  apiKey: '',
-  useApiKey: false,
-  model: 'jan-v1-4b',
+  apiKey: 'secret-key-123',
+  useApiKey: true,
+  model: 'Jan-v1-4B-Q4_K_M',
   temperature: 0.2,
   useCustomCompletionsUrl: false,
   customCompletionsUrl: '',
@@ -1367,6 +1367,7 @@ async function getSettings() {
       merged.apiBase = 'http://127.0.0.1:1337/v1';
     }
   } catch (_) { /* ignore */ }
+  console.log(merged)
   return merged;
 }
 
