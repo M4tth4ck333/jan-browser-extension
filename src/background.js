@@ -183,8 +183,9 @@ async function connectMcpBridge() {
 
           const mode = params?.mode || 'markdown';
           const maxContentLength = Number(params?.maxContentLength) || 100000;
+          const keepTabOpen = params?.keepTabOpen === true;
 
-          console.log('[MCP Bridge] visit tool', { url, mode, maxContentLength });
+          console.log('[MCP Bridge] visit tool', { url, mode, maxContentLength, keepTabOpen });
 
           try {
             // Create a new tab to visit the URL
@@ -210,10 +211,8 @@ async function connectMcpBridge() {
             // Extract page content
             const response = await chrome.tabs.sendMessage(tabId, { type: 'GET_PAGE_CONTENT' });
 
-            // Close the tab
-            await chrome.tabs.remove(tabId);
-
             if (!response || !response.ok) {
+              await chrome.tabs.remove(tabId);
               return reply({ ok: false, error: 'Failed to extract page content' });
             }
 
@@ -222,7 +221,8 @@ async function connectMcpBridge() {
               url: response.url || url,
               title: response.title || '',
               lang: response.lang || '',
-              metaDescription: response.metaDescription || ''
+              metaDescription: response.metaDescription || '',
+              tabId: tabId  // Include tab ID for session management
             };
 
             if (mode === 'html') {
@@ -243,15 +243,813 @@ async function connectMcpBridge() {
               result.markdown = String(response.content || '').slice(0, maxContentLength);
             }
 
+            // Only close the tab if keepTabOpen is false
+            if (!keepTabOpen) {
+              await chrome.tabs.remove(tabId);
+            }
+
             console.log('[MCP Bridge] visit tool result', {
               url: result.url,
               title: result.title,
-              contentLength: result.markdown?.length || result.text?.length || result.html?.length || 0
+              contentLength: result.markdown?.length || result.text?.length || result.html?.length || 0,
+              keepTabOpen: keepTabOpen,
+              tabId: tabId
             });
 
             return reply({ ok: true, data: result });
           } catch (e) {
             console.error('[MCP Bridge] visit tool error:', e);
+            return reply({ ok: false, error: String(e?.message || e) });
+          }
+        }
+
+        if (tool === 'screenshot') {
+          const url = String(params?.url || '').trim();
+          if (!url) return reply({ ok: false, error: 'Missing url parameter' });
+
+          try {
+            new URL(url);
+          } catch (e) {
+            return reply({ ok: false, error: `Invalid URL: ${url}` });
+          }
+
+          const fullPage = params?.fullPage !== false; // default true
+          const format = params?.format || 'png';
+          const quality = format === 'jpeg' ? Math.min(100, Math.max(1, Number(params?.quality) || 90)) : undefined;
+
+          console.log('[MCP Bridge] screenshot tool', { url, fullPage, format, quality });
+
+          try {
+            // Create a new tab to visit the URL
+            const tab = await chrome.tabs.create({ url, active: false });
+            const tabId = tab.id;
+
+            // Wait for the page to load
+            await new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => {
+                reject(new Error('Page load timeout'));
+              }, 30000);
+
+              const listener = (changedTabId, changeInfo) => {
+                if (changedTabId === tabId && changeInfo.status === 'complete') {
+                  clearTimeout(timeout);
+                  chrome.tabs.onUpdated.removeListener(listener);
+                  resolve();
+                }
+              };
+              chrome.tabs.onUpdated.addListener(listener);
+            });
+
+            // Take screenshot
+            const dataUrl = await chrome.tabs.captureVisibleTab(null, {
+              format: format,
+              quality: quality
+            });
+
+            // Close the tab
+            await chrome.tabs.remove(tabId);
+
+            console.log('[MCP Bridge] screenshot taken', {
+              url,
+              format,
+              dataUrlLength: dataUrl.length
+            });
+
+            return reply({
+              ok: true,
+              data: {
+                url,
+                format,
+                screenshot: dataUrl,
+                timestamp: new Date().toISOString()
+              }
+            });
+          } catch (e) {
+            console.error('[MCP Bridge] screenshot tool error:', e);
+            return reply({ ok: false, error: String(e?.message || e) });
+          }
+        }
+
+        if (tool === 'execute_script') {
+          const url = String(params?.url || '').trim();
+          const script = String(params?.script || '').trim();
+
+          if (!url) return reply({ ok: false, error: 'Missing url parameter' });
+          if (!script) return reply({ ok: false, error: 'Missing script parameter' });
+
+          try {
+            new URL(url);
+          } catch (e) {
+            return reply({ ok: false, error: `Invalid URL: ${url}` });
+          }
+
+          console.log('[MCP Bridge] execute_script tool', { url, scriptLength: script.length });
+
+          try {
+            // Create a new tab to visit the URL
+            const tab = await chrome.tabs.create({ url, active: false });
+            const tabId = tab.id;
+
+            // Wait for the page to load
+            await new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => {
+                reject(new Error('Page load timeout'));
+              }, 30000);
+
+              const listener = (changedTabId, changeInfo) => {
+                if (changedTabId === tabId && changeInfo.status === 'complete') {
+                  clearTimeout(timeout);
+                  chrome.tabs.onUpdated.removeListener(listener);
+                  resolve();
+                }
+              };
+              chrome.tabs.onUpdated.addListener(listener);
+            });
+
+            // Execute the script
+            const args = params?.args || [];
+            const [{ result }] = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: new Function('args', script),
+              args: [args]
+            });
+
+            // Close the tab
+            await chrome.tabs.remove(tabId);
+
+            console.log('[MCP Bridge] script executed', { url, resultType: typeof result });
+
+            return reply({
+              ok: true,
+              data: {
+                url,
+                result: result,
+                timestamp: new Date().toISOString()
+              }
+            });
+          } catch (e) {
+            console.error('[MCP Bridge] execute_script tool error:', e);
+            return reply({ ok: false, error: String(e?.message || e) });
+          }
+        }
+
+        if (tool === 'click_element') {
+          const url = String(params?.url || '').trim();
+          const selector = String(params?.selector || '').trim();
+
+          if (!url) return reply({ ok: false, error: 'Missing url parameter' });
+          if (!selector) return reply({ ok: false, error: 'Missing selector parameter' });
+
+          try {
+            new URL(url);
+          } catch (e) {
+            return reply({ ok: false, error: `Invalid URL: ${url}` });
+          }
+
+          const waitForNavigation = params?.waitForNavigation !== false; // default true
+
+          console.log('[MCP Bridge] click_element tool', { url, selector, waitForNavigation });
+
+          try {
+            // Create a new tab to visit the URL
+            const tab = await chrome.tabs.create({ url, active: false });
+            const tabId = tab.id;
+
+            // Wait for the page to load
+            await new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => {
+                reject(new Error('Page load timeout'));
+              }, 30000);
+
+              const listener = (changedTabId, changeInfo) => {
+                if (changedTabId === tabId && changeInfo.status === 'complete') {
+                  clearTimeout(timeout);
+                  chrome.tabs.onUpdated.removeListener(listener);
+                  resolve();
+                }
+              };
+              chrome.tabs.onUpdated.addListener(listener);
+            });
+
+            // Click the element
+            const [{ result: clicked }] = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: (sel) => {
+                const el = document.querySelector(sel);
+                if (!el) return { success: false, error: 'Element not found' };
+                el.click();
+                return { success: true, element: el.tagName };
+              },
+              args: [selector]
+            });
+
+            if (!clicked.success) {
+              await chrome.tabs.remove(tabId);
+              return reply({ ok: false, error: clicked.error || 'Click failed' });
+            }
+
+            // Wait for navigation if requested
+            if (waitForNavigation) {
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
+
+            // Get the new URL
+            const finalTab = await chrome.tabs.get(tabId);
+            const finalUrl = finalTab.url;
+
+            // Close the tab
+            await chrome.tabs.remove(tabId);
+
+            console.log('[MCP Bridge] element clicked', { url, finalUrl, selector });
+
+            return reply({
+              ok: true,
+              data: {
+                originalUrl: url,
+                finalUrl: finalUrl,
+                selector: selector,
+                clicked: true,
+                timestamp: new Date().toISOString()
+              }
+            });
+          } catch (e) {
+            console.error('[MCP Bridge] click_element tool error:', e);
+            return reply({ ok: false, error: String(e?.message || e) });
+          }
+        }
+
+        if (tool === 'fill_form') {
+          const url = String(params?.url || '').trim();
+          const fields = params?.fields || [];
+
+          if (!url) return reply({ ok: false, error: 'Missing url parameter' });
+          if (!Array.isArray(fields) || fields.length === 0) {
+            return reply({ ok: false, error: 'Missing or empty fields array' });
+          }
+
+          try {
+            new URL(url);
+          } catch (e) {
+            return reply({ ok: false, error: `Invalid URL: ${url}` });
+          }
+
+          console.log('[MCP Bridge] fill_form tool', { url, fieldCount: fields.length });
+
+          try {
+            // Create a new tab to visit the URL
+            const tab = await chrome.tabs.create({ url, active: false });
+            const tabId = tab.id;
+
+            // Wait for the page to load
+            await new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => {
+                reject(new Error('Page load timeout'));
+              }, 30000);
+
+              const listener = (changedTabId, changeInfo) => {
+                if (changedTabId === tabId && changeInfo.status === 'complete') {
+                  clearTimeout(timeout);
+                  chrome.tabs.onUpdated.removeListener(listener);
+                  resolve();
+                }
+              };
+              chrome.tabs.onUpdated.addListener(listener);
+            });
+
+            // Fill the form fields
+            const [{ result: fillResult }] = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: (fieldsToFill) => {
+                const results = [];
+                for (const field of fieldsToFill) {
+                  const el = document.querySelector(field.selector);
+                  if (!el) {
+                    results.push({ selector: field.selector, success: false, error: 'Element not found' });
+                    continue;
+                  }
+
+                  // Handle different input types
+                  if (el.tagName === 'SELECT') {
+                    el.value = field.value;
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                  } else if (el.type === 'checkbox' || el.type === 'radio') {
+                    el.checked = field.value === 'true' || field.value === true;
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                  } else {
+                    el.value = field.value;
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                  }
+
+                  results.push({ selector: field.selector, success: true, value: field.value });
+                }
+                return results;
+              },
+              args: [fields]
+            });
+
+            // Close the tab
+            await chrome.tabs.remove(tabId);
+
+            const failedFields = fillResult.filter(r => !r.success);
+            const successCount = fillResult.filter(r => r.success).length;
+
+            console.log('[MCP Bridge] form filled', { url, successCount, failedCount: failedFields.length });
+
+            return reply({
+              ok: failedFields.length === 0,
+              data: {
+                url,
+                totalFields: fields.length,
+                successfulFields: successCount,
+                failedFields: failedFields,
+                results: fillResult,
+                timestamp: new Date().toISOString()
+              }
+            });
+          } catch (e) {
+            console.error('[MCP Bridge] fill_form tool error:', e);
+            return reply({ ok: false, error: String(e?.message || e) });
+          }
+        }
+
+        if (tool === 'snapshot') {
+          const url = String(params?.url || '').trim();
+          if (!url) return reply({ ok: false, error: 'Missing url parameter' });
+
+          try {
+            new URL(url);
+          } catch (e) {
+            return reply({ ok: false, error: `Invalid URL: ${url}` });
+          }
+
+          console.log('[MCP Bridge] snapshot tool', { url });
+
+          try {
+            // Create a new tab to visit the URL
+            const tab = await chrome.tabs.create({ url, active: false });
+            const tabId = tab.id;
+
+            // Wait for the page to load
+            await new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => {
+                reject(new Error('Page load timeout'));
+              }, 30000);
+
+              const listener = (changedTabId, changeInfo) => {
+                if (changedTabId === tabId && changeInfo.status === 'complete') {
+                  clearTimeout(timeout);
+                  chrome.tabs.onUpdated.removeListener(listener);
+                  resolve();
+                }
+              };
+              chrome.tabs.onUpdated.addListener(listener);
+            });
+
+            // Get the full DOM snapshot with ARIA accessibility tree
+            const [{ result: snapshot }] = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: () => {
+                // Helper to build ARIA tree recursively
+                function buildAriaTree(element, depth = 0, maxDepth = 10) {
+                  if (depth > maxDepth) return null;
+
+                  const role = element.getAttribute('role') ||
+                              (element.tagName === 'A' ? 'link' :
+                               element.tagName === 'BUTTON' ? 'button' :
+                               element.tagName === 'INPUT' ? 'textbox' :
+                               element.tagName === 'IMG' ? 'img' :
+                               element.tagName === 'NAV' ? 'navigation' :
+                               element.tagName === 'MAIN' ? 'main' :
+                               element.tagName === 'HEADER' ? 'banner' :
+                               element.tagName === 'FOOTER' ? 'contentinfo' :
+                               element.tagName.match(/^H[1-6]$/) ? 'heading' : null);
+
+                  if (!role) return null;
+
+                  const ariaLabel = element.getAttribute('aria-label') ||
+                                   element.getAttribute('aria-labelledby') ||
+                                   element.getAttribute('title') ||
+                                   (element.tagName === 'A' || element.tagName === 'BUTTON'
+                                     ? element.textContent?.trim().slice(0, 100)
+                                     : null);
+
+                  const node = {
+                    role,
+                    name: ariaLabel || element.textContent?.trim().slice(0, 50) || '',
+                    tag: element.tagName.toLowerCase()
+                  };
+
+                  // Add ARIA attributes
+                  if (element.getAttribute('aria-expanded')) node.expanded = element.getAttribute('aria-expanded') === 'true';
+                  if (element.getAttribute('aria-selected')) node.selected = element.getAttribute('aria-selected') === 'true';
+                  if (element.getAttribute('aria-checked')) node.checked = element.getAttribute('aria-checked') === 'true';
+                  if (element.getAttribute('aria-disabled')) node.disabled = element.getAttribute('aria-disabled') === 'true';
+                  if (element.getAttribute('aria-level')) node.level = parseInt(element.getAttribute('aria-level'));
+
+                  // Add element-specific attributes
+                  if (element.href) node.href = element.href;
+                  if (element.id) node.id = element.id;
+                  if (element.className && element.className.trim()) node.className = element.className.trim().split(/\s+/).slice(0, 3).join(' ');
+
+                  // Build children
+                  const children = [];
+                  for (const child of element.children) {
+                    const childNode = buildAriaTree(child, depth + 1, maxDepth);
+                    if (childNode) children.push(childNode);
+                  }
+                  if (children.length > 0) node.children = children.slice(0, 20); // Limit children
+
+                  return node;
+                }
+
+                // Get full HTML
+                const html = document.documentElement.outerHTML;
+
+                // Get page metadata
+                const title = document.title;
+                const description = document.querySelector('meta[name="description"]')?.content || '';
+                const canonical = document.querySelector('link[rel="canonical"]')?.href || '';
+
+                // Build ARIA accessibility tree
+                const ariaTree = buildAriaTree(document.body);
+
+                // Get all interactive elements with ARIA info
+                const interactiveElements = [];
+                const selectors = 'a[href], button, input, select, textarea, [role="button"], [role="link"], [tabindex]';
+                Array.from(document.querySelectorAll(selectors)).slice(0, 100).forEach((el, idx) => {
+                  const role = el.getAttribute('role') || el.tagName.toLowerCase();
+                  const label = el.getAttribute('aria-label') ||
+                               el.getAttribute('placeholder') ||
+                               el.textContent?.trim().slice(0, 50) || '';
+
+                  interactiveElements.push({
+                    index: idx,
+                    role,
+                    tag: el.tagName.toLowerCase(),
+                    label,
+                    id: el.id || undefined,
+                    name: el.name || undefined,
+                    type: el.type || undefined,
+                    href: el.href || undefined,
+                    disabled: el.disabled || undefined,
+                    ariaExpanded: el.getAttribute('aria-expanded') || undefined,
+                    ariaSelected: el.getAttribute('aria-selected') || undefined
+                  });
+                });
+
+                // Get all links
+                const links = Array.from(document.querySelectorAll('a[href]')).map(a => ({
+                  text: a.textContent?.trim() || '',
+                  href: a.href,
+                  rel: a.rel || undefined,
+                  ariaLabel: a.getAttribute('aria-label') || undefined
+                }));
+
+                // Get all images
+                const images = Array.from(document.querySelectorAll('img[src]')).map(img => ({
+                  src: img.src,
+                  alt: img.alt || '',
+                  width: img.width || undefined,
+                  height: img.height || undefined,
+                  ariaLabel: img.getAttribute('aria-label') || undefined
+                }));
+
+                // Get all form fields
+                const forms = Array.from(document.querySelectorAll('form')).map(form => ({
+                  action: form.action,
+                  method: form.method,
+                  ariaLabel: form.getAttribute('aria-label') || undefined,
+                  fields: Array.from(form.querySelectorAll('input, select, textarea')).map(field => ({
+                    type: field.type || field.tagName.toLowerCase(),
+                    name: field.name,
+                    id: field.id,
+                    placeholder: field.placeholder || undefined,
+                    ariaLabel: field.getAttribute('aria-label') || undefined,
+                    required: field.required || undefined
+                  }))
+                }));
+
+                // Get page structure
+                const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6')).map(h => ({
+                  level: h.tagName,
+                  text: h.textContent?.trim() || '',
+                  ariaLevel: h.getAttribute('aria-level') || undefined
+                }));
+
+                // Get landmarks
+                const landmarks = [];
+                const landmarkSelectors = 'main, nav, header, footer, aside, [role="main"], [role="navigation"], [role="banner"], [role="contentinfo"], [role="complementary"]';
+                Array.from(document.querySelectorAll(landmarkSelectors)).forEach(el => {
+                  const role = el.getAttribute('role') || el.tagName.toLowerCase();
+                  landmarks.push({
+                    role,
+                    tag: el.tagName.toLowerCase(),
+                    ariaLabel: el.getAttribute('aria-label') || undefined,
+                    id: el.id || undefined
+                  });
+                });
+
+                return {
+                  url: window.location.href,
+                  title,
+                  description,
+                  canonical,
+                  html,
+                  aria: {
+                    tree: ariaTree,
+                    interactive: interactiveElements,
+                    landmarks
+                  },
+                  links: links.slice(0, 100), // Limit to first 100
+                  images: images.slice(0, 50), // Limit to first 50
+                  forms,
+                  headings: headings.slice(0, 50), // Limit to first 50
+                  viewport: {
+                    width: window.innerWidth,
+                    height: window.innerHeight
+                  },
+                  timestamp: new Date().toISOString()
+                };
+              }
+            });
+
+            // Close the tab
+            await chrome.tabs.remove(tabId);
+
+            console.log('[MCP Bridge] snapshot captured', {
+              url: snapshot.url,
+              htmlLength: snapshot.html?.length || 0,
+              linkCount: snapshot.links?.length || 0,
+              imageCount: snapshot.images?.length || 0
+            });
+
+            return reply({ ok: true, data: snapshot });
+          } catch (e) {
+            console.error('[MCP Bridge] snapshot tool error:', e);
+            return reply({ ok: false, error: String(e?.message || e) });
+          }
+        }
+
+        // Type text into an element
+        if (tool === 'type_text') {
+          const url = String(params?.url || '').trim();
+          const selector = String(params?.selector || '').trim();
+          const text = String(params?.text || '');
+          const clear = params?.clear !== false;
+
+          if (!url || !selector) {
+            return reply({ ok: false, error: 'Missing url or selector parameter' });
+          }
+
+          try {
+            const tab = await chrome.tabs.create({ url, active: false });
+            const tabId = tab.id;
+
+            await new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => reject(new Error('Page load timeout')), 30000);
+              const listener = (changedTabId, changeInfo) => {
+                if (changedTabId === tabId && changeInfo.status === 'complete') {
+                  clearTimeout(timeout);
+                  chrome.tabs.onUpdated.removeListener(listener);
+                  resolve();
+                }
+              };
+              chrome.tabs.onUpdated.addListener(listener);
+            });
+
+            const [{ result: typed }] = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: (sel, txt, clr) => {
+                const el = document.querySelector(sel);
+                if (!el) return { success: false, error: 'Element not found' };
+                if (clr) el.value = '';
+                el.value = txt;
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                return { success: true };
+              },
+              args: [selector, text, clear]
+            });
+
+            await chrome.tabs.remove(tabId);
+
+            if (!typed.success) {
+              return reply({ ok: false, error: typed.error });
+            }
+
+            return reply({ ok: true, data: { url, selector, text: text.slice(0, 50) } });
+          } catch (e) {
+            return reply({ ok: false, error: String(e?.message || e) });
+          }
+        }
+
+        // Hover over an element
+        if (tool === 'hover_element') {
+          const url = String(params?.url || '').trim();
+          const selector = String(params?.selector || '').trim();
+
+          if (!url || !selector) {
+            return reply({ ok: false, error: 'Missing url or selector parameter' });
+          }
+
+          try {
+            const tab = await chrome.tabs.create({ url, active: false });
+            const tabId = tab.id;
+
+            await new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => reject(new Error('Page load timeout')), 30000);
+              const listener = (changedTabId, changeInfo) => {
+                if (changedTabId === tabId && changeInfo.status === 'complete') {
+                  clearTimeout(timeout);
+                  chrome.tabs.onUpdated.removeListener(listener);
+                  resolve();
+                }
+              };
+              chrome.tabs.onUpdated.addListener(listener);
+            });
+
+            const [{ result: hovered }] = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: (sel) => {
+                const el = document.querySelector(sel);
+                if (!el) return { success: false, error: 'Element not found' };
+                const event = new MouseEvent('mouseover', { bubbles: true, cancelable: true });
+                el.dispatchEvent(event);
+                return { success: true };
+              },
+              args: [selector]
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await chrome.tabs.remove(tabId);
+
+            if (!hovered.success) {
+              return reply({ ok: false, error: hovered.error });
+            }
+
+            return reply({ ok: true, data: { url, selector } });
+          } catch (e) {
+            return reply({ ok: false, error: String(e?.message || e) });
+          }
+        }
+
+        // Select an option from dropdown
+        if (tool === 'select_option') {
+          const url = String(params?.url || '').trim();
+          const selector = String(params?.selector || '').trim();
+          const value = String(params?.value || '');
+
+          if (!url || !selector || !value) {
+            return reply({ ok: false, error: 'Missing url, selector, or value parameter' });
+          }
+
+          try {
+            const tab = await chrome.tabs.create({ url, active: false });
+            const tabId = tab.id;
+
+            await new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => reject(new Error('Page load timeout')), 30000);
+              const listener = (changedTabId, changeInfo) => {
+                if (changedTabId === tabId && changeInfo.status === 'complete') {
+                  clearTimeout(timeout);
+                  chrome.tabs.onUpdated.removeListener(listener);
+                  resolve();
+                }
+              };
+              chrome.tabs.onUpdated.addListener(listener);
+            });
+
+            const [{ result: selected }] = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: (sel, val) => {
+                const el = document.querySelector(sel);
+                if (!el || el.tagName !== 'SELECT') return { success: false, error: 'Select element not found' };
+                el.value = val;
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                return { success: true, selectedValue: el.value };
+              },
+              args: [selector, value]
+            });
+
+            await chrome.tabs.remove(tabId);
+
+            if (!selected.success) {
+              return reply({ ok: false, error: selected.error });
+            }
+
+            return reply({ ok: true, data: { url, selector, value: selected.selectedValue } });
+          } catch (e) {
+            return reply({ ok: false, error: String(e?.message || e) });
+          }
+        }
+
+        // Go back in history
+        if (tool === 'go_back') {
+          const url = String(params?.url || '').trim();
+          if (!url) return reply({ ok: false, error: 'Missing url parameter' });
+
+          try {
+            const tab = await chrome.tabs.create({ url, active: false });
+            const tabId = tab.id;
+
+            await new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => reject(new Error('Page load timeout')), 30000);
+              const listener = (changedTabId, changeInfo) => {
+                if (changedTabId === tabId && changeInfo.status === 'complete') {
+                  clearTimeout(timeout);
+                  chrome.tabs.onUpdated.removeListener(listener);
+                  resolve();
+                }
+              };
+              chrome.tabs.onUpdated.addListener(listener);
+            });
+
+            await chrome.tabs.goBack(tabId);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            const finalTab = await chrome.tabs.get(tabId);
+            await chrome.tabs.remove(tabId);
+
+            return reply({ ok: true, data: { url: finalTab.url } });
+          } catch (e) {
+            return reply({ ok: false, error: String(e?.message || e) });
+          }
+        }
+
+        // Go forward in history
+        if (tool === 'go_forward') {
+          const url = String(params?.url || '').trim();
+          if (!url) return reply({ ok: false, error: 'Missing url parameter' });
+
+          try {
+            const tab = await chrome.tabs.create({ url, active: false });
+            const tabId = tab.id;
+
+            await new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => reject(new Error('Page load timeout')), 30000);
+              const listener = (changedTabId, changeInfo) => {
+                if (changedTabId === tabId && changeInfo.status === 'complete') {
+                  clearTimeout(timeout);
+                  chrome.tabs.onUpdated.removeListener(listener);
+                  resolve();
+                }
+              };
+              chrome.tabs.onUpdated.addListener(listener);
+            });
+
+            await chrome.tabs.goForward(tabId);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            const finalTab = await chrome.tabs.get(tabId);
+            await chrome.tabs.remove(tabId);
+
+            return reply({ ok: true, data: { url: finalTab.url } });
+          } catch (e) {
+            return reply({ ok: false, error: String(e?.message || e) });
+          }
+        }
+
+        // Scroll page
+        if (tool === 'scroll_page') {
+          const url = String(params?.url || '').trim();
+          const direction = String(params?.direction || 'down');
+          const amount = Number(params?.amount) || 500;
+
+          if (!url) return reply({ ok: false, error: 'Missing url parameter' });
+
+          try {
+            const tab = await chrome.tabs.create({ url, active: false });
+            const tabId = tab.id;
+
+            await new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => reject(new Error('Page load timeout')), 30000);
+              const listener = (changedTabId, changeInfo) => {
+                if (changedTabId === tabId && changeInfo.status === 'complete') {
+                  clearTimeout(timeout);
+                  chrome.tabs.onUpdated.removeListener(listener);
+                  resolve();
+                }
+              };
+              chrome.tabs.onUpdated.addListener(listener);
+            });
+
+            await chrome.scripting.executeScript({
+              target: { tabId },
+              func: (dir, amt) => {
+                if (dir === 'top') window.scrollTo(0, 0);
+                else if (dir === 'bottom') window.scrollTo(0, document.body.scrollHeight);
+                else if (dir === 'up') window.scrollBy(0, -amt);
+                else window.scrollBy(0, amt);
+              },
+              args: [direction, amount]
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await chrome.tabs.remove(tabId);
+
+            return reply({ ok: true, data: { url, direction, amount } });
+          } catch (e) {
             return reply({ ok: false, error: String(e?.message || e) });
           }
         }

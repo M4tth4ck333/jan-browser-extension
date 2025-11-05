@@ -76,6 +76,55 @@ Add an entry under `mcpServers`:
 
 Restart Claude Desktop. In a chat, ask it to use the `search` tool (e.g., "search the web for ..."), and it will call this server.
 
+### Jan Desktop App
+
+Jan Desktop supports MCP servers. To configure:
+
+1. Build the MCP server first:
+   ```bash
+   cd /path/to/jan-browser/mcp/search-server
+   npm install
+   npm run build
+   ```
+
+2. Open Jan Desktop app and go to Settings → Extensions → Model Context Protocol
+
+3. Add a new MCP server with these settings:
+   - **Name**: Jan Browser Extension (or any name you prefer)
+   - **Command**: `node`
+   - **Arguments**: `/absolute/path/to/jan-browser/mcp/search-server/dist/src/index.js`
+   - **Environment variables** (optional):
+     - `BRIDGE_HOST`: `127.0.0.1`
+     - `BRIDGE_PORT`: `17389`
+
+4. **Important**: Make sure the Jan Browser Chrome extension is installed and running:
+   - Load the extension in Chrome from the `dist/` folder
+   - The extension must be active for the MCP server to work
+   - Verify connection in Chrome DevTools (see "Run extension and MCP together" section)
+
+5. Restart Jan Desktop or reload the MCP configuration
+
+6. The server will now expose browser automation tools like `snapshot`, `browser_navigate`, `click`, `type`, `screenshot`, `web_search`, and more.
+
+**Troubleshooting Jan Desktop:**
+- If you see "Failed to start MCP server", ensure the path to `index.js` is absolute and correct
+- Check that Node.js is installed and accessible in your PATH: `which node`
+- Verify the build completed successfully: `ls /path/to/mcp/search-server/dist/src/index.js`
+- Ensure the file is executable: `chmod +x /path/to/mcp/search-server/dist/src/index.js`
+- **NVM users**: If you use NVM for Node.js, Jan Desktop may not find node in your PATH. Use one of these solutions:
+  - **Option 1 (Recommended)**: Use the wrapper script instead:
+    - Command: `/absolute/path/to/jan-browser/mcp/search-server/start-mcp.sh`
+    - Args: (leave empty)
+  - **Option 2**: Use absolute path to node:
+    - Command: `/Users/YOUR_USERNAME/.nvm/versions/node/vXX.XX.X/bin/node`
+    - Args: `/absolute/path/to/jan-browser/mcp/search-server/dist/src/index.js`
+  - **Option 3**: Install node system-wide (outside NVM) and use `node` as command
+- **Port conflict**: If port 17389 is in use, kill the existing process:
+  ```bash
+  lsof -iTCP:17389 -sTCP:LISTEN | grep node | awk '{print $2}' | xargs kill -9
+  ```
+- Check Jan Desktop logs for more detailed error messages
+
 ### VS Code (via an MCP-enabled extension)
 
 If your extension supports MCP servers by command, configure it to launch:
