@@ -189,7 +189,30 @@ server.registerTool(
     title: "Visit URL (Deep Dive)",
     description:
       "Visit a URL via the installed browser extension and extract page content (innerHTML/markdown). Use this to visit the URLs returned by search for a deeper dive.",
-    // Omit inputSchema to avoid Zod instance mismatch; validate inside handler
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          format: "uri",
+          description: "The URL to visit and extract content from"
+        },
+        mode: {
+          type: "string",
+          enum: ["markdown", "html", "text"],
+          description: "Content format to extract (default: markdown)",
+          default: "markdown"
+        },
+        maxContentLength: {
+          type: "number",
+          description: "Maximum content length in characters (default: 100000)",
+          default: 100000,
+          minimum: 1000,
+          maximum: 500000
+        }
+      },
+      required: ["url"]
+    } as any
   },
   async (args: any) => {
     const parsed = VisitInput.parse(args);
@@ -398,7 +421,30 @@ server.registerTool(
     title: "Web Search (Google)",
     description:
       "Search the web via Google by asking the installed browser extension to perform the search and scrape the SERP.",
-    // Omit inputSchema; we validate with zod inside the handler
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "The search query to execute",
+          minLength: 1
+        },
+        numResults: {
+          type: "number",
+          description: "Number of search results to return (1-10, default: 5)",
+          default: 5,
+          minimum: 1,
+          maximum: 10
+        },
+        format: {
+          type: "string",
+          enum: ["serper", "text"],
+          description: "Output format: 'serper' returns structured JSON, 'text' returns human-readable summary (default: serper)",
+          default: "serper"
+        }
+      },
+      required: ["query"]
+    } as any
   },
   async (args: any, extra: any) => searchHandler(args, extra)
 );
@@ -409,7 +455,30 @@ server.registerTool(
   {
     title: "Web Search (Google) [deprecated]",
     description: "Deprecated alias of web_search. Prefer web_search.",
-    // Omit inputSchema; we validate with zod inside the handler
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "The search query to execute",
+          minLength: 1
+        },
+        numResults: {
+          type: "number",
+          description: "Number of search results to return (1-10, default: 5)",
+          default: 5,
+          minimum: 1,
+          maximum: 10
+        },
+        format: {
+          type: "string",
+          enum: ["serper", "text"],
+          description: "Output format: 'serper' returns structured JSON, 'text' returns human-readable summary (default: serper)",
+          default: "serper"
+        }
+      },
+      required: ["query"]
+    } as any
   },
   async (args: any, extra: any) => searchHandler(args, extra)
 );

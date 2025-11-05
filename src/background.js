@@ -169,6 +169,93 @@ async function connectMcpBridge() {
           const err = gRes?.error || ddgRes?.error || 'Search failed';
           return reply({ ok: false, error: err });
         }
+
+        if (tool === 'visit') {
+          const url = String(params?.url || '').trim();
+          if (!url) return reply({ ok: false, error: 'Missing url parameter' });
+
+          // Validate URL
+          try {
+            new URL(url);
+          } catch (e) {
+            return reply({ ok: false, error: `Invalid URL: ${url}` });
+          }
+
+          const mode = params?.mode || 'markdown';
+          const maxContentLength = Number(params?.maxContentLength) || 100000;
+
+          console.log('[MCP Bridge] visit tool', { url, mode, maxContentLength });
+
+          try {
+            // Create a new tab to visit the URL
+            const tab = await chrome.tabs.create({ url, active: false });
+            const tabId = tab.id;
+
+            // Wait for the page to load
+            await new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => {
+                reject(new Error('Page load timeout'));
+              }, 30000); // 30 second timeout
+
+              const listener = (changedTabId, changeInfo) => {
+                if (changedTabId === tabId && changeInfo.status === 'complete') {
+                  clearTimeout(timeout);
+                  chrome.tabs.onUpdated.removeListener(listener);
+                  resolve();
+                }
+              };
+              chrome.tabs.onUpdated.addListener(listener);
+            });
+
+            // Extract page content
+            const response = await chrome.tabs.sendMessage(tabId, { type: 'GET_PAGE_CONTENT' });
+
+            // Close the tab
+            await chrome.tabs.remove(tabId);
+
+            if (!response || !response.ok) {
+              return reply({ ok: false, error: 'Failed to extract page content' });
+            }
+
+            // Build response based on requested mode
+            const result = {
+              url: response.url || url,
+              title: response.title || '',
+              lang: response.lang || '',
+              metaDescription: response.metaDescription || ''
+            };
+
+            if (mode === 'html') {
+              // Get the full HTML (we need to inject a script for this)
+              try {
+                const [{ result: html }] = await chrome.scripting.executeScript({
+                  target: { tabId },
+                  func: () => document.documentElement.outerHTML
+                });
+                result.html = String(html || '').slice(0, maxContentLength);
+              } catch (e) {
+                result.html = '';
+              }
+            } else if (mode === 'text') {
+              result.text = String(response.content || '').slice(0, maxContentLength);
+            } else {
+              // markdown mode (default)
+              result.markdown = String(response.content || '').slice(0, maxContentLength);
+            }
+
+            console.log('[MCP Bridge] visit tool result', {
+              url: result.url,
+              title: result.title,
+              contentLength: result.markdown?.length || result.text?.length || result.html?.length || 0
+            });
+
+            return reply({ ok: true, data: result });
+          } catch (e) {
+            console.error('[MCP Bridge] visit tool error:', e);
+            return reply({ ok: false, error: String(e?.message || e) });
+          }
+        }
+
         // Unknown tool
         reply({ ok: false, error: `Unknown tool: ${tool}` });
       } catch (e) {
