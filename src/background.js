@@ -102,6 +102,7 @@ const BRIDGE_BASE = 'ws://127.0.0.1:17389';
 let bridgeSocket = null;
 let lastBridgeToken = null; // cached to detect changes
 let lastUseBridgeToken = false; // whether we should include the token
+let mcpActiveTabId = null; // Track active tab for agentic workflows (snapshot/screenshot/actions)
 
 async function connectMcpBridge() {
   try {
@@ -246,6 +247,10 @@ async function connectMcpBridge() {
             // Only close the tab if keepTabOpen is false
             if (!keepTabOpen) {
               await chrome.tabs.remove(tabId);
+            } else {
+              // Store active tab for snapshot/screenshot/action tools
+              mcpActiveTabId = tabId;
+              console.log('[MCP Bridge] Active tab set to:', tabId);
             }
 
             console.log('[MCP Bridge] visit tool result', {
@@ -264,62 +269,41 @@ async function connectMcpBridge() {
         }
 
         if (tool === 'screenshot') {
-          const url = String(params?.url || '').trim();
-          if (!url) return reply({ ok: false, error: 'Missing url parameter' });
-
-          try {
-            new URL(url);
-          } catch (e) {
-            return reply({ ok: false, error: `Invalid URL: ${url}` });
+          // NO URL parameter - operates on active tab from browser_navigate(keepTabOpen=true)
+          if (!mcpActiveTabId) {
+            return reply({
+              ok: false,
+              error: 'No active tab. First navigate with browser_navigate(url="...", keepTabOpen=true), then call screenshot().'
+            });
           }
 
-          const fullPage = params?.fullPage !== false; // default true
-          const format = params?.format || 'png';
-          const quality = format === 'jpeg' ? Math.min(100, Math.max(1, Number(params?.quality) || 90)) : undefined;
-
-          console.log('[MCP Bridge] screenshot tool', { url, fullPage, format, quality });
+          console.log('[MCP Bridge] screenshot tool - using active tab', { tabId: mcpActiveTabId });
 
           try {
-            // Create a new tab to visit the URL
-            const tab = await chrome.tabs.create({ url, active: false });
-            const tabId = tab.id;
+            // Make sure tab is visible for capture
+            await chrome.tabs.update(mcpActiveTabId, { active: true });
 
-            // Wait for the page to load
-            await new Promise((resolve, reject) => {
-              const timeout = setTimeout(() => {
-                reject(new Error('Page load timeout'));
-              }, 30000);
+            // Wait a moment for tab activation
+            await new Promise(resolve => setTimeout(resolve, 100));
 
-              const listener = (changedTabId, changeInfo) => {
-                if (changedTabId === tabId && changeInfo.status === 'complete') {
-                  clearTimeout(timeout);
-                  chrome.tabs.onUpdated.removeListener(listener);
-                  resolve();
-                }
-              };
-              chrome.tabs.onUpdated.addListener(listener);
-            });
-
-            // Take screenshot
+            // Take screenshot of active tab
             const dataUrl = await chrome.tabs.captureVisibleTab(null, {
-              format: format,
-              quality: quality
+              format: 'png'
             });
 
-            // Close the tab
-            await chrome.tabs.remove(tabId);
+            // Get current URL from tab
+            const tab = await chrome.tabs.get(mcpActiveTabId);
 
             console.log('[MCP Bridge] screenshot taken', {
-              url,
-              format,
+              url: tab.url,
+              tabId: mcpActiveTabId,
               dataUrlLength: dataUrl.length
             });
 
             return reply({
               ok: true,
               data: {
-                url,
-                format,
+                url: tab.url,
                 screenshot: dataUrl,
                 timestamp: new Date().toISOString()
               }
@@ -574,37 +558,18 @@ async function connectMcpBridge() {
         }
 
         if (tool === 'snapshot') {
-          const url = String(params?.url || '').trim();
-          if (!url) return reply({ ok: false, error: 'Missing url parameter' });
-
-          try {
-            new URL(url);
-          } catch (e) {
-            return reply({ ok: false, error: `Invalid URL: ${url}` });
+          // NO URL parameter - operates on active tab from browser_navigate(keepTabOpen=true)
+          if (!mcpActiveTabId) {
+            return reply({
+              ok: false,
+              error: 'No active tab. First navigate with browser_navigate(url="...", keepTabOpen=true), then call snapshot().'
+            });
           }
 
-          console.log('[MCP Bridge] snapshot tool', { url });
+          console.log('[MCP Bridge] snapshot tool - using active tab', { tabId: mcpActiveTabId });
 
           try {
-            // Create a new tab to visit the URL
-            const tab = await chrome.tabs.create({ url, active: false });
-            const tabId = tab.id;
-
-            // Wait for the page to load
-            await new Promise((resolve, reject) => {
-              const timeout = setTimeout(() => {
-                reject(new Error('Page load timeout'));
-              }, 30000);
-
-              const listener = (changedTabId, changeInfo) => {
-                if (changedTabId === tabId && changeInfo.status === 'complete') {
-                  clearTimeout(timeout);
-                  chrome.tabs.onUpdated.removeListener(listener);
-                  resolve();
-                }
-              };
-              chrome.tabs.onUpdated.addListener(listener);
-            });
+            const tabId = mcpActiveTabId;
 
             // Get the full DOM snapshot with ARIA accessibility tree
             const [{ result: snapshot }] = await chrome.scripting.executeScript({
@@ -774,14 +739,14 @@ async function connectMcpBridge() {
               }
             });
 
-            // Close the tab
-            await chrome.tabs.remove(tabId);
+            // DO NOT close the tab - it's the active tab for agentic workflows
 
             console.log('[MCP Bridge] snapshot captured', {
               url: snapshot.url,
               htmlLength: snapshot.html?.length || 0,
               linkCount: snapshot.links?.length || 0,
-              imageCount: snapshot.images?.length || 0
+              imageCount: snapshot.images?.length || 0,
+              tabId: tabId
             });
 
             return reply({ ok: true, data: snapshot });

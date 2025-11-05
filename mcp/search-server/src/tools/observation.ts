@@ -4,21 +4,19 @@
  */
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { callExtension, waitForBridgeConnection, hasExtensionConnection } from "../utils/bridge.js";
-import { captureAriaSnapshot } from "../utils/aria-snapshot.js";
+import { callExtension, waitForBridgeConnection, hasExtensionConnection, hasActiveTab } from "../utils/bridge.js";
 import type { Tool } from "./tool.js";
 
 /**
- * Capture a comprehensive snapshot of the page with ARIA tree
+ * Capture a comprehensive snapshot of the CURRENTLY ACTIVE TAB
+ * Operates on whatever tab was opened with browser_navigate(keepTabOpen=true)
  */
-const SnapshotSchema = z.object({
-  url: z.string().describe("The URL of the page to snapshot"),
-});
+const SnapshotSchema = z.object({});
 
 export const snapshot: Tool = {
   schema: {
     name: "snapshot",
-    description: "Capture a comprehensive snapshot of a web page including: ARIA accessibility tree (roles, labels, interactive elements, landmarks), full HTML, metadata (title, description), links, images, forms, headings, and viewport info. Inspired by browsermcp's ARIA snapshot. Returns structured data about the page for analysis and browser automation. The ARIA tree helps LLMs understand page structure and interactive elements for automation tasks.",
+    description: "Capture a comprehensive snapshot of the CURRENTLY ACTIVE TAB including: ARIA accessibility tree (roles, labels, interactive elements, landmarks), full HTML, metadata, links, images, forms, headings, and viewport info. NO parameters needed - operates on the tab you opened with browser_navigate(keepTabOpen=true). Perfect for understanding page structure before clicking/filling forms. Returns structured JSON with ARIA tree for automation.",
     inputSchema: zodToJsonSchema(SnapshotSchema) as any,
   },
   handle: async (params) => {
@@ -26,24 +24,52 @@ export const snapshot: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    return captureAriaSnapshot(params.url);
+    if (!hasActiveTab()) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "❌ No active tab. First navigate with browser_navigate(url='...', keepTabOpen=true), then call snapshot().",
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    try {
+      const data = await callExtension("snapshot", {});
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(data.data, null, 2),
+          },
+        ],
+      };
+    } catch (err: any) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Snapshot failed: ${String(err?.message || err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
   },
 };
 
 /**
- * Capture a screenshot of the page
+ * Capture a screenshot of the CURRENTLY ACTIVE TAB
+ * Operates on whatever tab was opened with browser_navigate(keepTabOpen=true)
  */
-const ScreenshotSchema = z.object({
-  url: z.string().describe("The URL of the page to screenshot"),
-  fullPage: z.boolean().optional().describe("Capture full page or just viewport (default: false)"),
-  format: z.enum(["png", "jpeg"]).optional().describe("Image format (default: png)"),
-  quality: z.number().min(1).max(100).optional().describe("JPEG quality 1-100 (default: 90)"),
-});
+const ScreenshotSchema = z.object({});
 
 export const screenshot: Tool = {
   schema: {
     name: "screenshot",
-    description: "Capture a screenshot of a web page via the browser extension. Returns a base64-encoded image.",
+    description: "Capture a screenshot of the CURRENTLY ACTIVE TAB. NO parameters needed - captures whatever page you navigated to with browser_navigate(keepTabOpen=true). Returns a base64-encoded PNG image. Use this to see what the page looks like visually.",
     inputSchema: zodToJsonSchema(ScreenshotSchema) as any,
   },
   handle: async (params) => {
@@ -51,22 +77,29 @@ export const screenshot: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    try {
-      const data = await callExtension("screenshot", params);
-
+    if (!hasActiveTab()) {
       return {
         content: [
           {
             type: "text",
-            text: `Screenshot captured from ${params.url}`,
+            text: "❌ No active tab. First navigate with browser_navigate(url='...', keepTabOpen=true), then call screenshot().",
           },
+        ],
+        isError: true,
+      };
+    }
+
+    try {
+      const data = await callExtension("screenshot", {});
+
+      return {
+        content: [
           {
             type: "image",
             data: data.data.screenshot,
-            mimeType: `image/${params.format || "png"}`,
+            mimeType: "image/png",
           },
         ],
-        _meta: { urls: [params.url] },
       };
     } catch (err: any) {
       return {
