@@ -40,9 +40,7 @@ function logToFile(message: string) {
   if (LOG_FILE) {
     try {
       appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${message}\n`);
-    } catch (e) {
-      // Silent fail - can't use console when using stdio transport
-    }
+    } catch (e) {}
   }
 }
 

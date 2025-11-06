@@ -15,13 +15,13 @@ const NavigateSchema = z.object({
   url: z.string().describe("The URL to navigate to and extract content from"),
   mode: z.enum(["markdown", "html", "text"]).optional().describe("Content format to extract (default: markdown)"),
   maxContentLength: z.number().min(1000).max(500000).optional().describe("Maximum content length in characters (default: 100000)"),
-  keepTabOpen: z.boolean().optional().describe("Keep the tab open after navigation for subsequent operations (default: false). Set to true for multi-step workflows."),
+  closeTab: z.boolean().optional().describe("Close the tab after extracting content (default: false). Set to true for one-off content extraction. Tabs stay open by default for agentic workflows."),
 });
 
 export const navigate: Tool = {
   schema: {
     name: "browser_navigate",
-    description: "Navigate to a specific URL using the browser extension and extract the page's readable content. Returns the main article/text content in markdown, HTML, or plain text format. Use keepTabOpen=true for multi-step workflows where you need to perform subsequent actions on the same page (clicking, filling forms, etc.).",
+    description: "Navigate to a specific URL using the browser extension and extract the page's readable content. Returns the main article/text content in markdown, HTML, or plain text format. By default, tabs stay open for subsequent operations (agentic workflows). Set closeTab=true for one-off content extraction.",
     inputSchema: zodToJsonSchema(NavigateSchema) as any,
   },
   handle: async (params) => {
@@ -35,11 +35,11 @@ export const navigate: Tool = {
       url = `https://${url}`;
     }
 
-    // Pass keepTabOpen parameter to extension
-    const keepTabOpen = params.keepTabOpen || false;
+    // By default, keep tabs open (agentic workflow pattern)
+    const closeTab = params.closeTab || false;
 
     try {
-      const data = await callExtension("visit", { ...params, url, keepTabOpen });
+      const data = await callExtension("visit", { ...params, url, closeTab });
 
       const result = data.data;
       const mode = params.mode || "markdown";
@@ -55,8 +55,8 @@ export const navigate: Tool = {
         content = result.text || result.html || "";
       }
 
-      // Store the tab ID if keeping it open
-      if (keepTabOpen && result.tabId) {
+      // Always store the tab ID for registration (unless explicitly closed)
+      if (!closeTab && result.tabId) {
         setActiveTabId(result.tabId);
       }
 
@@ -64,7 +64,7 @@ export const navigate: Tool = {
         content: [
           {
             type: "text",
-            text: `Navigated to ${result.url}\n\nTitle: ${result.title}\n\n${content}${keepTabOpen ? '\n\n[Tab kept open for subsequent operations]' : ''}`,
+            text: `Navigated to ${result.url}\n\nTitle: ${result.title}\n\n${content}${closeTab ? '' : '\n\n[Tab kept open for subsequent operations]'}`,
           },
         ],
         _meta: { urls: [result.url], tabId: result.tabId },

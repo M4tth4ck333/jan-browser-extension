@@ -143,7 +143,6 @@ export const webSearch: Tool = {
       const format = params.format || "serper";
 
       if (format === "text") {
-        // Human-readable text format
         let text = `Search results for: ${params.query}\n\n`;
 
         if (result.knowledgeGraph) {
@@ -173,7 +172,6 @@ export const webSearch: Tool = {
           _meta: { urls: result.urls || [] },
         };
       } else {
-        // Structured JSON format (serper-like)
         return {
           content: [
             {

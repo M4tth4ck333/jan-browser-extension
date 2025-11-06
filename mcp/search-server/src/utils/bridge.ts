@@ -11,16 +11,12 @@ function logToFile(message: string) {
   if (LOG_FILE) {
     try {
       appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${message}\n`);
-    } catch (e) {
-      // Silent fail
-    }
+    } catch (e) {}
   }
 }
 
 let extSocket: WebSocket | null = null;
 const pendingCalls = new Map<string, { resolve: (val: any) => void; reject: (err: any) => void }>();
-
-// Session management for persistent tabs
 let activeTabId: number | null = null;
 
 export function setActiveTabId(tabId: number | null) {
@@ -92,7 +88,6 @@ export async function callExtension(tool: string, params: any): Promise<any> {
       },
     });
 
-    // Extension expects: {kind: "call", id, tool, params}
     const message = {
       kind: "call",
       id: callId,
@@ -110,7 +105,6 @@ export async function callExtension(tool: string, params: any): Promise<any> {
  */
 export function handleExtensionMessage(data: any) {
   try {
-    // Handle Buffer objects that come with {type: "Buffer", data: [...]} structure
     let msg: any;
     if (data && data.type === "Buffer" && Array.isArray(data.data)) {
       const buffer = Buffer.from(data.data);
@@ -128,7 +122,6 @@ export function handleExtensionMessage(data: any) {
       const { resolve, reject } = pendingCalls.get(msg.id)!;
       pendingCalls.delete(msg.id);
 
-      // Extension format: {kind: "result", ok, data, error}
       if (msg.kind === "result") {
         if (msg.ok) {
           logToFile(`Extension call succeeded: ${msg.id}`);
@@ -138,7 +131,6 @@ export function handleExtensionMessage(data: any) {
           reject(new Error(msg.error || "Extension call failed"));
         }
       } else {
-        // Fallback for other formats
         if (msg.error) {
           reject(new Error(msg.error.message || String(msg.error)));
         } else {

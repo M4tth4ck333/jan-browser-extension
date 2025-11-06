@@ -1,5 +1,4 @@
 /**
- * Browser automation tools - inspired by browsermcp
  * Tools for interacting with web pages: click, type, hover, drag, fill forms, etc.
  */
 import { z } from "zod";

@@ -102,7 +102,9 @@ const BRIDGE_BASE = 'ws://127.0.0.1:17389';
 let bridgeSocket = null;
 let lastBridgeToken = null; // cached to detect changes
 let lastUseBridgeToken = false; // whether we should include the token
-let mcpActiveTabId = null; // Track active tab for agentic workflows (snapshot/screenshot/actions)
+let mcpRegisteredTabId = null; // Registered tab for agentic workflows (like browsermcp)
+// Note: mcpRegisteredTabId stores the tab created by browser_navigate, but
+// screenshot/snapshot always operate on the CURRENTLY ACTIVE tab in the window
 
 async function connectMcpBridge() {
   try {
@@ -184,9 +186,9 @@ async function connectMcpBridge() {
 
           const mode = params?.mode || 'markdown';
           const maxContentLength = Number(params?.maxContentLength) || 100000;
-          const keepTabOpen = params?.keepTabOpen === true;
+          const closeTab = params?.closeTab === true;  // Default: false (keep tabs open)
 
-          console.log('[MCP Bridge] visit tool', { url, mode, maxContentLength, keepTabOpen });
+          console.log('[MCP Bridge] visit tool', { url, mode, maxContentLength, closeTab });
 
           try {
             // Create a new tab to visit the URL
@@ -244,20 +246,23 @@ async function connectMcpBridge() {
               result.markdown = String(response.content || '').slice(0, maxContentLength);
             }
 
-            // Only close the tab if keepTabOpen is false
-            if (!keepTabOpen) {
+            // By default, keep tabs open for agentic workflows
+            // Only close if explicitly requested
+            if (closeTab) {
               await chrome.tabs.remove(tabId);
+              console.log('[MCP Bridge] Tab closed as requested');
             } else {
-              // Store active tab for snapshot/screenshot/action tools
-              mcpActiveTabId = tabId;
-              console.log('[MCP Bridge] Active tab set to:', tabId);
+              // Register tab for agentic workflows and make it active (visible)
+              mcpRegisteredTabId = tabId;
+              await chrome.tabs.update(tabId, { active: true });
+              console.log('[MCP Bridge] Registered tab:', tabId, '(now active and visible)');
             }
 
             console.log('[MCP Bridge] visit tool result', {
               url: result.url,
               title: result.title,
               contentLength: result.markdown?.length || result.text?.length || result.html?.length || 0,
-              keepTabOpen: keepTabOpen,
+              closeTab: closeTab,
               tabId: tabId
             });
 
@@ -269,34 +274,53 @@ async function connectMcpBridge() {
         }
 
         if (tool === 'screenshot') {
-          // NO URL parameter - operates on active tab from browser_navigate(keepTabOpen=true)
-          if (!mcpActiveTabId) {
-            return reply({
-              ok: false,
-              error: 'No active tab. First navigate with browser_navigate(url="...", keepTabOpen=true), then call screenshot().'
-            });
-          }
-
-          console.log('[MCP Bridge] screenshot tool - using active tab', { tabId: mcpActiveTabId });
+          // Operates on the CURRENTLY ACTIVE visible tab
+          // Uses registered tab if available, otherwise falls back to current active tab
 
           try {
-            // Make sure tab is visible for capture
-            await chrome.tabs.update(mcpActiveTabId, { active: true });
+            let targetTabId = null;
 
-            // Wait a moment for tab activation
-            await new Promise(resolve => setTimeout(resolve, 100));
+            // Strategy 1: Use registered tab if available
+            if (mcpRegisteredTabId) {
+              try {
+                // Verify tab still exists
+                await chrome.tabs.get(mcpRegisteredTabId);
+                // Make it active to ensure it's visible for screenshot
+                await chrome.tabs.update(mcpRegisteredTabId, { active: true });
+                await new Promise(resolve => setTimeout(resolve, 200)); // Wait for activation
+                targetTabId = mcpRegisteredTabId;
+                console.log('[MCP Bridge] screenshot - using registered tab:', targetTabId);
+              } catch (e) {
+                // Tab was closed, clear registration
+                mcpRegisteredTabId = null;
+                console.log('[MCP Bridge] Registered tab no longer exists, falling back to active tab');
+              }
+            }
 
-            // Take screenshot of active tab
+            // Strategy 2: Fall back to currently active tab in current window
+            if (!targetTabId) {
+              const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+              if (!activeTab) {
+                return reply({
+                  ok: false,
+                  error: 'No active tab. First navigate with browser_navigate(url="...", keepTabOpen=true), or focus a tab manually.'
+                });
+              }
+              targetTabId = activeTab.id;
+              console.log('[MCP Bridge] screenshot - using current active tab:', targetTabId);
+            }
+
+            // Capture screenshot of the visible tab
             const dataUrl = await chrome.tabs.captureVisibleTab(null, {
               format: 'png'
             });
 
             // Get current URL from tab
-            const tab = await chrome.tabs.get(mcpActiveTabId);
+            const tab = await chrome.tabs.get(targetTabId);
 
             console.log('[MCP Bridge] screenshot taken', {
               url: tab.url,
-              tabId: mcpActiveTabId,
+              tabId: targetTabId,
               dataUrlLength: dataUrl.length
             });
 
@@ -558,18 +582,40 @@ async function connectMcpBridge() {
         }
 
         if (tool === 'snapshot') {
-          // NO URL parameter - operates on active tab from browser_navigate(keepTabOpen=true)
-          if (!mcpActiveTabId) {
-            return reply({
-              ok: false,
-              error: 'No active tab. First navigate with browser_navigate(url="...", keepTabOpen=true), then call snapshot().'
-            });
-          }
-
-          console.log('[MCP Bridge] snapshot tool - using active tab', { tabId: mcpActiveTabId });
+          // Operates on registered tab or falls back to currently active tab
+          // Uses registered tab if available, otherwise falls back to current active tab
 
           try {
-            const tabId = mcpActiveTabId;
+            let targetTabId = null;
+
+            // Strategy 1: Use registered tab if available
+            if (mcpRegisteredTabId) {
+              try {
+                // Verify tab still exists
+                await chrome.tabs.get(mcpRegisteredTabId);
+                targetTabId = mcpRegisteredTabId;
+                console.log('[MCP Bridge] snapshot - using registered tab:', targetTabId);
+              } catch (e) {
+                // Tab was closed, clear registration
+                mcpRegisteredTabId = null;
+                console.log('[MCP Bridge] Registered tab no longer exists, falling back to active tab');
+              }
+            }
+
+            // Strategy 2: Fall back to currently active tab in current window
+            if (!targetTabId) {
+              const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+              if (!activeTab) {
+                return reply({
+                  ok: false,
+                  error: 'No active tab. First navigate with browser_navigate(url="...", keepTabOpen=true), or focus a tab manually.'
+                });
+              }
+              targetTabId = activeTab.id;
+              console.log('[MCP Bridge] snapshot - using current active tab:', targetTabId);
+            }
+
+            const tabId = targetTabId;
 
             // Get the full DOM snapshot with ARIA accessibility tree
             const [{ result: snapshot }] = await chrome.scripting.executeScript({
