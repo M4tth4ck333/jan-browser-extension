@@ -5,6 +5,7 @@
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { callExtension, waitForBridgeConnection, hasExtensionConnection, hasActiveTab } from "../utils/bridge.js";
+import { captureAriaSnapshot } from "../utils/aria-snapshot.js";
 import type { Tool } from "./tool.js";
 
 /**
@@ -16,7 +17,7 @@ const SnapshotSchema = z.object({});
 export const snapshot: Tool = {
   schema: {
     name: "snapshot",
-    description: "Capture a comprehensive snapshot of the CURRENTLY ACTIVE TAB including: ARIA accessibility tree (roles, labels, interactive elements, landmarks), full HTML, metadata, links, images, forms, headings, and viewport info. NO parameters needed - operates on the tab you opened with browser_navigate(keepTabOpen=true). Perfect for understanding page structure before clicking/filling forms. Returns structured JSON with ARIA tree for automation.",
+    description: "Capture a comprehensive snapshot of the CURRENTLY ACTIVE TAB including: ARIA accessibility tree (roles, labels, interactive elements, landmarks), metadata, links, images, forms, headings, and viewport info. NO parameters needed - operates on the tab you opened with browser_navigate(keepTabOpen=true). Perfect for understanding page structure before clicking/filling forms. Returns formatted YAML snapshot optimized for LLM context.",
     inputSchema: zodToJsonSchema(SnapshotSchema) as any,
   },
   handle: async (params) => {
@@ -37,15 +38,9 @@ export const snapshot: Tool = {
     }
 
     try {
-      const data = await callExtension("snapshot", {});
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(data.data, null, 2),
-          },
-        ],
-      };
+      // Use the same captureAriaSnapshot helper that automation tools use
+      // This provides a compact YAML format instead of large JSON
+      return await captureAriaSnapshot(undefined, "Snapshot captured");
     } catch (err: any) {
       return {
         content: [

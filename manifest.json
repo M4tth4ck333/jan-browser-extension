@@ -26,6 +26,7 @@
     "contextMenus"
   ],
   "host_permissions": [
+    "<all_urls>",
     "https://*/*",
     "http://*/*",
     "https://duckduckgo.com/*",

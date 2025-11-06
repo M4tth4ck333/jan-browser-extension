@@ -193,12 +193,31 @@ chrome.storage.sync.set({ bridgeToken: 'your-secret' })
 
 Reload the extension or wait for it to reconnect.
 
-## Troubleshooting: `ERR_CONNECTION_REFUSED`
+## Troubleshooting
 
-- The MCP server isn’t running → start it (`npm run dev:mcp`) or `npm run dev:all` from the repo root.
+### `ERR_CONNECTION_REFUSED`
+
+- The MCP server isn't running → start it (`npm run dev:mcp`) or `npm run dev:all` from the repo root.
 - Port 17389 is busy → free it: `lsof -iTCP:17389 -sTCP:LISTEN` then `kill -9 <PID>`.
 - Host/port overridden incorrectly → ensure `BRIDGE_HOST=127.0.0.1` and `BRIDGE_PORT=17389`.
 - Token mismatch → if `BRIDGE_TOKEN` is set, ensure the extension has the same `bridgeToken` in `chrome.storage.sync`.
+
+### Tools Timing Out
+
+If you experience timeouts with `browser_navigate` or other tools:
+
+1. **Verify extension connection**: Check Chrome extension service worker console for `[MCP Bridge] connected`
+2. **Enable debug logging**: Set `MCP_LOG_FILE` environment variable:
+   ```bash
+   MCP_LOG_FILE=~/.jan-mcp-debug.log node dist/src/index.js
+   ```
+3. **Check logs**: Review log file for detailed message flow
+4. **Test manually**: Use the included test script:
+   ```bash
+   MCP_LOG_FILE=~/.jan-mcp-test.log node test-manual.js
+   ```
+
+See [TIMEOUT_FIX.md](TIMEOUT_FIX.md) for details on the Buffer handling fix that resolved timeout issues.
 
 ## License
 

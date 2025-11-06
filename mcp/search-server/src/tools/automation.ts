@@ -39,12 +39,13 @@ const TypeSchema = z.object({
   selector: z.string().describe("CSS selector for the input element"),
   text: z.string().describe("Text to type into the element"),
   clear: z.boolean().optional().describe("Whether to clear existing text before typing (default: true)"),
+  pressEnter: z.boolean().optional().describe("Whether to press Enter after typing (useful for submitting forms or sending messages, default: false)"),
 });
 
 export const type: Tool = {
   schema: {
     name: "type",
-    description: "Type text into a form field or input element on the currently active tab. First use browser_navigate to load a page, then use this tool to interact with elements. Use this for filling in text, search boxes, etc.",
+    description: "Type text into a form field or input element on the currently active tab. Supports regular inputs, textareas, and contenteditable elements (like Slack, Discord). First use browser_navigate to load a page, then use this tool to interact with elements. Set pressEnter=true to submit forms or send messages after typing.",
     inputSchema: zodToJsonSchema(TypeSchema) as any,
   },
   handle: async (params) => {
@@ -53,7 +54,8 @@ export const type: Tool = {
     }
     const data = await callExtension("type_text", params);
 
-    return captureAriaSnapshot(data.data.url, `Typed "${params.text}" into "${params.selector}"`);
+    const action = params.pressEnter ? `Typed "${params.text}" and pressed Enter` : `Typed "${params.text}"`;
+    return captureAriaSnapshot(data.data.url, `${action} into "${params.selector}"`);
   },
 };
 
