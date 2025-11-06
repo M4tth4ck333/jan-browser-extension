@@ -20,7 +20,7 @@ const NavigateSchema = z.object({
 
 export const navigate: Tool = {
   schema: {
-    name: "browser_navigate",
+    name: "navigate_browser",
     description: "Navigate to a specific URL using the browser extension and extract the page's readable content. Returns the main article/text content in markdown, HTML, or plain text format. By default, tabs stay open for subsequent operations (agentic workflows). Set closeTab=true for one-off content extraction.",
     inputSchema: zodToJsonSchema(NavigateSchema) as any,
   },
@@ -91,7 +91,7 @@ const GoBackSchema = z.object({});
 export const goBack: Tool = {
   schema: {
     name: "go_back",
-    description: "Navigate back to the previous page in browser history on the currently active tab. First use browser_navigate to load a page, then use this tool to navigate.",
+    description: "Navigate back to the previous page in browser history on the currently active tab. First use navigate_browser to load a page, then use this tool to navigate.",
     inputSchema: zodToJsonSchema(GoBackSchema) as any,
   },
   handle: async (params) => {
@@ -112,7 +112,7 @@ const GoForwardSchema = z.object({});
 export const goForward: Tool = {
   schema: {
     name: "go_forward",
-    description: "Navigate forward to the next page in browser history on the currently active tab. First use browser_navigate to load a page, then use this tool to navigate.",
+    description: "Navigate forward to the next page in browser history on the currently active tab. First use navigate_browser to load a page, then use this tool to navigate.",
     inputSchema: zodToJsonSchema(GoForwardSchema) as any,
   },
   handle: async (params) => {
@@ -136,7 +136,7 @@ const ScrollSchema = z.object({
 export const scroll: Tool = {
   schema: {
     name: "scroll",
-    description: "Scroll the currently active tab up or down by a specified amount or to a specific position. First use browser_navigate to load a page, then use this tool to scroll. Returns snapshot after scrolling.",
+    description: "Scroll the currently active tab up or down by a specified amount or to a specific position. First use navigate_browser to load a page, then use this tool to scroll. Returns snapshot after scrolling.",
     inputSchema: zodToJsonSchema(ScrollSchema) as any,
   },
   handle: async (params) => {

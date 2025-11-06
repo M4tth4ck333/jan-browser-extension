@@ -18,7 +18,7 @@ const ClickSchema = z.object({
 export const click: Tool = {
   schema: {
     name: "click",
-    description: "Click an element on the currently active tab using a CSS selector. First use browser_navigate to load a page, then use this tool to interact with elements. Returns snapshot of the page after clicking.",
+    description: "Click an element on the currently active tab using a CSS selector. First use navigate_browser to load a page, then use this tool to interact with elements. Returns snapshot of the page after clicking.",
     inputSchema: zodToJsonSchema(ClickSchema) as any,
   },
   handle: async (params) => {
@@ -45,7 +45,7 @@ const TypeSchema = z.object({
 export const type: Tool = {
   schema: {
     name: "type",
-    description: "Type text into a form field or input element on the currently active tab. Supports regular inputs, textareas, and contenteditable elements (like Slack, Discord). First use browser_navigate to load a page, then use this tool to interact with elements. Set pressEnter=true to submit forms or send messages after typing.",
+    description: "Type text into a form field or input element on the currently active tab. Supports regular inputs, textareas, and contenteditable elements (like Slack, Discord). First use navigate_browser to load a page, then use this tool to interact with elements. Set pressEnter=true to submit forms or send messages after typing.",
     inputSchema: zodToJsonSchema(TypeSchema) as any,
   },
   handle: async (params) => {
@@ -69,7 +69,7 @@ const HoverSchema = z.object({
 export const hover: Tool = {
   schema: {
     name: "hover",
-    description: "Hover the mouse over an element on the currently active tab to trigger hover effects, tooltips, or dropdowns. First use browser_navigate to load a page, then use this tool to interact with elements.",
+    description: "Hover the mouse over an element on the currently active tab to trigger hover effects, tooltips, or dropdowns. First use navigate_browser to load a page, then use this tool to interact with elements.",
     inputSchema: zodToJsonSchema(HoverSchema) as any,
   },
   handle: async (params) => {
@@ -93,7 +93,7 @@ const SelectOptionSchema = z.object({
 export const selectOption: Tool = {
   schema: {
     name: "select_option",
-    description: "Select an option from a dropdown/select element on the currently active tab by value or visible text. First use browser_navigate to load a page, then use this tool to interact with elements.",
+    description: "Select an option from a dropdown/select element on the currently active tab by value or visible text. First use navigate_browser to load a page, then use this tool to interact with elements.",
     inputSchema: zodToJsonSchema(SelectOptionSchema) as any,
   },
   handle: async (params) => {
@@ -121,7 +121,7 @@ const FillFormSchema = z.object({
 export const fillForm: Tool = {
   schema: {
     name: "fill_form",
-    description: "Fill multiple form fields at once on the currently active tab. First use browser_navigate to load a page, then use this tool to interact with elements. Supports text inputs, selects, checkboxes, and radio buttons.",
+    description: "Fill multiple form fields at once on the currently active tab. First use navigate_browser to load a page, then use this tool to interact with elements. Supports text inputs, selects, checkboxes, and radio buttons.",
     inputSchema: zodToJsonSchema(FillFormSchema) as any,
   },
   handle: async (params) => {
@@ -146,7 +146,7 @@ const ExecuteScriptSchema = z.object({
 export const executeScript: Tool = {
   schema: {
     name: "execute_script",
-    description: "Execute custom JavaScript code on the currently active tab and return the result. First use browser_navigate to load a page, then use this tool to execute scripts. Use with caution.",
+    description: "Execute custom JavaScript code on the currently active tab and return the result. First use navigate_browser to load a page, then use this tool to execute scripts. Use with caution.",
     inputSchema: zodToJsonSchema(ExecuteScriptSchema) as any,
   },
   handle: async (params) => {

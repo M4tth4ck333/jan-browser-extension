@@ -72,18 +72,24 @@ export async function callExtension(tool: string, params: any): Promise<any> {
 
   return new Promise((resolve, reject) => {
     const callId = uuidv4();
+    // Use shorter timeout for screenshot to fail fast instead of hanging
+    const timeoutMs = tool === 'screenshot' ? 10000 : 30000;
     const timeout = setTimeout(() => {
       pendingCalls.delete(callId);
-      reject(new Error(`Tool call timeout: ${tool}`));
-    }, 30000);
+      const msg = `Tool call timeout after ${timeoutMs}ms: ${tool}`;
+      logToFile(msg);
+      reject(new Error(msg));
+    }, timeoutMs);
 
     pendingCalls.set(callId, {
       resolve: (val) => {
         clearTimeout(timeout);
+        logToFile(`Tool call resolved: ${tool} (${callId})`);
         resolve(val);
       },
       reject: (err) => {
         clearTimeout(timeout);
+        logToFile(`Tool call rejected: ${tool} (${callId}) - ${err}`);
         reject(err);
       },
     });
@@ -94,7 +100,7 @@ export async function callExtension(tool: string, params: any): Promise<any> {
       tool: tool,
       params: params,
     };
-    logToFile(`Sending to extension: ${JSON.stringify(message)}`);
+    logToFile(`Sending to extension: ${tool} (${callId})`);
     extSocket!.send(JSON.stringify(message));
   });
 }

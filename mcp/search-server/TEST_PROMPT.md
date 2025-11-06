@@ -26,7 +26,7 @@ You are testing a Model Context Protocol (MCP) server that provides browser auto
 ---
 
 ### Test 2: Navigate to Example Site (keep tab open)
-**Tool**: `browser_navigate`
+**Tool**: `navigate_browser`
 **Parameters**:
 ```json
 {
@@ -36,7 +36,7 @@ You are testing a Model Context Protocol (MCP) server that provides browser auto
 }
 ```
 **Expected**: Page content in markdown format, with `tabId` returned, tab stays open
-**Report**: "✅ browser_navigate (closeTab=false)" or "❌ browser_navigate: [error]"
+**Report**: "✅ navigate_browser (closeTab=false)" or "❌ navigate_browser: [error]"
 
 ---
 
@@ -106,7 +106,7 @@ You are testing a Model Context Protocol (MCP) server that provides browser auto
 ---
 
 ### Test 8: Navigate to Wikipedia Form Page (for automation tests)
-**Tool**: `browser_navigate`
+**Tool**: `navigate_browser`
 **Parameters**:
 ```json
 {
@@ -116,7 +116,7 @@ You are testing a Model Context Protocol (MCP) server that provides browser auto
 }
 ```
 **Expected**: Wikipedia search page loaded, tab stays open
-**Report**: "✅ browser_navigate (Wikipedia)" or "❌ browser_navigate: [error]"
+**Report**: "✅ navigate_browser (Wikipedia)" or "❌ navigate_browser: [error]"
 
 ---
 
@@ -182,7 +182,7 @@ You are testing a Model Context Protocol (MCP) server that provides browser auto
 ---
 
 ### Test 14: Navigate and Close Tab
-**Tool**: `browser_navigate`
+**Tool**: `navigate_browser`
 **Parameters**:
 ```json
 {
@@ -192,7 +192,7 @@ You are testing a Model Context Protocol (MCP) server that provides browser auto
 }
 ```
 **Expected**: Page content in HTML format, tab closed after extraction
-**Report**: "✅ browser_navigate (closeTab=true)" or "❌ browser_navigate: [error]"
+**Report**: "✅ navigate_browser (closeTab=true)" or "❌ navigate_browser: [error]"
 
 ---
 

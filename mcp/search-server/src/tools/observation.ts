@@ -10,14 +10,14 @@ import type { Tool } from "./tool.js";
 
 /**
  * Capture a comprehensive snapshot of the CURRENTLY ACTIVE TAB
- * Operates on whatever tab was opened with browser_navigate(keepTabOpen=true)
+ * Operates on whatever tab was opened with navigate_browser(closeTab=false)
  */
 const SnapshotSchema = z.object({});
 
 export const snapshot: Tool = {
   schema: {
     name: "snapshot",
-    description: "Capture a comprehensive snapshot of the CURRENTLY ACTIVE TAB including: ARIA accessibility tree (roles, labels, interactive elements, landmarks), metadata, links, images, forms, headings, and viewport info. NO parameters needed - operates on the tab you opened with browser_navigate(keepTabOpen=true). Perfect for understanding page structure before clicking/filling forms. Returns formatted YAML snapshot optimized for LLM context.",
+    description: "Capture a comprehensive snapshot of the CURRENTLY ACTIVE TAB including: ARIA accessibility tree (roles, labels, interactive elements, landmarks), metadata, links, images, forms, headings, and viewport info. NO parameters needed - operates on the tab you opened with navigate_browser(closeTab=false). Perfect for understanding page structure before clicking/filling forms. Returns formatted YAML snapshot optimized for LLM context.",
     inputSchema: zodToJsonSchema(SnapshotSchema) as any,
   },
   handle: async (params) => {
@@ -30,7 +30,7 @@ export const snapshot: Tool = {
         content: [
           {
             type: "text",
-            text: "❌ No active tab. First navigate with browser_navigate(url='...', keepTabOpen=true), then call snapshot().",
+            text: "❌ No active tab. First navigate with navigate_browser(url='...', closeTab=false), then call snapshot().",
           },
         ],
         isError: true,
@@ -57,14 +57,14 @@ export const snapshot: Tool = {
 
 /**
  * Capture a screenshot of the CURRENTLY ACTIVE TAB
- * Operates on whatever tab was opened with browser_navigate(keepTabOpen=true)
+ * Operates on whatever tab was opened with navigate_browser(closeTab=false)
  */
 const ScreenshotSchema = z.object({});
 
 export const screenshot: Tool = {
   schema: {
     name: "screenshot",
-    description: "Capture a screenshot of the CURRENTLY ACTIVE TAB. NO parameters needed - captures whatever page you navigated to with browser_navigate(keepTabOpen=true). Returns a base64-encoded PNG image. Use this to see what the page looks like visually.",
+    description: "Capture a screenshot of the CURRENTLY ACTIVE TAB. NO parameters needed - captures whatever page you navigated to with navigate_browser(closeTab=false). Returns a base64-encoded PNG image. Use this to see what the page looks like visually.",
     inputSchema: zodToJsonSchema(ScreenshotSchema) as any,
   },
   handle: async (params) => {
@@ -77,7 +77,7 @@ export const screenshot: Tool = {
         content: [
           {
             type: "text",
-            text: "❌ No active tab. First navigate with browser_navigate(url='...', keepTabOpen=true), then call screenshot().",
+            text: "❌ No active tab. First navigate with navigate_browser(url='...', closeTab=false), then call screenshot().",
           },
         ],
         isError: true,
@@ -87,12 +87,27 @@ export const screenshot: Tool = {
     try {
       const data = await callExtension("screenshot", {});
 
+      // Validate screenshot data exists and is not empty
+      const screenshot = data?.data?.screenshot;
+      if (!screenshot || typeof screenshot !== 'string' || screenshot.trim().length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Screenshot failed: No image data returned from browser. The page may not be accessible or the tab may have been closed.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      // Return base64 image data as text content (MCP protocol requires text type for tool results)
+      // The screenshot from extension is already in base64 format with data:image/png;base64, prefix
       return {
         content: [
           {
-            type: "image",
-            data: data.data.screenshot,
-            mimeType: "image/png",
+            type: "text",
+            text: `Screenshot captured successfully.\n\nBase64 PNG image data:\n${screenshot}`,
           },
         ],
       };

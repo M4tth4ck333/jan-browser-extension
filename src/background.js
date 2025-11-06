@@ -280,19 +280,17 @@ async function connectMcpBridge() {
           // Operates on the CURRENTLY ACTIVE visible tab
           // Uses registered tab if available, otherwise falls back to current active tab
 
+          console.log('[MCP Bridge] screenshot tool called');
+
           try {
             let targetTabId = null;
+            let tab = null;
 
             // Strategy 1: Use registered tab if available
             if (mcpRegisteredTabId) {
               try {
-                // Verify tab still exists
-                const tab = await chrome.tabs.get(mcpRegisteredTabId);
-                // Focus the window first
-                await chrome.windows.update(tab.windowId, { focused: true });
-                // Make the tab active to ensure it's visible for screenshot
-                await chrome.tabs.update(mcpRegisteredTabId, { active: true });
-                await new Promise(resolve => setTimeout(resolve, 300)); // Wait for activation and rendering
+                console.log('[MCP Bridge] screenshot - trying registered tab:', mcpRegisteredTabId);
+                tab = await chrome.tabs.get(mcpRegisteredTabId);
                 targetTabId = mcpRegisteredTabId;
                 console.log('[MCP Bridge] screenshot - using registered tab:', targetTabId);
               } catch (e) {
@@ -304,25 +302,23 @@ async function connectMcpBridge() {
 
             // Strategy 2: Fall back to currently active tab in current window
             if (!targetTabId) {
+              console.log('[MCP Bridge] screenshot - querying for active tab');
               const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
               if (!activeTab) {
+                console.log('[MCP Bridge] screenshot - no active tab found');
                 return reply({
                   ok: false,
-                  error: 'No active tab. First navigate with browser_navigate(url="...", keepTabOpen=true), or focus a tab manually.'
+                  error: 'No active tab. First navigate with browser_navigate(url="...", closeTab=false), or focus a tab manually.'
                 });
               }
-              // Ensure window is focused
-              await chrome.windows.update(activeTab.windowId, { focused: true });
-              await new Promise(resolve => setTimeout(resolve, 200));
+              tab = activeTab;
               targetTabId = activeTab.id;
               console.log('[MCP Bridge] screenshot - using current active tab:', targetTabId);
             }
 
-            // Get tab info to get the windowId
-            const tab = await chrome.tabs.get(targetTabId);
-
             // Ensure tab is on a valid URL (not chrome:// or about:)
             if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('about:')) {
+              console.log('[MCP Bridge] screenshot - invalid URL:', tab.url);
               return reply({
                 ok: false,
                 error: 'Cannot capture screenshot of chrome:// or about: pages'
@@ -332,6 +328,7 @@ async function connectMcpBridge() {
             // Capture screenshot of the visible tab in its window
             // Note: This requires either activeTab permission (for user action)
             // or host_permissions for the URL (which we have with https://*/* and http://*/*)
+            console.log('[MCP Bridge] screenshot - capturing from window:', tab.windowId);
             const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
               format: 'png'
             });
@@ -339,8 +336,15 @@ async function connectMcpBridge() {
             console.log('[MCP Bridge] screenshot taken', {
               url: tab.url,
               tabId: targetTabId,
-              dataUrlLength: dataUrl.length
+              dataUrlLength: dataUrl?.length || 0
             });
+
+            if (!dataUrl || dataUrl.length === 0) {
+              return reply({
+                ok: false,
+                error: 'Screenshot capture returned empty data'
+              });
+            }
 
             return reply({
               ok: true,
