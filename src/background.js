@@ -254,8 +254,11 @@ async function connectMcpBridge() {
             } else {
               // Register tab for agentic workflows and make it active (visible)
               mcpRegisteredTabId = tabId;
+              // Focus the tab's window first, then activate the tab
+              const tab = await chrome.tabs.get(tabId);
+              await chrome.windows.update(tab.windowId, { focused: true });
               await chrome.tabs.update(tabId, { active: true });
-              console.log('[MCP Bridge] Registered tab:', tabId, '(now active and visible)');
+              console.log('[MCP Bridge] Registered tab:', tabId, '(now active and visible in focused window)');
             }
 
             console.log('[MCP Bridge] visit tool result', {
@@ -310,13 +313,13 @@ async function connectMcpBridge() {
               console.log('[MCP Bridge] screenshot - using current active tab:', targetTabId);
             }
 
-            // Capture screenshot of the visible tab
-            const dataUrl = await chrome.tabs.captureVisibleTab(null, {
+            // Get tab info first to get the windowId
+            const tab = await chrome.tabs.get(targetTabId);
+
+            // Capture screenshot of the visible tab in its window
+            const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
               format: 'png'
             });
-
-            // Get current URL from tab
-            const tab = await chrome.tabs.get(targetTabId);
 
             console.log('[MCP Bridge] screenshot taken', {
               url: tab.url,
@@ -339,40 +342,41 @@ async function connectMcpBridge() {
         }
 
         if (tool === 'execute_script') {
-          const url = String(params?.url || '').trim();
           const script = String(params?.script || '').trim();
 
-          if (!url) return reply({ ok: false, error: 'Missing url parameter' });
           if (!script) return reply({ ok: false, error: 'Missing script parameter' });
 
-          try {
-            new URL(url);
-          } catch (e) {
-            return reply({ ok: false, error: `Invalid URL: ${url}` });
-          }
-
-          console.log('[MCP Bridge] execute_script tool', { url, scriptLength: script.length });
+          console.log('[MCP Bridge] execute_script tool', { scriptLength: script.length });
 
           try {
-            // Create a new tab to visit the URL
-            const tab = await chrome.tabs.create({ url, active: false });
-            const tabId = tab.id;
+            let targetTabId = null;
 
-            // Wait for the page to load
-            await new Promise((resolve, reject) => {
-              const timeout = setTimeout(() => {
-                reject(new Error('Page load timeout'));
-              }, 30000);
+            // Strategy 1: Use registered tab if available
+            if (mcpRegisteredTabId) {
+              try {
+                await chrome.tabs.get(mcpRegisteredTabId);
+                targetTabId = mcpRegisteredTabId;
+                console.log('[MCP Bridge] execute_script - using registered tab:', targetTabId);
+              } catch (e) {
+                mcpRegisteredTabId = null;
+                console.log('[MCP Bridge] Registered tab no longer exists, falling back to active tab');
+              }
+            }
 
-              const listener = (changedTabId, changeInfo) => {
-                if (changedTabId === tabId && changeInfo.status === 'complete') {
-                  clearTimeout(timeout);
-                  chrome.tabs.onUpdated.removeListener(listener);
-                  resolve();
-                }
-              };
-              chrome.tabs.onUpdated.addListener(listener);
-            });
+            // Strategy 2: Fall back to currently active tab
+            if (!targetTabId) {
+              const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+              if (!activeTab) {
+                return reply({
+                  ok: false,
+                  error: 'No active tab. First navigate with browser_navigate or focus a tab manually.'
+                });
+              }
+              targetTabId = activeTab.id;
+              console.log('[MCP Bridge] execute_script - using current active tab:', targetTabId);
+            }
+
+            const tabId = targetTabId;
 
             // Execute the script
             const args = params?.args || [];
@@ -382,15 +386,15 @@ async function connectMcpBridge() {
               args: [args]
             });
 
-            // Close the tab
-            await chrome.tabs.remove(tabId);
+            // Get current tab URL
+            const tab = await chrome.tabs.get(tabId);
 
-            console.log('[MCP Bridge] script executed', { url, resultType: typeof result });
+            console.log('[MCP Bridge] script executed', { url: tab.url, resultType: typeof result });
 
             return reply({
               ok: true,
               data: {
-                url,
+                url: tab.url,
                 result: result,
                 timestamp: new Date().toISOString()
               }
@@ -402,42 +406,47 @@ async function connectMcpBridge() {
         }
 
         if (tool === 'click_element') {
-          const url = String(params?.url || '').trim();
           const selector = String(params?.selector || '').trim();
 
-          if (!url) return reply({ ok: false, error: 'Missing url parameter' });
           if (!selector) return reply({ ok: false, error: 'Missing selector parameter' });
-
-          try {
-            new URL(url);
-          } catch (e) {
-            return reply({ ok: false, error: `Invalid URL: ${url}` });
-          }
 
           const waitForNavigation = params?.waitForNavigation !== false; // default true
 
-          console.log('[MCP Bridge] click_element tool', { url, selector, waitForNavigation });
+          console.log('[MCP Bridge] click_element tool', { selector, waitForNavigation });
 
           try {
-            // Create a new tab to visit the URL
-            const tab = await chrome.tabs.create({ url, active: false });
-            const tabId = tab.id;
+            let targetTabId = null;
 
-            // Wait for the page to load
-            await new Promise((resolve, reject) => {
-              const timeout = setTimeout(() => {
-                reject(new Error('Page load timeout'));
-              }, 30000);
+            // Strategy 1: Use registered tab if available
+            if (mcpRegisteredTabId) {
+              try {
+                await chrome.tabs.get(mcpRegisteredTabId);
+                targetTabId = mcpRegisteredTabId;
+                console.log('[MCP Bridge] click_element - using registered tab:', targetTabId);
+              } catch (e) {
+                mcpRegisteredTabId = null;
+                console.log('[MCP Bridge] Registered tab no longer exists, falling back to active tab');
+              }
+            }
 
-              const listener = (changedTabId, changeInfo) => {
-                if (changedTabId === tabId && changeInfo.status === 'complete') {
-                  clearTimeout(timeout);
-                  chrome.tabs.onUpdated.removeListener(listener);
-                  resolve();
-                }
-              };
-              chrome.tabs.onUpdated.addListener(listener);
-            });
+            // Strategy 2: Fall back to currently active tab
+            if (!targetTabId) {
+              const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+              if (!activeTab) {
+                return reply({
+                  ok: false,
+                  error: 'No active tab. First navigate with browser_navigate or focus a tab manually.'
+                });
+              }
+              targetTabId = activeTab.id;
+              console.log('[MCP Bridge] click_element - using current active tab:', targetTabId);
+            }
+
+            const tabId = targetTabId;
+
+            // Get current URL before clicking
+            const beforeTab = await chrome.tabs.get(tabId);
+            const originalUrl = beforeTab.url;
 
             // Click the element
             const [{ result: clicked }] = await chrome.scripting.executeScript({
@@ -452,7 +461,6 @@ async function connectMcpBridge() {
             });
 
             if (!clicked.success) {
-              await chrome.tabs.remove(tabId);
               return reply({ ok: false, error: clicked.error || 'Click failed' });
             }
 
@@ -461,19 +469,16 @@ async function connectMcpBridge() {
               await new Promise((resolve) => setTimeout(resolve, 1000));
             }
 
-            // Get the new URL
-            const finalTab = await chrome.tabs.get(tabId);
-            const finalUrl = finalTab.url;
+            // Get the new URL after clicking
+            const afterTab = await chrome.tabs.get(tabId);
+            const finalUrl = afterTab.url;
 
-            // Close the tab
-            await chrome.tabs.remove(tabId);
-
-            console.log('[MCP Bridge] element clicked', { url, finalUrl, selector });
+            console.log('[MCP Bridge] element clicked', { originalUrl, finalUrl, selector });
 
             return reply({
               ok: true,
               data: {
-                originalUrl: url,
+                originalUrl: originalUrl,
                 finalUrl: finalUrl,
                 selector: selector,
                 clicked: true,
@@ -487,42 +492,43 @@ async function connectMcpBridge() {
         }
 
         if (tool === 'fill_form') {
-          const url = String(params?.url || '').trim();
           const fields = params?.fields || [];
 
-          if (!url) return reply({ ok: false, error: 'Missing url parameter' });
           if (!Array.isArray(fields) || fields.length === 0) {
             return reply({ ok: false, error: 'Missing or empty fields array' });
           }
 
-          try {
-            new URL(url);
-          } catch (e) {
-            return reply({ ok: false, error: `Invalid URL: ${url}` });
-          }
-
-          console.log('[MCP Bridge] fill_form tool', { url, fieldCount: fields.length });
+          console.log('[MCP Bridge] fill_form tool', { fieldCount: fields.length });
 
           try {
-            // Create a new tab to visit the URL
-            const tab = await chrome.tabs.create({ url, active: false });
-            const tabId = tab.id;
+            let targetTabId = null;
 
-            // Wait for the page to load
-            await new Promise((resolve, reject) => {
-              const timeout = setTimeout(() => {
-                reject(new Error('Page load timeout'));
-              }, 30000);
+            // Strategy 1: Use registered tab if available
+            if (mcpRegisteredTabId) {
+              try {
+                await chrome.tabs.get(mcpRegisteredTabId);
+                targetTabId = mcpRegisteredTabId;
+                console.log('[MCP Bridge] fill_form - using registered tab:', targetTabId);
+              } catch (e) {
+                mcpRegisteredTabId = null;
+                console.log('[MCP Bridge] Registered tab no longer exists, falling back to active tab');
+              }
+            }
 
-              const listener = (changedTabId, changeInfo) => {
-                if (changedTabId === tabId && changeInfo.status === 'complete') {
-                  clearTimeout(timeout);
-                  chrome.tabs.onUpdated.removeListener(listener);
-                  resolve();
-                }
-              };
-              chrome.tabs.onUpdated.addListener(listener);
-            });
+            // Strategy 2: Fall back to currently active tab
+            if (!targetTabId) {
+              const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+              if (!activeTab) {
+                return reply({
+                  ok: false,
+                  error: 'No active tab. First navigate with browser_navigate or focus a tab manually.'
+                });
+              }
+              targetTabId = activeTab.id;
+              console.log('[MCP Bridge] fill_form - using current active tab:', targetTabId);
+            }
+
+            const tabId = targetTabId;
 
             // Fill the form fields
             const [{ result: fillResult }] = await chrome.scripting.executeScript({
@@ -556,18 +562,18 @@ async function connectMcpBridge() {
               args: [fields]
             });
 
-            // Close the tab
-            await chrome.tabs.remove(tabId);
-
             const failedFields = fillResult.filter(r => !r.success);
             const successCount = fillResult.filter(r => r.success).length;
 
-            console.log('[MCP Bridge] form filled', { url, successCount, failedCount: failedFields.length });
+            // Get current tab URL
+            const tab = await chrome.tabs.get(tabId);
+
+            console.log('[MCP Bridge] form filled', { url: tab.url, successCount, failedCount: failedFields.length });
 
             return reply({
               ok: failedFields.length === 0,
               data: {
-                url,
+                url: tab.url,
                 totalFields: fields.length,
                 successfulFields: successCount,
                 failedFields: failedFields,
@@ -617,13 +623,27 @@ async function connectMcpBridge() {
 
             const tabId = targetTabId;
 
-            // Get the full DOM snapshot with ARIA accessibility tree
+            // Get viewport-visible DOM snapshot with ARIA accessibility tree
             const [{ result: snapshot }] = await chrome.scripting.executeScript({
               target: { tabId },
               func: () => {
-                // Helper to build ARIA tree recursively
-                function buildAriaTree(element, depth = 0, maxDepth = 10) {
+                // Helper to check if element is visible in viewport
+                function isInViewport(element) {
+                  const rect = element.getBoundingClientRect();
+                  return (
+                    rect.top < window.innerHeight &&
+                    rect.bottom > 0 &&
+                    rect.left < window.innerWidth &&
+                    rect.right > 0 &&
+                    rect.width > 0 &&
+                    rect.height > 0
+                  );
+                }
+
+                // Helper to build ARIA tree recursively (only visible elements)
+                function buildAriaTree(element, depth = 0, maxDepth = 8) {
                   if (depth > maxDepth) return null;
+                  if (!isInViewport(element)) return null; // Only include viewport-visible elements
 
                   const role = element.getAttribute('role') ||
                               (element.tagName === 'A' ? 'link' :
@@ -663,19 +683,18 @@ async function connectMcpBridge() {
                   if (element.id) node.id = element.id;
                   if (element.className && element.className.trim()) node.className = element.className.trim().split(/\s+/).slice(0, 3).join(' ');
 
-                  // Build children
+                  // Build children (only visible ones)
                   const children = [];
                   for (const child of element.children) {
                     const childNode = buildAriaTree(child, depth + 1, maxDepth);
                     if (childNode) children.push(childNode);
                   }
-                  if (children.length > 0) node.children = children.slice(0, 20); // Limit children
+                  if (children.length > 0) node.children = children.slice(0, 15); // Limit children
 
                   return node;
                 }
 
-                // Get full HTML
-                const html = document.documentElement.outerHTML;
+                // Don't include full HTML - too large!
 
                 // Get page metadata
                 const title = document.title;
@@ -685,10 +704,10 @@ async function connectMcpBridge() {
                 // Build ARIA accessibility tree
                 const ariaTree = buildAriaTree(document.body);
 
-                // Get all interactive elements with ARIA info
+                // Get only VISIBLE interactive elements with ARIA info
                 const interactiveElements = [];
                 const selectors = 'a[href], button, input, select, textarea, [role="button"], [role="link"], [tabindex]';
-                Array.from(document.querySelectorAll(selectors)).slice(0, 100).forEach((el, idx) => {
+                Array.from(document.querySelectorAll(selectors)).filter(isInViewport).slice(0, 50).forEach((el, idx) => {
                   const role = el.getAttribute('role') || el.tagName.toLowerCase();
                   const label = el.getAttribute('aria-label') ||
                                el.getAttribute('placeholder') ||
@@ -709,29 +728,28 @@ async function connectMcpBridge() {
                   });
                 });
 
-                // Get all links
-                const links = Array.from(document.querySelectorAll('a[href]')).map(a => ({
-                  text: a.textContent?.trim() || '',
+                // Get only VISIBLE links
+                const links = Array.from(document.querySelectorAll('a[href]')).filter(isInViewport).slice(0, 30).map(a => ({
+                  text: a.textContent?.trim().slice(0, 100) || '',
                   href: a.href,
                   rel: a.rel || undefined,
                   ariaLabel: a.getAttribute('aria-label') || undefined
                 }));
 
-                // Get all images
-                const images = Array.from(document.querySelectorAll('img[src]')).map(img => ({
+                // Get only VISIBLE images
+                const images = Array.from(document.querySelectorAll('img[src]')).filter(isInViewport).slice(0, 20).map(img => ({
                   src: img.src,
                   alt: img.alt || '',
-                  width: img.width || undefined,
-                  height: img.height || undefined,
                   ariaLabel: img.getAttribute('aria-label') || undefined
                 }));
 
-                // Get all form fields
-                const forms = Array.from(document.querySelectorAll('form')).map(form => ({
+                // Get only VISIBLE form fields
+                const visibleForms = Array.from(document.querySelectorAll('form')).filter(isInViewport).slice(0, 5);
+                const forms = visibleForms.map(form => ({
                   action: form.action,
                   method: form.method,
                   ariaLabel: form.getAttribute('aria-label') || undefined,
-                  fields: Array.from(form.querySelectorAll('input, select, textarea')).map(field => ({
+                  fields: Array.from(form.querySelectorAll('input, select, textarea')).filter(isInViewport).slice(0, 15).map(field => ({
                     type: field.type || field.tagName.toLowerCase(),
                     name: field.name,
                     id: field.id,
@@ -741,17 +759,17 @@ async function connectMcpBridge() {
                   }))
                 }));
 
-                // Get page structure
-                const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6')).map(h => ({
+                // Get only VISIBLE headings
+                const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6')).filter(isInViewport).slice(0, 20).map(h => ({
                   level: h.tagName,
-                  text: h.textContent?.trim() || '',
+                  text: h.textContent?.trim().slice(0, 100) || '',
                   ariaLevel: h.getAttribute('aria-level') || undefined
                 }));
 
-                // Get landmarks
+                // Get only VISIBLE landmarks
                 const landmarks = [];
                 const landmarkSelectors = 'main, nav, header, footer, aside, [role="main"], [role="navigation"], [role="banner"], [role="contentinfo"], [role="complementary"]';
-                Array.from(document.querySelectorAll(landmarkSelectors)).forEach(el => {
+                Array.from(document.querySelectorAll(landmarkSelectors)).filter(isInViewport).slice(0, 10).forEach(el => {
                   const role = el.getAttribute('role') || el.tagName.toLowerCase();
                   landmarks.push({
                     role,
@@ -766,19 +784,21 @@ async function connectMcpBridge() {
                   title,
                   description,
                   canonical,
-                  html,
+                  // NO html field - too large!
                   aria: {
                     tree: ariaTree,
                     interactive: interactiveElements,
                     landmarks
                   },
-                  links: links.slice(0, 100), // Limit to first 100
-                  images: images.slice(0, 50), // Limit to first 50
+                  links,
+                  images,
                   forms,
-                  headings: headings.slice(0, 50), // Limit to first 50
+                  headings,
                   viewport: {
                     width: window.innerWidth,
-                    height: window.innerHeight
+                    height: window.innerHeight,
+                    scrollX: window.scrollX,
+                    scrollY: window.scrollY
                   },
                   timestamp: new Date().toISOString()
                 };
@@ -804,30 +824,43 @@ async function connectMcpBridge() {
 
         // Type text into an element
         if (tool === 'type_text') {
-          const url = String(params?.url || '').trim();
           const selector = String(params?.selector || '').trim();
           const text = String(params?.text || '');
           const clear = params?.clear !== false;
 
-          if (!url || !selector) {
-            return reply({ ok: false, error: 'Missing url or selector parameter' });
+          if (!selector) {
+            return reply({ ok: false, error: 'Missing selector parameter' });
           }
 
           try {
-            const tab = await chrome.tabs.create({ url, active: false });
-            const tabId = tab.id;
+            let targetTabId = null;
 
-            await new Promise((resolve, reject) => {
-              const timeout = setTimeout(() => reject(new Error('Page load timeout')), 30000);
-              const listener = (changedTabId, changeInfo) => {
-                if (changedTabId === tabId && changeInfo.status === 'complete') {
-                  clearTimeout(timeout);
-                  chrome.tabs.onUpdated.removeListener(listener);
-                  resolve();
-                }
-              };
-              chrome.tabs.onUpdated.addListener(listener);
-            });
+            // Strategy 1: Use registered tab if available
+            if (mcpRegisteredTabId) {
+              try {
+                await chrome.tabs.get(mcpRegisteredTabId);
+                targetTabId = mcpRegisteredTabId;
+                console.log('[MCP Bridge] type_text - using registered tab:', targetTabId);
+              } catch (e) {
+                mcpRegisteredTabId = null;
+                console.log('[MCP Bridge] Registered tab no longer exists, falling back to active tab');
+              }
+            }
+
+            // Strategy 2: Fall back to currently active tab
+            if (!targetTabId) {
+              const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+              if (!activeTab) {
+                return reply({
+                  ok: false,
+                  error: 'No active tab. First navigate with browser_navigate or focus a tab manually.'
+                });
+              }
+              targetTabId = activeTab.id;
+              console.log('[MCP Bridge] type_text - using current active tab:', targetTabId);
+            }
+
+            const tabId = targetTabId;
 
             const [{ result: typed }] = await chrome.scripting.executeScript({
               target: { tabId },
@@ -843,13 +876,14 @@ async function connectMcpBridge() {
               args: [selector, text, clear]
             });
 
-            await chrome.tabs.remove(tabId);
-
             if (!typed.success) {
               return reply({ ok: false, error: typed.error });
             }
 
-            return reply({ ok: true, data: { url, selector, text: text.slice(0, 50) } });
+            // Get current tab URL
+            const tab = await chrome.tabs.get(tabId);
+
+            return reply({ ok: true, data: { url: tab.url, selector, text: text.slice(0, 50) } });
           } catch (e) {
             return reply({ ok: false, error: String(e?.message || e) });
           }
@@ -857,28 +891,41 @@ async function connectMcpBridge() {
 
         // Hover over an element
         if (tool === 'hover_element') {
-          const url = String(params?.url || '').trim();
           const selector = String(params?.selector || '').trim();
 
-          if (!url || !selector) {
-            return reply({ ok: false, error: 'Missing url or selector parameter' });
+          if (!selector) {
+            return reply({ ok: false, error: 'Missing selector parameter' });
           }
 
           try {
-            const tab = await chrome.tabs.create({ url, active: false });
-            const tabId = tab.id;
+            let targetTabId = null;
 
-            await new Promise((resolve, reject) => {
-              const timeout = setTimeout(() => reject(new Error('Page load timeout')), 30000);
-              const listener = (changedTabId, changeInfo) => {
-                if (changedTabId === tabId && changeInfo.status === 'complete') {
-                  clearTimeout(timeout);
-                  chrome.tabs.onUpdated.removeListener(listener);
-                  resolve();
-                }
-              };
-              chrome.tabs.onUpdated.addListener(listener);
-            });
+            // Strategy 1: Use registered tab if available
+            if (mcpRegisteredTabId) {
+              try {
+                await chrome.tabs.get(mcpRegisteredTabId);
+                targetTabId = mcpRegisteredTabId;
+                console.log('[MCP Bridge] hover_element - using registered tab:', targetTabId);
+              } catch (e) {
+                mcpRegisteredTabId = null;
+                console.log('[MCP Bridge] Registered tab no longer exists, falling back to active tab');
+              }
+            }
+
+            // Strategy 2: Fall back to currently active tab
+            if (!targetTabId) {
+              const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+              if (!activeTab) {
+                return reply({
+                  ok: false,
+                  error: 'No active tab. First navigate with browser_navigate or focus a tab manually.'
+                });
+              }
+              targetTabId = activeTab.id;
+              console.log('[MCP Bridge] hover_element - using current active tab:', targetTabId);
+            }
+
+            const tabId = targetTabId;
 
             const [{ result: hovered }] = await chrome.scripting.executeScript({
               target: { tabId },
@@ -893,13 +940,15 @@ async function connectMcpBridge() {
             });
 
             await new Promise(resolve => setTimeout(resolve, 500));
-            await chrome.tabs.remove(tabId);
 
             if (!hovered.success) {
               return reply({ ok: false, error: hovered.error });
             }
 
-            return reply({ ok: true, data: { url, selector } });
+            // Get current tab URL
+            const tab = await chrome.tabs.get(tabId);
+
+            return reply({ ok: true, data: { url: tab.url, selector } });
           } catch (e) {
             return reply({ ok: false, error: String(e?.message || e) });
           }
@@ -907,29 +956,42 @@ async function connectMcpBridge() {
 
         // Select an option from dropdown
         if (tool === 'select_option') {
-          const url = String(params?.url || '').trim();
           const selector = String(params?.selector || '').trim();
           const value = String(params?.value || '');
 
-          if (!url || !selector || !value) {
-            return reply({ ok: false, error: 'Missing url, selector, or value parameter' });
+          if (!selector || !value) {
+            return reply({ ok: false, error: 'Missing selector or value parameter' });
           }
 
           try {
-            const tab = await chrome.tabs.create({ url, active: false });
-            const tabId = tab.id;
+            let targetTabId = null;
 
-            await new Promise((resolve, reject) => {
-              const timeout = setTimeout(() => reject(new Error('Page load timeout')), 30000);
-              const listener = (changedTabId, changeInfo) => {
-                if (changedTabId === tabId && changeInfo.status === 'complete') {
-                  clearTimeout(timeout);
-                  chrome.tabs.onUpdated.removeListener(listener);
-                  resolve();
-                }
-              };
-              chrome.tabs.onUpdated.addListener(listener);
-            });
+            // Strategy 1: Use registered tab if available
+            if (mcpRegisteredTabId) {
+              try {
+                await chrome.tabs.get(mcpRegisteredTabId);
+                targetTabId = mcpRegisteredTabId;
+                console.log('[MCP Bridge] select_option - using registered tab:', targetTabId);
+              } catch (e) {
+                mcpRegisteredTabId = null;
+                console.log('[MCP Bridge] Registered tab no longer exists, falling back to active tab');
+              }
+            }
+
+            // Strategy 2: Fall back to currently active tab
+            if (!targetTabId) {
+              const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+              if (!activeTab) {
+                return reply({
+                  ok: false,
+                  error: 'No active tab. First navigate with browser_navigate or focus a tab manually.'
+                });
+              }
+              targetTabId = activeTab.id;
+              console.log('[MCP Bridge] select_option - using current active tab:', targetTabId);
+            }
+
+            const tabId = targetTabId;
 
             const [{ result: selected }] = await chrome.scripting.executeScript({
               target: { tabId },
@@ -943,13 +1005,14 @@ async function connectMcpBridge() {
               args: [selector, value]
             });
 
-            await chrome.tabs.remove(tabId);
-
             if (!selected.success) {
               return reply({ ok: false, error: selected.error });
             }
 
-            return reply({ ok: true, data: { url, selector, value: selected.selectedValue } });
+            // Get current tab URL
+            const tab = await chrome.tabs.get(tabId);
+
+            return reply({ ok: true, data: { url: tab.url, selector, value: selected.selectedValue } });
           } catch (e) {
             return reply({ ok: false, error: String(e?.message || e) });
           }
@@ -957,30 +1020,40 @@ async function connectMcpBridge() {
 
         // Go back in history
         if (tool === 'go_back') {
-          const url = String(params?.url || '').trim();
-          if (!url) return reply({ ok: false, error: 'Missing url parameter' });
-
           try {
-            const tab = await chrome.tabs.create({ url, active: false });
-            const tabId = tab.id;
+            let targetTabId = null;
 
-            await new Promise((resolve, reject) => {
-              const timeout = setTimeout(() => reject(new Error('Page load timeout')), 30000);
-              const listener = (changedTabId, changeInfo) => {
-                if (changedTabId === tabId && changeInfo.status === 'complete') {
-                  clearTimeout(timeout);
-                  chrome.tabs.onUpdated.removeListener(listener);
-                  resolve();
-                }
-              };
-              chrome.tabs.onUpdated.addListener(listener);
-            });
+            // Strategy 1: Use registered tab if available
+            if (mcpRegisteredTabId) {
+              try {
+                await chrome.tabs.get(mcpRegisteredTabId);
+                targetTabId = mcpRegisteredTabId;
+                console.log('[MCP Bridge] go_back - using registered tab:', targetTabId);
+              } catch (e) {
+                mcpRegisteredTabId = null;
+                console.log('[MCP Bridge] Registered tab no longer exists, falling back to active tab');
+              }
+            }
+
+            // Strategy 2: Fall back to currently active tab
+            if (!targetTabId) {
+              const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+              if (!activeTab) {
+                return reply({
+                  ok: false,
+                  error: 'No active tab. First navigate with browser_navigate or focus a tab manually.'
+                });
+              }
+              targetTabId = activeTab.id;
+              console.log('[MCP Bridge] go_back - using current active tab:', targetTabId);
+            }
+
+            const tabId = targetTabId;
 
             await chrome.tabs.goBack(tabId);
             await new Promise(resolve => setTimeout(resolve, 1000));
 
             const finalTab = await chrome.tabs.get(tabId);
-            await chrome.tabs.remove(tabId);
 
             return reply({ ok: true, data: { url: finalTab.url } });
           } catch (e) {
@@ -990,30 +1063,40 @@ async function connectMcpBridge() {
 
         // Go forward in history
         if (tool === 'go_forward') {
-          const url = String(params?.url || '').trim();
-          if (!url) return reply({ ok: false, error: 'Missing url parameter' });
-
           try {
-            const tab = await chrome.tabs.create({ url, active: false });
-            const tabId = tab.id;
+            let targetTabId = null;
 
-            await new Promise((resolve, reject) => {
-              const timeout = setTimeout(() => reject(new Error('Page load timeout')), 30000);
-              const listener = (changedTabId, changeInfo) => {
-                if (changedTabId === tabId && changeInfo.status === 'complete') {
-                  clearTimeout(timeout);
-                  chrome.tabs.onUpdated.removeListener(listener);
-                  resolve();
-                }
-              };
-              chrome.tabs.onUpdated.addListener(listener);
-            });
+            // Strategy 1: Use registered tab if available
+            if (mcpRegisteredTabId) {
+              try {
+                await chrome.tabs.get(mcpRegisteredTabId);
+                targetTabId = mcpRegisteredTabId;
+                console.log('[MCP Bridge] go_forward - using registered tab:', targetTabId);
+              } catch (e) {
+                mcpRegisteredTabId = null;
+                console.log('[MCP Bridge] Registered tab no longer exists, falling back to active tab');
+              }
+            }
+
+            // Strategy 2: Fall back to currently active tab
+            if (!targetTabId) {
+              const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+              if (!activeTab) {
+                return reply({
+                  ok: false,
+                  error: 'No active tab. First navigate with browser_navigate or focus a tab manually.'
+                });
+              }
+              targetTabId = activeTab.id;
+              console.log('[MCP Bridge] go_forward - using current active tab:', targetTabId);
+            }
+
+            const tabId = targetTabId;
 
             await chrome.tabs.goForward(tabId);
             await new Promise(resolve => setTimeout(resolve, 1000));
 
             const finalTab = await chrome.tabs.get(tabId);
-            await chrome.tabs.remove(tabId);
 
             return reply({ ok: true, data: { url: finalTab.url } });
           } catch (e) {
@@ -1023,27 +1106,38 @@ async function connectMcpBridge() {
 
         // Scroll page
         if (tool === 'scroll_page') {
-          const url = String(params?.url || '').trim();
           const direction = String(params?.direction || 'down');
           const amount = Number(params?.amount) || 500;
 
-          if (!url) return reply({ ok: false, error: 'Missing url parameter' });
-
           try {
-            const tab = await chrome.tabs.create({ url, active: false });
-            const tabId = tab.id;
+            let targetTabId = null;
 
-            await new Promise((resolve, reject) => {
-              const timeout = setTimeout(() => reject(new Error('Page load timeout')), 30000);
-              const listener = (changedTabId, changeInfo) => {
-                if (changedTabId === tabId && changeInfo.status === 'complete') {
-                  clearTimeout(timeout);
-                  chrome.tabs.onUpdated.removeListener(listener);
-                  resolve();
-                }
-              };
-              chrome.tabs.onUpdated.addListener(listener);
-            });
+            // Strategy 1: Use registered tab if available
+            if (mcpRegisteredTabId) {
+              try {
+                await chrome.tabs.get(mcpRegisteredTabId);
+                targetTabId = mcpRegisteredTabId;
+                console.log('[MCP Bridge] scroll_page - using registered tab:', targetTabId);
+              } catch (e) {
+                mcpRegisteredTabId = null;
+                console.log('[MCP Bridge] Registered tab no longer exists, falling back to active tab');
+              }
+            }
+
+            // Strategy 2: Fall back to currently active tab
+            if (!targetTabId) {
+              const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+              if (!activeTab) {
+                return reply({
+                  ok: false,
+                  error: 'No active tab. First navigate with browser_navigate or focus a tab manually.'
+                });
+              }
+              targetTabId = activeTab.id;
+              console.log('[MCP Bridge] scroll_page - using current active tab:', targetTabId);
+            }
+
+            const tabId = targetTabId;
 
             await chrome.scripting.executeScript({
               target: { tabId },
@@ -1057,9 +1151,11 @@ async function connectMcpBridge() {
             });
 
             await new Promise(resolve => setTimeout(resolve, 500));
-            await chrome.tabs.remove(tabId);
 
-            return reply({ ok: true, data: { url, direction, amount } });
+            // Get current URL
+            const tab = await chrome.tabs.get(tabId);
+
+            return reply({ ok: true, data: { url: tab.url, direction, amount } });
           } catch (e) {
             return reply({ ok: false, error: String(e?.message || e) });
           }

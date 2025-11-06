@@ -86,14 +86,12 @@ export const navigate: Tool = {
 /**
  * Go back in browser history
  */
-const GoBackSchema = z.object({
-  url: z.string().describe("The current page URL (required to identify the tab)"),
-});
+const GoBackSchema = z.object({});
 
 export const goBack: Tool = {
   schema: {
     name: "go_back",
-    description: "Navigate back to the previous page in browser history.",
+    description: "Navigate back to the previous page in browser history on the currently active tab. First use browser_navigate to load a page, then use this tool to navigate.",
     inputSchema: zodToJsonSchema(GoBackSchema) as any,
   },
   handle: async (params) => {
@@ -109,14 +107,12 @@ export const goBack: Tool = {
 /**
  * Go forward in browser history
  */
-const GoForwardSchema = z.object({
-  url: z.string().describe("The current page URL (required to identify the tab)"),
-});
+const GoForwardSchema = z.object({});
 
 export const goForward: Tool = {
   schema: {
     name: "go_forward",
-    description: "Navigate forward to the next page in browser history.",
+    description: "Navigate forward to the next page in browser history on the currently active tab. First use browser_navigate to load a page, then use this tool to navigate.",
     inputSchema: zodToJsonSchema(GoForwardSchema) as any,
   },
   handle: async (params) => {
@@ -133,7 +129,6 @@ export const goForward: Tool = {
  * Scroll the page
  */
 const ScrollSchema = z.object({
-  url: z.string().describe("The URL of the page to scroll"),
   direction: z.enum(["up", "down", "top", "bottom"]).describe("Scroll direction or position"),
   amount: z.number().optional().describe("Scroll amount in pixels (for 'up' and 'down' directions, default: 500)"),
 });
@@ -141,7 +136,7 @@ const ScrollSchema = z.object({
 export const scroll: Tool = {
   schema: {
     name: "scroll",
-    description: "Scroll the page up or down by a specified amount or to a specific position.",
+    description: "Scroll the currently active tab up or down by a specified amount or to a specific position. First use browser_navigate to load a page, then use this tool to scroll. Returns snapshot after scrolling.",
     inputSchema: zodToJsonSchema(ScrollSchema) as any,
   },
   handle: async (params) => {
@@ -150,7 +145,7 @@ export const scroll: Tool = {
     }
     const data = await callExtension("scroll_page", params);
 
-    return captureAriaSnapshot(params.url, `Scrolled ${params.direction}`);
+    return captureAriaSnapshot(data.data.url, `Scrolled ${params.direction}`);
   },
 };
 

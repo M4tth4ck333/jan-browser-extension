@@ -11,15 +11,14 @@ import type { Tool } from "./tool.js";
  * Click an element on the page by CSS selector
  */
 const ClickSchema = z.object({
-  url: z.string().describe("The URL of the page containing the element"),
   selector: z.string().describe("CSS selector for the element to click (e.g., '#submit-btn', '.nav-link', 'button[type=\"submit\"]')"),
-  waitForNavigation: z.boolean().optional(),
+  waitForNavigation: z.boolean().optional().describe("Whether to wait for navigation after clicking (default: true)"),
 });
 
 export const click: Tool = {
   schema: {
     name: "click",
-    description: "Click an element on the current web page using a CSS selector. Returns snapshot of the page after clicking.",
+    description: "Click an element on the currently active tab using a CSS selector. First use browser_navigate to load a page, then use this tool to interact with elements. Returns snapshot of the page after clicking.",
     inputSchema: zodToJsonSchema(ClickSchema) as any,
   },
   handle: async (params) => {
@@ -37,16 +36,15 @@ export const click: Tool = {
  * Type text into an element
  */
 const TypeSchema = z.object({
-  url: z.string().describe("The URL of the page containing the element"),
   selector: z.string().describe("CSS selector for the input element"),
   text: z.string().describe("Text to type into the element"),
-  clear: z.boolean().optional(),
+  clear: z.boolean().optional().describe("Whether to clear existing text before typing (default: true)"),
 });
 
 export const type: Tool = {
   schema: {
     name: "type",
-    description: "Type text into a form field or input element. Use this for filling in text, search boxes, etc.",
+    description: "Type text into a form field or input element on the currently active tab. First use browser_navigate to load a page, then use this tool to interact with elements. Use this for filling in text, search boxes, etc.",
     inputSchema: zodToJsonSchema(TypeSchema) as any,
   },
   handle: async (params) => {
@@ -55,7 +53,7 @@ export const type: Tool = {
     }
     const data = await callExtension("type_text", params);
 
-    return captureAriaSnapshot(params.url, `Typed "${params.text}" into "${params.selector}"`);
+    return captureAriaSnapshot(data.data.url, `Typed "${params.text}" into "${params.selector}"`);
   },
 };
 
@@ -63,14 +61,13 @@ export const type: Tool = {
  * Hover over an element
  */
 const HoverSchema = z.object({
-  url: z.string().describe("The URL of the page containing the element"),
   selector: z.string().describe("CSS selector for the element to hover over"),
 });
 
 export const hover: Tool = {
   schema: {
     name: "hover",
-    description: "Hover the mouse over an element to trigger hover effects, tooltips, or dropdowns.",
+    description: "Hover the mouse over an element on the currently active tab to trigger hover effects, tooltips, or dropdowns. First use browser_navigate to load a page, then use this tool to interact with elements.",
     inputSchema: zodToJsonSchema(HoverSchema) as any,
   },
   handle: async (params) => {
@@ -79,7 +76,7 @@ export const hover: Tool = {
     }
     const data = await callExtension("hover_element", params);
 
-    return captureAriaSnapshot(params.url, `Hovered over "${params.selector}"`);
+    return captureAriaSnapshot(data.data.url, `Hovered over "${params.selector}"`);
   },
 };
 
@@ -87,7 +84,6 @@ export const hover: Tool = {
  * Select an option from a dropdown
  */
 const SelectOptionSchema = z.object({
-  url: z.string().describe("The URL of the page containing the select element"),
   selector: z.string().describe("CSS selector for the select element"),
   value: z.string().describe("The option value or visible text to select"),
 });
@@ -95,7 +91,7 @@ const SelectOptionSchema = z.object({
 export const selectOption: Tool = {
   schema: {
     name: "select_option",
-    description: "Select an option from a dropdown/select element by value or visible text.",
+    description: "Select an option from a dropdown/select element on the currently active tab by value or visible text. First use browser_navigate to load a page, then use this tool to interact with elements.",
     inputSchema: zodToJsonSchema(SelectOptionSchema) as any,
   },
   handle: async (params) => {
@@ -104,7 +100,7 @@ export const selectOption: Tool = {
     }
     const data = await callExtension("select_option", params);
 
-    return captureAriaSnapshot(params.url, `Selected option "${params.value}" in "${params.selector}"`);
+    return captureAriaSnapshot(data.data.url, `Selected option "${params.value}" in "${params.selector}"`);
   },
 };
 
@@ -117,14 +113,13 @@ const FillFormFieldSchema = z.object({
 });
 
 const FillFormSchema = z.object({
-  url: z.string().describe("The URL of the page containing the form"),
   fields: z.array(FillFormFieldSchema).min(1).describe("Array of fields to fill"),
 });
 
 export const fillForm: Tool = {
   schema: {
     name: "fill_form",
-    description: "Fill multiple form fields at once. Supports text inputs, selects, checkboxes, and radio buttons.",
+    description: "Fill multiple form fields at once on the currently active tab. First use browser_navigate to load a page, then use this tool to interact with elements. Supports text inputs, selects, checkboxes, and radio buttons.",
     inputSchema: zodToJsonSchema(FillFormSchema) as any,
   },
   handle: async (params) => {
@@ -134,7 +129,7 @@ export const fillForm: Tool = {
     const data = await callExtension("fill_form", params);
 
     const fieldCount = data.data.successfulFields || 0;
-    return captureAriaSnapshot(params.url, `Filled ${fieldCount} form fields`);
+    return captureAriaSnapshot(data.data.url, `Filled ${fieldCount} form fields`);
   },
 };
 
@@ -142,7 +137,6 @@ export const fillForm: Tool = {
  * Execute custom JavaScript on the page
  */
 const ExecuteScriptSchema = z.object({
-  url: z.string().describe("The URL of the page to execute the script on"),
   script: z.string().describe("The JavaScript code to execute. Should be a function body that returns a value."),
   args: z.array(z.any()).optional().describe("Optional array of arguments to pass to the script"),
 });
@@ -150,7 +144,7 @@ const ExecuteScriptSchema = z.object({
 export const executeScript: Tool = {
   schema: {
     name: "execute_script",
-    description: "Execute custom JavaScript code on a web page and return the result. Use with caution.",
+    description: "Execute custom JavaScript code on the currently active tab and return the result. First use browser_navigate to load a page, then use this tool to execute scripts. Use with caution.",
     inputSchema: zodToJsonSchema(ExecuteScriptSchema) as any,
   },
   handle: async (params) => {
@@ -163,10 +157,10 @@ export const executeScript: Tool = {
       content: [
         {
           type: "text",
-          text: `Script executed successfully. Result:\n\`\`\`json\n${JSON.stringify(data.data.result, null, 2)}\n\`\`\``,
+          text: `Script executed successfully on ${data.data.url}. Result:\n\`\`\`json\n${JSON.stringify(data.data.result, null, 2)}\n\`\`\``,
         },
       ],
-      _meta: { urls: [params.url] },
+      _meta: { urls: [data.data.url] },
     };
   },
 };
