@@ -140,7 +140,13 @@ export const fillForm: Tool = {
  */
 const ExecuteScriptSchema = z.object({
   script: z.string().describe("The JavaScript code to execute. Should be a function body that returns a value."),
-  args: z.array(z.any()).optional().describe("Optional array of arguments to pass to the script"),
+  args: z.array(z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.record(z.unknown()),
+  ])).optional().describe("Optional array of arguments to pass to the script (supports strings, numbers, booleans, null, and objects)"),
 });
 
 export const executeScript: Tool = {

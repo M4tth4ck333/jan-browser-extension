@@ -60,8 +60,8 @@ You are testing a Model Context Protocol (MCP) server that provides browser auto
 ### Test 4: Screenshot
 **Tool**: `screenshot`
 **Parameters**: `{}`
-**Expected**: Base64-encoded PNG image starting with `data:image/png;base64,`
-**Report**: "✅ screenshot - [N] chars" or "❌ screenshot: [error]"
+**Expected**: Image content with `type: "image"`, base64-encoded PNG data, and `mimeType: "image/png"`
+**Report**: "✅ screenshot - image returned" or "❌ screenshot: [error]"
 
 ---
 
@@ -225,19 +225,19 @@ Failed: [M]
 
 Tool Results:
 1. bridge_status: [PASS/FAIL]
-2. browser_navigate (closeTab=false): [PASS/FAIL]
+2. navigate_browser (closeTab=false): [PASS/FAIL]
 3. snapshot: [PASS/FAIL]
 4. screenshot: [PASS/FAIL]
 5. scroll (down): [PASS/FAIL]
 6. scroll (top): [PASS/FAIL]
 7. hover: [PASS/FAIL]
-8. browser_navigate (Wikipedia): [PASS/FAIL]
+8. navigate_browser (Wikipedia): [PASS/FAIL]
 9. type: [PASS/FAIL]
 10. click: [PASS/FAIL]
 11. go_back: [PASS/FAIL]
 12. go_forward: [PASS/FAIL]
 13. web_search: [PASS/FAIL]
-14. browser_navigate (closeTab=true): [PASS/FAIL]
+14. navigate_browser (closeTab=true): [PASS/FAIL]
 15. snapshot (no active tab - expected fail): [PASS/FAIL]
 16. screenshot (no active tab - expected fail): [PASS/FAIL]
 
@@ -245,7 +245,7 @@ Overall Status: [PASS/FAIL]
 
 Tool Coverage:
 ✓ Observation tools: bridge_status, snapshot, screenshot, web_search
-✓ Navigation tools: browser_navigate, go_back, go_forward, scroll
+✓ Navigation tools: navigate_browser, go_back, go_forward, scroll
 ✓ Automation tools: click, type, hover
 ✗ Disabled tools: wait (not meaningful), execute_script (security concern)
 ✗ Not tested: select_option, fill_form (require specific form structures)
@@ -269,7 +269,7 @@ Key Findings:
 4. **web_search** - DuckDuckGo search with structured results
 
 ### Navigation Tools (4)
-1. **browser_navigate** - Load URL and extract content
+1. **navigate_browser** - Load URL and extract content
 2. **go_back** - Navigate browser history back
 3. **go_forward** - Navigate browser history forward
 4. **scroll** - Scroll page (up/down/top/bottom)
@@ -343,7 +343,7 @@ After Test 14 closes the tab, Tests 15-16 should **fail gracefully** with "No ac
 - `web_search`: External search capability
 
 **Navigation Tools**: Core browsing functionality
-- `browser_navigate`: Primary tool for loading pages
+- `navigate_browser`: Primary tool for loading pages
 - `go_back`/`go_forward`: Browser history navigation
 - `scroll`: Common interaction for revealing content
 
@@ -384,13 +384,13 @@ Test 1: Checking bridge status...
 ✅ bridge_status - Connected: true
 
 Test 2: Navigating to example.com with closeTab=false...
-✅ browser_navigate (closeTab=false) - Title: "Example Domain", tabId: 123456
+✅ navigate_browser (closeTab=false) - Title: "Example Domain", tabId: 123456
 
 Test 3: Taking snapshot of active tab...
 ✅ snapshot - Found 1 links, 5 interactive elements, 2 headings
 
 Test 4: Taking screenshot of active tab...
-✅ screenshot - 45678 chars
+✅ screenshot - image returned (PNG, base64 encoded)
 
 Test 5: Scrolling down 300 pixels...
 ✅ scroll (down)
@@ -402,7 +402,7 @@ Test 7: Hovering over first link...
 ✅ hover
 
 Test 8: Navigating to Wikipedia search page...
-✅ browser_navigate (Wikipedia) - Title: "Search - Wikipedia"
+✅ navigate_browser (Wikipedia) - Title: "Search - Wikipedia"
 
 Test 9: Typing into search box...
 ✅ type
@@ -420,7 +420,7 @@ Test 13: Performing web search...
 ✅ web_search - 3 results returned
 
 Test 14: Navigating with closeTab=true...
-✅ browser_navigate (closeTab=true, html mode) - HTML content captured
+✅ navigate_browser (closeTab=true, html mode) - HTML content captured
 
 Test 15: Attempting snapshot without active tab...
 ✅ snapshot correctly failed (no active tab)
@@ -436,19 +436,19 @@ Failed: 0
 
 Tool Results:
 1. bridge_status: PASS
-2. browser_navigate (closeTab=false): PASS
+2. navigate_browser (closeTab=false): PASS
 3. snapshot: PASS
 4. screenshot: PASS
 5. scroll (down): PASS
 6. scroll (top): PASS
 7. hover: PASS
-8. browser_navigate (Wikipedia): PASS
+8. navigate_browser (Wikipedia): PASS
 9. type: PASS
 10. click: PASS
 11. go_back: PASS
 12. go_forward: PASS
 13. web_search: PASS
-14. browser_navigate (closeTab=true): PASS
+14. navigate_browser (closeTab=true): PASS
 15. snapshot (no active tab - expected fail): PASS
 16. screenshot (no active tab - expected fail): PASS
 
@@ -456,7 +456,7 @@ Overall Status: PASS
 
 Tool Coverage:
 ✓ Observation tools: bridge_status, snapshot, screenshot, web_search
-✓ Navigation tools: browser_navigate, go_back, go_forward, scroll
+✓ Navigation tools: navigate_browser, go_back, go_forward, scroll
 ✓ Automation tools: click, type, hover
 ✗ Disabled tools: wait (not meaningful), execute_script (security concern)
 ✗ Not tested: select_option, fill_form (require specific form structures)

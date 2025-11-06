@@ -300,20 +300,22 @@ async function connectMcpBridge() {
               }
             }
 
-            // Strategy 2: Fall back to currently active tab in current window
+            // Strategy 2: Fall back to currently active tab (use lastFocusedWindow)
             if (!targetTabId) {
               console.log('[MCP Bridge] screenshot - querying for active tab');
-              const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+              // CRITICAL FIX: Use lastFocusedWindow instead of currentWindow
+              // Service workers have no concept of "current window"
+              const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
               if (!activeTab) {
                 console.log('[MCP Bridge] screenshot - no active tab found');
                 return reply({
                   ok: false,
-                  error: 'No active tab. First navigate with browser_navigate(url="...", closeTab=false), or focus a tab manually.'
+                  error: 'No active tab. First navigate with navigate_browser(url="...", closeTab=false), or focus a tab manually.'
                 });
               }
               tab = activeTab;
               targetTabId = activeTab.id;
-              console.log('[MCP Bridge] screenshot - using current active tab:', targetTabId);
+              console.log('[MCP Bridge] screenshot - using active tab:', targetTabId, 'window:', tab.windowId);
             }
 
             // Ensure tab is on a valid URL (not chrome:// or about:)
@@ -325,13 +327,50 @@ async function connectMcpBridge() {
               });
             }
 
-            // Capture screenshot of the visible tab in its window
-            // Note: This requires either activeTab permission (for user action)
-            // or host_permissions for the URL (which we have with https://*/* and http://*/*)
+            // Ensure window exists and get window info
+            let windowInfo;
+            try {
+              windowInfo = await chrome.windows.get(tab.windowId);
+              console.log('[MCP Bridge] screenshot - window state:', windowInfo.state, 'focused:', windowInfo.focused);
+            } catch (e) {
+              console.error('[MCP Bridge] screenshot - failed to get window info:', e);
+              return reply({
+                ok: false,
+                error: 'Tab window no longer exists'
+              });
+            }
+
+            // Check if window is minimized
+            if (windowInfo.state === 'minimized') {
+              console.log('[MCP Bridge] screenshot - window is minimized, cannot capture');
+              return reply({
+                ok: false,
+                error: 'Cannot capture screenshot: window is minimized. Please restore the window.'
+              });
+            }
+
+            // Capture screenshot with timeout wrapper
+            // CRITICAL FIX: Wrap captureVisibleTab in a timeout to prevent hanging
             console.log('[MCP Bridge] screenshot - capturing from window:', tab.windowId);
-            const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
-              format: 'png'
-            });
+            const captureWithTimeout = (windowId, options, timeoutMs) => {
+              return new Promise((resolve, reject) => {
+                const timer = setTimeout(() => {
+                  reject(new Error('Screenshot capture timed out after ' + timeoutMs + 'ms. The window may not be visible or focused.'));
+                }, timeoutMs);
+
+                chrome.tabs.captureVisibleTab(windowId, options)
+                  .then(dataUrl => {
+                    clearTimeout(timer);
+                    resolve(dataUrl);
+                  })
+                  .catch(err => {
+                    clearTimeout(timer);
+                    reject(err);
+                  });
+              });
+            };
+
+            const dataUrl = await captureWithTimeout(tab.windowId, { format: 'png' }, 5000);
 
             console.log('[MCP Bridge] screenshot taken', {
               url: tab.url,

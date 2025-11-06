@@ -101,13 +101,27 @@ export const screenshot: Tool = {
         };
       }
 
-      // Return base64 image data as text content (MCP protocol requires text type for tool results)
-      // The screenshot from extension is already in base64 format with data:image/png;base64, prefix
+      // Extract base64 data from data URL (remove "data:image/png;base64," prefix)
+      // The screenshot from extension comes as: "data:image/png;base64,iVBORw0KGgo..."
+      let base64Data = screenshot;
+      let mimeType = "image/png";
+
+      if (screenshot.startsWith("data:")) {
+        const match = screenshot.match(/^data:([^;]+);base64,(.+)$/);
+        if (match) {
+          mimeType = match[1];
+          base64Data = match[2];
+        }
+      }
+
+      // Return image content using proper MCP protocol format
+      // According to MCP specification, images should use type: "image" with base64 data
       return {
         content: [
           {
-            type: "text",
-            text: `Screenshot captured successfully.\n\nBase64 PNG image data:\n${screenshot}`,
+            type: "image",
+            data: base64Data,
+            mimeType: mimeType,
           },
         ],
       };
