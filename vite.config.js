@@ -26,7 +26,17 @@ export default {
     },
   },
   // Minimal test config with a single setup file
-  test: { environment: 'jsdom', globals: true, setupFiles: ['./tests/setup.ts'] },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./tests/setup.ts'],
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/e2e/**', // Exclude E2E tests (use Playwright test runner instead)
+      '**/.{idea,git,cache,output,temp}/**'
+    ]
+  },
   build: {
     sourcemap: true,
     outDir: 'dist',

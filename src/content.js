@@ -1330,10 +1330,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Close menus/results if clicking outside our shadow
     const path = e.composedPath ? e.composedPath() : [];
     if (path.includes(shadowHost)) return;
-    // Ignore the click that immediately follows selection mouseup
-    if (Date.now() - lastPointer.t < 300) return;
+    // Ignore the click that immediately follows selection mouseup (only for tooltip, not menu/result)
+    if (Date.now() - lastPointer.t < 300 && !menuEl && !resultEl && !overlayEl) return;
     clearUI();
-  });
+  }, true);
+  document.addEventListener('mousedown', (e) => {
+    if (!tooltipEl && !menuEl && !resultEl && !overlayEl) return;
+    const path = e.composedPath ? e.composedPath() : [];
+    if (path.includes(shadowHost) || (shadowRoot && path.includes(shadowRoot))) return;
+    clearUI();
+  }, true);
 
   // Autocomplete event hooks
   document.addEventListener('input', () => { if (acEnabled) scheduleAutocomplete(); }, true);
