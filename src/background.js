@@ -32,6 +32,8 @@ import { loadConfig, getSettings, testSettings, pingModels, chatCompletions } fr
 
 import { buildInlineAssistMessages, handleSummarize } from './prompts.js';
 
+import { clearMcpRegisteredTab, getMcpRegisteredTab, setMcpRegisteredTab } from './lib/tab-manager.js';
+
 // ============================================================================
 // Browser API Shim (cross-browser compatibility)
 // ============================================================================
@@ -141,6 +143,19 @@ chrome.runtime.onStartup.addListener(async () => {
     await chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true });
   } catch (err) {
     console.warn('setPanelBehavior (startup) not supported:', err);
+  }
+});
+
+// ============================================================================
+// Tab Lifecycle - MCP Registered Tab Cleanup
+// ============================================================================
+
+// Clean up registered tab when it's closed
+chrome.tabs.onRemoved.addListener((tabId) => {
+  const registeredTabId = getMcpRegisteredTab();
+  if (registeredTabId === tabId) {
+    clearMcpRegisteredTab();
+    console.log('[BG] MCP registered tab closed, cleared registration:', tabId);
   }
 });
 
@@ -528,6 +543,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         targetPort.postMessage(message);
       }
       sendResponse({ ok: true });
+    } catch (e) {
+      sendResponse({ ok: false, error: String(e?.message || e) });
+    }
+    return true;
+  }
+
+  // Handle MCP_REGISTER_TAB (register a tab for MCP operations)
+  if (message?.type === 'MCP_REGISTER_TAB') {
+    try {
+      const { tabId } = message.payload || {};
+      if (tabId) {
+        setMcpRegisteredTab(tabId);
+        console.log('[BG] MCP tab registered:', tabId);
+        sendResponse({ ok: true, tabId });
+      } else if (tabId === null) {
+        // Explicitly disconnect/clear the registered tab
+        setMcpRegisteredTab(null);
+        console.log('[BG] MCP tab disconnected');
+        sendResponse({ ok: true, tabId: null });
+      } else {
+        sendResponse({ ok: false, error: 'Missing tabId' });
+      }
+    } catch (e) {
+      sendResponse({ ok: false, error: String(e?.message || e) });
+    }
+    return true;
+  }
+
+  // Handle MCP_GET_REGISTERED_TAB (get the currently registered MCP tab)
+  if (message?.type === 'MCP_GET_REGISTERED_TAB') {
+    try {
+      const tabId = getMcpRegisteredTab();
+      sendResponse({ ok: true, tabId });
     } catch (e) {
       sendResponse({ ok: false, error: String(e?.message || e) });
     }
