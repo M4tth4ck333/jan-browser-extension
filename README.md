@@ -1,257 +1,427 @@
-# Jan Browser (Chrome)
+# Jan Browser Extension
 
-The Jan Browser companion: chat, inline writing help, search, and page context in the side panel. Uses your Jan service and also supports any OpenAI‑compatible endpoint (Jan Server/local, Cerebras, OpenAI, etc.).
+> A Chrome extension that brings AI chat, inline writing assistance, web search, and page context to your browser. Works with Jan (local), Jan Server, Cerebras, OpenAI, and any OpenAI-compatible API.
 
-- Side panel app for chat and streaming summaries
-- Inline Assistant tooltip for selected text (rewrite/simplify/translate)
-- Web search with DuckDuckGo first and Google fallback (structured results)
-- Optional MCP bridge to expose search/visit tools to LLM clients
+**Key Features:**
+- 💬 Side panel chat with streaming responses
+- ✍️ Inline writing assistant for selected text (rewrite/translate)
+- 🔍 Smart web search (DuckDuckGo + Google fallback)
+- 📄 Page summarization with context awareness
+- 🤖 Optional MCP bridge for browser automation
 
-## What’s New in 0.12.15
+---
 
-- @mention Tab Selection: type "@" in the composer to quickly select tabs for context.
-- LIFO Tab Ordering: unpinned first, then most recently accessed, then rightmost.
-- Overlay Sidebar: full‑screen overlay menu for session management and quick access.
-- Search Preferences: DuckDuckGo‑first with Google fallback, or DDG‑only via Options.
-- Model Dropdown: optionally fetch `/models` to pick from a list in Options.
-- Reading Overlay and Debug Tools toggles in Options.
+## Quick Start (5 minutes)
 
-## Quick Start
-
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/menloresearch/jan-browser-extension.git
-    cd jan-browser-extension
-    ```
-2.  **Install dependencies:**
-    - With Bun (recommended)
-      ```bash
-      bun install
-      ```
-    - Or with npm
-      ```bash
-      npm install
-      ```
-3.  **Build the extension:**
-    - With Bun
-      ```bash
-      bun run build
-      ```
-    - Or with npm
-      ```bash
-      npm run build
-      ```
-4.  **Load the extension in Chrome:**
-    *   Open `chrome://extensions` in Chrome.
-    *   Enable "Developer mode".
-    *   Click "Load unpacked" and select the `dist` folder.
-5.  **Configure and use the extension:**
-    *   Pin the extension and click it to open the side panel.
-    *   Click the settings (⚙️) in the side panel to configure your API and bridge.
-
-## Configuration
-
-Open the Options page (⚙️ in the side panel) and set:
-
-- Provider Preset
-  - Cerebras → sets base to `https://api.cerebras.ai/v1`
-  - Jan (Local) → sets base to `http://localhost:1337/v1`
-  - Jan Server (Cloud) → currently locked to `https://comingsoon.ai`
-  - Custom → any OpenAI-compatible base URL
-- API Base URL (required)
-- API Key (required)
-- Model (required)
-- Temperature (optional, default 0.2)
-
-Advanced/Optional:
-- Use API Key toggle and Show/Hide key
-- Use model list (fetch `/models`) to choose from a dropdown
-- Custom chat completions URL for provider "Custom" (streaming supported)
-- Search preferences:
-  - DuckDuckGo only (no Google fallback)
-  - Show Search button in composer
-- Bridge token and toggle for MCP local WebSocket auth
-- UI toggles: Reading overlay, Debug tools
-
-Click "Test" to verify connectivity.
-
-## Usage
-
-- Summarize Page: summarize the whole page (trimmed for token safety)
-- Summarize Selection: prioritize current text selection if present
-- Inline Assistant: select text on any page to rewrite/simplify/translate via tooltip
-- Quick Search: trigger DuckDuckGo search (with Google fallback) via side panel or agent call; configure DDG‑only in Options
-- @mention tabs: in the chat composer, type "@" to select one or more tabs to use as context for that message. Auto‑follow active tab can also be enabled per session.
-- Overlay sidebar: use the menu button to open the full‑screen overlay to manage chats, switch themes, and tweak context.
-
-Output renders as Markdown in the side panel with streaming updates.
-
-## How it Works
-
-- `src/content.js` collects page text/selection, title, URL, language, and meta description.
-- `src/background.js` builds prompts and calls your configured provider via `/v1/chat/completions` (streams when available). Also hosts search (DuckDuckGo first with Google fallback), SERP scraping, and the MCP bridge client.
-- Side panel UI lives in `ui/sidepanel/` (React). Options UI lives in `ui/options/`.
-- Settings are stored in `chrome.storage.sync`.
-- Session context persistence and sharing use IndexedDB + BroadcastChannel in `src/lib/idb.js`.
-
-## Files
-
-- `manifest.json` — MV3 manifest with side panel, background service worker, and content script
-- `src/background.js` — router/orchestrator; model calls, streaming, search tool, MCP bridge
-- `src/content.js` — page extraction + inline assistant tooltip host
-- `src/lib/idb.js` — minimal IndexedDB + BroadcastChannel wrapper for session context
-- `ui/sidepanel/` — side panel React app (entry: `index.html`, `main.jsx`, `App.jsx`)
-- `ui/options/` — options React app (entry: `index.html`, `main.jsx`, `App.jsx`)
-- `ui/styles.css` — shared styles
-- `mcp/search-server/` — optional MCP server bridging to the extension via local WebSocket
-
-## Notes
-
-- Host permissions are set to `*://*/*` for local dev. Restrict before publishing.
-- API keys are stored in `chrome.storage.sync`. Avoid sharing Chrome profiles. Do not check in secrets.
-- For pages loaded before you installed the extension, refresh so the content script can attach.
-
-## Roadmap (nice-to-have)
-
-- Readability-based extraction for cleaner text
-- Render Markdown with a lightweight renderer
-- "Read later" queue integrated with summaries
-- Per-site auto-summarize toggle
-
-## MCP Bridge (optional)
-
-A standalone MCP server that bridges to the extension lives in `mcp/search-server/`.
-
-### Unified dev workflow (extension + MCP server)
+### 1. Install Dependencies
 
 ```bash
-# from repo root
-npm install
-npm run build:mcp    # one-time build of MCP TS (or run dev below)
-npm run dev:all      # runs Vite (extension) and MCP server watch in parallel
+# Clone the repository
+git clone https://github.com/menloresearch/jan-browser-extension.git
+cd jan-browser-extension
+
+# Install (Bun recommended, npm works too)
+bun install  # or: npm install
 ```
 
-Then load the extension from `dist/` in Chrome (Developer mode → Load unpacked). The background service worker connects to the MCP bridge at `ws://127.0.0.1:17389` automatically when running.
-
-To verify the connection:
-
-- Open `chrome://extensions` → find this extension → "Service worker" → Inspect.
-- You should see `[MCP Bridge] connected` in the console shortly after `npm run dev:all` starts.
-
-### Build all
+### 2. Build the Extension
 
 ```bash
-# from repo root
-npm run build:all  # builds the extension (Vite) and MCP server (tsc)
+# Build for Chrome
+bun run build  # or: npm run build
+
+# Watch mode (auto-rebuild on changes)
+bun run dev:ext  # or: npm run dev:ext
 ```
 
-### Start MCP server only
+### 3. Load in Chrome
+
+1. Open `chrome://extensions` in Chrome
+2. Enable **Developer mode** (toggle in top-right)
+3. Click **Load unpacked** → Select the `dist` folder
+4. Pin the extension to your toolbar
+
+### 4. Configure Your API
+
+1. Click the extension icon → Opens side panel
+2. Click ⚙️ (settings icon) → Opens Options page
+3. Choose your provider:
+   - **Jan (Local)**: `http://localhost:1337/v1`
+   - **Cerebras**: `https://api.cerebras.ai/v1`
+   - **OpenAI**: `https://api.openai.com/v1`
+   - **Custom**: Any OpenAI-compatible endpoint
+4. Enter your **API Key** and **Model name**
+5. Click **Test** to verify connectivity
+
+✅ You're ready to use Jan Browser!
+
+---
+
+## For Contributors
+
+### Project Structure (Refactored!)
+
+The codebase is now modular and maintainable:
+
+```
+jan-browser/
+├── src/
+│   ├── background.js          # Main orchestrator (~540 lines, down from 2,912!)
+│   ├── content.js             # Page content extraction & inline assistant
+│   │
+│   ├── constants.js           # All constants, message types, timeouts
+│   ├── settings.js            # API configuration & testing
+│   ├── prompts.js             # Prompt builders (summarize, inline assist)
+│   ├── mcp-bridge.js          # WebSocket bridge for MCP server
+│   │
+│   ├── lib/                   # Shared utilities
+│   │   ├── event-routing.js   # Port management & streaming
+│   │   ├── fetch-utils.js     # Async helpers, retries, timeouts
+│   │   ├── tab-manager.js     # Centralized tab selection
+│   │   └── idb.js             # IndexedDB + BroadcastChannel
+│   │
+│   ├── streaming/             # LLM streaming implementations
+│   │   ├── openai-stream.js   # OpenAI-compatible streaming
+│   │   ├── anthropic-stream.js # Anthropic-specific streaming
+│   │   └── index.js           # Unified interface
+│   │
+│   ├── search/                # Web search implementations
+│   │   ├── google-search.js   # Google SERP scraping
+│   │   ├── duckduckgo-search.js # DuckDuckGo HTML parsing
+│   │   └── index.js           # Search exports
+│   │
+│   ├── mcp-tools/             # Browser automation tools (12 tools)
+│   │   ├── automation.js      # click, type, fill, hover, etc.
+│   │   ├── navigation.js      # visit, back, forward, scroll
+│   │   ├── observation.js     # screenshot, ARIA snapshot
+│   │   ├── search.js          # Search tool wrapper
+│   │   └── index.js           # Tool registry & dispatcher
+│   │
+│   └── config/
+│       └── defaults.json      # Default settings (centralized)
+│
+├── ui/
+│   ├── sidepanel/             # React app for side panel
+│   │   ├── App.jsx           # Main chat UI
+│   │   ├── main.jsx          # Entry point
+│   │   └── index.html        # HTML template
+│   │
+│   ├── options/               # React app for options page
+│   │   ├── App.jsx           # Settings UI
+│   │   ├── main.jsx          # Entry point
+│   │   └── index.html        # HTML template
+│   │
+│   ├── styles.css            # Shared global styles
+│   └── themes.css            # Theme variables
+│
+├── mcp/
+│   └── search-server/         # Optional MCP server (TypeScript)
+│       ├── src/
+│       │   ├── index.ts      # WebSocket server entry
+│       │   ├── tools/        # MCP tool implementations
+│       │   └── utils/        # ARIA snapshot, bridge utils
+│       └── README.md         # MCP server documentation
+│
+├── manifest.json             # Chrome extension manifest (MV3)
+├── vite.config.js            # Build configuration
+└── package.json              # Dependencies & scripts
+```
+
+### Key Architectural Changes (January 2025 Refactor)
+
+**Before**: Single 2,912-line `background.js` with everything mixed together
+**After**: 18 focused modules with clear responsibilities (81% reduction!)
+
+**Benefits for contributors:**
+- 🎯 **Easy to find code**: Clear module boundaries by feature
+- 🧪 **Easier to test**: Each module can be tested independently
+- 📦 **Reusable utilities**: Shared code in `lib/`
+- 🛠️ **Simple to extend**: Add new MCP tools by creating a new file in `mcp-tools/`
+- 📖 **Self-documenting**: File names reflect their purpose
+
+### Development Workflow
+
+#### Build Commands
 
 ```bash
-npm run start:mcp   # node mcp/search-server/dist/src/index.js
+# Extension only
+npm run build              # Production build
+npm run dev:ext            # Watch mode (auto-rebuild)
+
+# MCP server only
+npm run build:mcp          # Build TypeScript → JavaScript
+npm run dev:mcp            # Watch mode
+npm run start:mcp          # Run production build
+
+# Everything together (recommended)
+npm run build:all          # Build extension + MCP server
+npm run dev:all            # Watch both in parallel
 ```
 
-### Tools exposed
+#### Testing
 
-- `search({ query, numResults?, format? })` → Serper-like JSON (default) or text summary. Adds `_meta.urls` and `urls` in JSON.
-- `visit_tool({ url, mode? })` → Returns compact JSON `{ url, success, title?, contentType, content }`. Uses extension first; falls back to HTTP fetch.
-- `bridge_status()` → `connected: true|false` (extension ↔ bridge).
-- `server_info()` → `{ name, version, ts }` to verify running binary.
+```bash
+# Run all tests
+npm run test:run           # or: bun run test:run
 
-### Configure in an MCP client (Claude Desktop)
+# Watch mode
+npm test                   # or: bun test
 
-Edit: `~/Library/Application Support/Claude/claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "search": {
-      "command": "node",
-      "args": ["/absolute/path/to/jan-browser-extension/mcp/search-server/dist/src/index.js"],
-      "env": {
-        "BRIDGE_HOST": "127.0.0.1",
-        "BRIDGE_PORT": "17389"
-      }
-    }
-  }
-}
+# E2E tests (Playwright)
+npx playwright install     # First time only
+npm run test:e2e
 ```
 
-See `mcp/search-server/README.md` for more details.
+#### Debugging
 
-### WebSocket bridge (127.0.0.1:17389)
+**Service Worker (background.js):**
+1. `chrome://extensions` → This extension → **Service worker** → Inspect
+2. Console logs appear here
 
-- The MCP server opens a local WebSocket bridge at `ws://127.0.0.1:17389`.
-- The extension’s background service worker connects out to it automatically and handles `search` and `visit_tool` calls.
+**Content Script (content.js):**
+1. Open any webpage → Right-click → **Inspect**
+2. Console tab → Filter by filename: `content.js`
 
-### Optional token authentication
+**Side Panel UI:**
+1. Open side panel → Right-click inside → **Inspect**
 
-- You can secure the bridge with a shared token:
-  - Start MCP with `BRIDGE_TOKEN` set (env var).
-  - Set the same token in the extension (Options → Bridge) under key `bridgeToken`.
-  - Enable the toggle "Use token for bridge auth" (default: off). When enabled, the background appends `?t=…` to the WS URL.
+**MCP Bridge:**
+1. Run `npm run dev:mcp` in terminal
+2. Check service worker console for `[MCP Bridge] connected`
 
-Quick way to set the token in the extension (DevTools console of the service worker):
+### Adding New Features
 
-```js
-chrome.storage.sync.set({ bridgeToken: 'your-secret' })
+#### Add a New MCP Tool
+
+1. Create a new file in `src/mcp-tools/` (e.g., `my-tool.js`)
+2. Export a handler function:
+   ```javascript
+   export async function handleMyTool(params) {
+     // Your tool logic
+     return { ok: true, data: { ... } };
+   }
+   ```
+3. Register in `src/mcp-tools/index.js`:
+   ```javascript
+   import { handleMyTool } from './my-tool.js';
+
+   export const mcpToolHandlers = {
+     // ... existing tools
+     my_tool: handleMyTool,
+   };
+   ```
+
+#### Add a New Message Type
+
+1. Add constant to `src/constants.js`:
+   ```javascript
+   export const MessageTypes = {
+     // ... existing types
+     MY_NEW_MESSAGE: 'MY_NEW_MESSAGE',
+   };
+   ```
+2. Add handler in `src/background.js`:
+   ```javascript
+   if (message?.type === MessageTypes.MY_NEW_MESSAGE) {
+     // Handle message
+     sendResponse({ ok: true });
+     return true;
+   }
+   ```
+
+#### Add a New Provider
+
+1. Edit `src/config/defaults.json`:
+   ```json
+   {
+     "providers": {
+       "my-provider": {
+         "apiBase": "https://api.example.com/v1"
+       }
+     }
+   }
+   ```
+2. Rebuild and reload extension
+
+### Code Style & Guidelines
+
+- **Imports**: Use ES6 modules (`import/export`)
+- **Constants**: Define in `src/constants.js`
+- **Error handling**: Always use try-catch for async operations
+- **Logging**: Use `console.log/warn/error` with clear prefixes
+- **Comments**: Explain *why*, not *what*
+- **Functions**: Keep them small and focused (< 50 lines)
+
+### Important Files to Know
+
+| File | Purpose | When to Edit |
+|------|---------|--------------|
+| `src/background.js` | Message routing, lifecycle events | Add new message handlers |
+| `src/constants.js` | All constants & message types | Add new constants |
+| `src/settings.js` | API configuration & testing | Modify API logic |
+| `src/mcp-tools/index.js` | MCP tool registry | Register new tools |
+| `src/streaming/index.js` | Streaming router | Add new streaming providers |
+| `manifest.json` | Extension permissions & metadata | Change permissions, version |
+| `vite.config.js` | Build configuration | Add new build targets |
+
+### Common Tasks
+
+**Change default settings:**
+```bash
+# Edit this file
+src/config/defaults.json
 ```
 
-Then reload the extension or wait for it to auto-reconnect.
+**Add a timeout constant:**
+```javascript
+// In src/constants.js
+export const MY_TIMEOUT = 5000;
+```
 
-#### Adaptive server command copy (Options)
+**Debug streaming issues:**
+```javascript
+// Check: src/streaming/openai-stream.js or anthropic-stream.js
+// Add console.log in the SSE parsing loop
+```
 
-- The Options page provides a "Copy server command" button for convenience.
-- With the token toggle Off → copies a plain `npm run dev[:mcp]`.
-- With the token toggle On (and a token present) → includes `BRIDGE_TOKEN='…'` in the copied command.
+**Fix tab selection logic:**
+```javascript
+// Check: src/lib/tab-manager.js
+// The selectTab() function handles all tab selection
+```
 
-### Troubleshooting: `ERR_CONNECTION_REFUSED`
+---
 
-- The MCP server isn’t running → start it via `npm run dev:all` or `npm run dev:mcp`.
-- Port 17389 is in use → free it: `lsof -iTCP:17389 -sTCP:LISTEN` then `kill -9 <PID>`.
-- Host/port overridden → ensure `BRIDGE_HOST=127.0.0.1` and `BRIDGE_PORT=17389` (default).
-- Firewall blocked → allow local loopback connections for Node.
+## MCP Bridge (Optional)
 
-## Docs
+The extension includes an optional **MCP (Model Context Protocol)** server that exposes browser automation tools to LLM clients like Claude Desktop.
 
-- ADR-004 (MCP Bridge Security – Optional Token): [docs/adr-004-mcp-bridge-security.md](./docs/adr-004-mcp-bridge-security.md)
-- ADR-005 (Bun-based Release Automation and Local Testing): [docs/adr-005-bun-release-automation.md](./docs/adr-005-bun-release-automation.md)
-- ADR-003 (UI Positioning and Error Handling): [docs/adr-003-ui-positioning-and-error-handling.md](./docs/adr-003-ui-positioning-and-error-handling.md)
-- ADR-003 (UX Improvements): [docs/adr-003-ux-improvements.md](./docs/adr-003-ux-improvements.md)
-- SPEC v2 (Inline writing assistant tooltip): [docs/SPEC-v2.md](./docs/SPEC-v2.md)
-- MCP server details: [mcp/search-server/README.md](./mcp/search-server/README.md)
-- Agents Guide (architecture & flows): [agents.md](./agents.md)
+### Quick Setup
+
+```bash
+# Build & run MCP server
+npm run build:mcp
+npm run start:mcp
+
+# Or watch mode
+npm run dev:mcp
+```
+
+The server runs at `ws://127.0.0.1:17389` and connects to the extension automatically.
+
+### Available Tools (12 total)
+
+**Automation:**
+- `click`, `type`, `hover`, `fill_form`, `select_option`, `execute_script`
+
+**Navigation:**
+- `visit`, `go_back`, `go_forward`, `scroll`
+
+**Observation:**
+- `screenshot`, `snapshot` (ARIA tree for LLM-friendly page structure)
+
+See [`mcp/search-server/README.md`](mcp/search-server/README.md) for detailed documentation.
+
+---
+
+## Documentation
+
+- **[agents.md](agents.md)** - Architecture, message flow, extending agents
+- **[behavior.md](behavior.md)** - Tab/session/context behavior with code pointers
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Setup, test scripts, PR guidelines
+- **[mcp/search-server/README.md](mcp/search-server/README.md)** - MCP bridge setup & tools
+
+---
 
 ## Releases
 
-- Stable releases (tags)
-  - Push a tag (e.g., `v0.1.2`) to create a GitHub Release with two zips:
-    - `jan-extension-<tag>.zip` — Chrome extension bundle
-    - `search-mcp-server-<tag>-dist.zip` — optional MCP server distribution
-  - Trigger:
-    ```bash
-    git tag v0.1.2
-    git push origin v0.1.2
-    ```
-  - CI: `.github/workflows/release.yml` (uses Bun for install/build).
+### Stable Releases (Tags)
 
-- Nightly prereleases (incremental)
-  - Every push to `main` updates a prerelease with tag `nightly` and uploads zips suffixed with the run number and short commit SHA.
-  - CI: `.github/workflows/nightly.yml` patches `manifest.version_name` with `-nightly-<run>-<sha>`.
+```bash
+# Create a new release
+git tag v0.1.3
+git push origin v0.1.3
+```
 
-- Local packaging (dry run)
-  - Validate packaging locally before tagging:
-    ```bash
-    # default timestamped tag
-    npm run release:local
+CI automatically creates a GitHub Release with:
+- `jan-extension-v0.1.3.zip` (Chrome extension)
+- `search-mcp-server-v0.1.3-dist.zip` (MCP server)
 
-    # custom tag to mimic a real release name
-    TAG=v0.1.2 npm run release:local
-    ```
-  - Outputs: `pack/jan-extension-<tag>.zip`, `pack/search-mcp-server-<tag>-dist.zip`.
+### Nightly Prereleases
 
-See release.md for full details.
+Every push to `main` updates the `nightly` tag with:
+- `jan-extension-nightly-<run>-<sha>.zip`
+- `search-mcp-server-nightly-<run>-<sha>-dist.zip`
+
+### Local Testing
+
+```bash
+# Test packaging locally (doesn't create a tag)
+npm run release:local
+
+# Or with custom tag
+TAG=v0.1.3 npm run release:local
+```
+
+Outputs to `pack/` directory.
+
+---
+
+## Troubleshooting
+
+### Extension won't load
+- Ensure you ran `npm run build` first
+- Check `dist/` folder exists and has files
+- Reload the extension: `chrome://extensions` → Reload button
+
+### API connection fails
+- Click **Test** in Options to see the error
+- Check your API base URL format (must end with `/v1`)
+- For local servers, ensure they're running
+- Check API key is correct
+
+### MCP bridge won't connect
+- Start the server: `npm run dev:mcp`
+- Check service worker console for `[MCP Bridge] connected`
+- Ensure port 17389 is not in use: `lsof -iTCP:17389`
+
+### Changes not appearing
+- **Extension code**: Reload extension + refresh webpage
+- **Service worker**: Click "Service worker" link to restart
+- **UI changes**: Hard refresh the side panel (Cmd+Shift+R)
+
+---
+
+## Contributing
+
+We welcome contributions! Here's how to get started:
+
+1. **Fork the repository**
+2. **Create a feature branch**: `git checkout -b feature/my-feature`
+3. **Make your changes** (see "For Contributors" section above)
+4. **Test your changes**: `npm run test:run`
+5. **Build**: `npm run build` (ensure no errors)
+6. **Commit**: Use clear, descriptive commit messages
+7. **Push**: `git push origin feature/my-feature`
+8. **Create a Pull Request**
+
+**Good first issues:**
+- Add a new MCP tool (see `src/mcp-tools/` examples)
+- Improve error messages
+- Add unit tests for utilities
+- Update documentation
+
+---
 
 ## License
 
-Apache License 2.0 — see [LICENSE](./LICENSE)
+Apache License 2.0 - see [LICENSE](./LICENSE)
+
+---
+
+## Need Help?
+
+- 📖 Read [CLAUDE.md](CLAUDE.md) for detailed codebase documentation
+- 🐛 Found a bug? [Open an issue](https://github.com/janhq/jan-browser/issues)
+- 💬 Questions? Check [existing issues](https://github.com/janhq/jan-browser/issues) first
+- 🤝 Want to contribute? See [CONTRIBUTING.md](CONTRIBUTING.md)
