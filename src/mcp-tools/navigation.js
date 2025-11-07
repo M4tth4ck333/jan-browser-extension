@@ -1,12 +1,14 @@
 // navigation.js
 // MCP Bridge navigation tools: visit, go_back, go_forward, scroll
 
-import { selectTab, setMcpRegisteredTab } from '../lib/tab-manager.js';
+import { selectTab, setMcpRegisteredTab, getMcpRegisteredTab } from '../lib/tab-manager.js';
 import { sendMessageWithRetry } from '../lib/fetch-utils.js';
 import { CONTENT_LOAD_TIMEOUT, TAB_REGISTRATION_DELAY, VisitOutputModes } from '../constants.js';
 
 /**
  * Visits a URL and extracts page content
+ * If no tab is registered, creates and registers a new tab
+ * If a tab is already registered, navigates that tab to the new URL
  */
 export async function handleVisit(params) {
   const url = String(params?.url || '').trim();
@@ -28,9 +30,35 @@ export async function handleVisit(params) {
   console.log('[MCP Tools] visit', { url, mode, maxContentLength, closeTab });
 
   try {
-    // Create a new tab to visit the URL
-    const tab = await chrome.tabs.create({ url, active: false });
-    const tabId = tab.id;
+    let tabId;
+    let isNewTab = false;
+
+    // Check if we have a registered tab
+    const registeredTabId = getMcpRegisteredTab();
+
+    if (registeredTabId) {
+      // Try to use the existing registered tab
+      try {
+        await chrome.tabs.get(registeredTabId);
+        console.log('[MCP Tools] Using existing registered tab:', registeredTabId);
+
+        // Navigate the existing tab to the new URL
+        await chrome.tabs.update(registeredTabId, { url, active: false });
+        tabId = registeredTabId;
+      } catch (e) {
+        // Registered tab no longer exists, create a new one
+        console.log('[MCP Tools] Registered tab no longer exists, creating new tab');
+        const tab = await chrome.tabs.create({ url, active: false });
+        tabId = tab.id;
+        isNewTab = true;
+      }
+    } else {
+      // No registered tab, create a new one
+      console.log('[MCP Tools] No registered tab, creating new tab');
+      const tab = await chrome.tabs.create({ url, active: false });
+      tabId = tab.id;
+      isNewTab = true;
+    }
 
     // Wait for the page to load
     await new Promise((resolve, reject) => {
@@ -89,13 +117,19 @@ export async function handleVisit(params) {
       await chrome.tabs.remove(tabId);
       console.log('[MCP Tools] Tab closed as requested');
     } else {
-      // Register tab for agentic workflows and make it active (visible)
-      setMcpRegisteredTab(tabId);
+      // Register tab if it's a new tab (only register once, not on every visit)
+      if (isNewTab) {
+        setMcpRegisteredTab(tabId);
+        console.log('[MCP Tools] Registered new tab:', tabId);
+      } else {
+        console.log('[MCP Tools] Navigated existing registered tab:', tabId);
+      }
+
       // Focus the tab's window first, then activate the tab
       const currentTab = await chrome.tabs.get(tabId);
       await chrome.windows.update(currentTab.windowId, { focused: true });
       await chrome.tabs.update(tabId, { active: true });
-      console.log('[MCP Tools] Registered tab:', tabId, '(now active and visible in focused window)');
+      console.log('[MCP Tools] Tab is now active and visible in focused window');
     }
 
     console.log('[MCP Tools] visit result', {

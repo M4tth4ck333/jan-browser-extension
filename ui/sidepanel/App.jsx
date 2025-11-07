@@ -315,6 +315,8 @@ export default function App() {
   const [tabSessionMap, setTabSessionMap] = useState({}) // { [tabId]: sessionId }
   const [selectionText, setSelectionText] = useState('')
   const [bridgeStatus, setBridgeStatus] = useState({ connected: false, usingToken: false, url: '' })
+  const [mcpConnectedTabId, setMcpConnectedTabId] = useState(null) // MCP registered tab for agentic workflows
+  const [currentActiveTabId, setCurrentActiveTabId] = useState(null) // Track the active browser tab
   // Debug preview state
   const [debugOpen, setDebugOpen] = useState(false)
   const [debugInfo, setDebugInfo] = useState(null)
@@ -749,6 +751,123 @@ export default function App() {
     setContextCache({})
     setAutoFollowActiveTab(true)
   }, [sessions, saveSessions])
+
+  // MCP Tab Connection Handlers
+  const handleConnectTab = useCallback(async (tabId) => {
+    try {
+      console.log('[Side Panel] 🔗 Registering MCP tab:', tabId)
+
+      // Get tab info for logging
+      let tabInfo = null
+      try {
+        const tab = await chrome.tabs.get(tabId)
+        tabInfo = { title: tab.title, url: tab.url }
+        console.log('[Side Panel] Tab details:', tabInfo)
+      } catch (_) {}
+
+      // Send message to background to register this tab for MCP operations
+      const response = await chrome.runtime.sendMessage({
+        type: 'MCP_REGISTER_TAB',
+        payload: { tabId }
+      })
+
+      if (response?.ok) {
+        setMcpConnectedTabId(tabId)
+        console.log('[Side Panel] ✅ MCP tab connected successfully:', tabId)
+        console.log('[Side Panel] 📍 MCP tools (visit, click, screenshot, etc.) will now operate on this tab')
+        if (tabInfo) {
+          console.log('[Side Panel] 📄 Connected tab:', tabInfo.title || '(no title)')
+          console.log('[Side Panel] 🔗 URL:', tabInfo.url || '(no url)')
+        }
+      } else {
+        console.error('[Side Panel] ❌ Failed to connect tab:', response?.error)
+      }
+    } catch (e) {
+      console.error('[Side Panel] ❌ Error connecting tab:', e)
+    }
+  }, [])
+
+  const handleFocusToConnectedTab = useCallback(async (tabId) => {
+    try {
+      if (!tabId) {
+        console.warn('[Side Panel] ⚠️ Cannot focus - no tab ID provided')
+        return
+      }
+
+      console.log('[Side Panel] 👁️ Focusing to connected tab:', tabId)
+
+      // Get the tab and focus it
+      const tab = await chrome.tabs.get(tabId)
+      console.log('[Side Panel] 📄 Focusing tab:', tab.title || '(no title)')
+
+      await chrome.windows.update(tab.windowId, { focused: true })
+      await chrome.tabs.update(tabId, { active: true })
+
+      console.log('[Side Panel] ✅ Successfully focused to tab:', tabId)
+    } catch (e) {
+      console.error('[Side Panel] ❌ Failed to focus tab:', e)
+      console.log('[Side Panel] Tab may have been closed, clearing connection')
+      // Tab might have been closed, clear the connection
+      setMcpConnectedTabId(null)
+    }
+  }, [])
+
+  const handleDisconnectTab = useCallback(async () => {
+    try {
+      console.log('[Side Panel] 🔓 Disconnecting MCP tab:', mcpConnectedTabId)
+
+      // Send message to background to clear the registered tab
+      await chrome.runtime.sendMessage({
+        type: 'MCP_REGISTER_TAB',
+        payload: { tabId: null }
+      })
+
+      setMcpConnectedTabId(null)
+      console.log('[Side Panel] ✅ MCP tab disconnected successfully')
+    } catch (e) {
+      console.error('[Side Panel] ❌ Error disconnecting tab:', e)
+    }
+  }, [mcpConnectedTabId])
+
+  // Poll for connected tab status from background
+  useEffect(() => {
+    const checkConnectedTab = async () => {
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: 'MCP_GET_REGISTERED_TAB'
+        })
+        if (response?.tabId !== undefined) {
+          setMcpConnectedTabId(response.tabId)
+        }
+      } catch (e) {
+        // Ignore errors (background might not be ready)
+      }
+    }
+
+    checkConnectedTab()
+    const interval = setInterval(checkConnectedTab, 2000) // Poll every 2 seconds
+
+    return () => clearInterval(interval)
+  }, [])
+
+  // Track the active browser tab
+  useEffect(() => {
+    const updateActiveTab = async () => {
+      try {
+        const activeTab = await getActiveTab()
+        if (activeTab?.id) {
+          setCurrentActiveTabId(activeTab.id)
+        }
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+
+    updateActiveTab()
+    const interval = setInterval(updateActiveTab, 1000) // Update every second
+
+    return () => clearInterval(interval)
+  }, [getActiveTab])
 
   // Auto-scroll to bottom during streaming if user hasn't scrolled up
   const scrollToBottom = useCallback(() => {
@@ -1701,6 +1820,11 @@ export default function App() {
           setSidebarOpen={setSidebarOpen}
           createNewChat={createNewChat}
           SettingsTrigger={() => <SettingsTrigger onSettingsOpen={() => { setSidebarOpen(true); setSettingsOpen(true); }} />}
+          connectedTabId={mcpConnectedTabId}
+          currentTabId={currentActiveTabId}
+          onConnectTab={handleConnectTab}
+          onFocusToConnectedTab={handleFocusToConnectedTab}
+          onDisconnectTab={handleDisconnectTab}
         />
 
           <ScrollArea.Root className="flex-1 relative min-h-0">
