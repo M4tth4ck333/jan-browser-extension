@@ -15,4 +15,6 @@ This repo supports both unit/integration tests and end-to-end (E2E) tests.
 - One-time: `npx playwright install`
 - Build: `bun run build`
 - Run: `bun run test:e2e`
-- Extension tests: `e2e/extension.spec.ts` launches Chromium with the unpacked MV3 extension and opens Options + Side Panel pages.
+- Extension tests:
+  - `e2e/extension.spec.ts` - Launches Chromium with the unpacked MV3 extension and opens Options + Side Panel pages
+  - `e2e/inline-assistant.spec.ts` - Tests the inline assistant tooltip functionality including:
