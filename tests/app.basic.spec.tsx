@@ -15,7 +15,7 @@ describe('App basic', () => {
     expect(root.className).toContain('grid')
 
     await waitFor(() => {
-      const el = screen.getByText(/What do you/i)
+      const el = screen.getByText(/How can Jan help you/i)
       expect(!!el).toBe(true)
     })
   })
