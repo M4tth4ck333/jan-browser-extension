@@ -103,7 +103,7 @@ export async function performGoogleSearchAndScrape(payload) {
       await sendMessageWithRetry(
         tabId,
         {
-          type: 'HUMANIZE_SERP',
+          type: ContentScriptMessages.HUMANIZE_SERP,
           payload: { steps: 1 + Math.floor(Math.random() * 3) }
         },
         2,
