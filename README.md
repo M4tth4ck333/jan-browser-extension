@@ -60,12 +60,11 @@ jan-browser/
 │   ├── search/                # DuckDuckGo/Google helpers
 │   └── mcp-tools/             # Browser automation tools (visit, click, etc.)
 │
-├── mcp/
-│   └── search-server/         # Optional MCP server (TypeScript)
-│       ├── src/
-│       │   ├── index.ts       # WebSocket server entry
-│       │   └── tools/         # MCP tool implementations
-│       └── README.md
+├── mcp-server/                # Optional MCP server (TypeScript)
+│   ├── src/
+│   │   ├── index.ts           # WebSocket server entry
+│   │   └── tools/             # MCP tool implementations
+│   └── README.md
 │
 ├── manifest.json              # Chrome MV3 manifest
 ├── manifest.firefox.json      # Firefox MV3 manifest
@@ -103,4 +102,4 @@ The extension no longer ships a chat UI, side panel, or inline assistant. All re
 - Content script logic focused on search scraping and DOM capture
 - Build scripts that simply copy files into `dist/`
 
-Use the MCP server (`mcp/search-server`) if you need a local bridge that exposes the browser tools to an LLM client.
+Use the MCP server (`mcp-server`) if you need a local bridge that exposes the browser tools to an LLM client.

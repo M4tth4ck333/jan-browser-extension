@@ -21,8 +21,8 @@ if command -v bun >/dev/null 2>&1; then
     echo "[local-release] bun install failed; retrying without frozen lockfile"
     bun install
   fi
-  if [ -f mcp/search-server/package.json ]; then
-    bun install --cwd mcp/search-server --no-save || true
+  if [ -f mcp-server/package.json ]; then
+    bun install --cwd mcp-server --no-save || true
   fi
   echo "[local-release] Building all targets with Bun"
   bun run build:all
@@ -36,10 +36,10 @@ else
     npm install
   fi
   echo "[local-release] Installing MCP server deps..."
-  if [ -f mcp/search-server/package.json ]; then
-    if ! npm ci --prefix mcp/search-server; then
+  if [ -f mcp-server/package.json ]; then
+    if ! npm ci --prefix mcp-server; then
       echo "[local-release] npm ci (mcp) failed. Falling back to npm install..."
-      npm install --prefix mcp/search-server
+      npm install --prefix mcp-server
     fi
   fi
   echo "[local-release] Building all targets..."
@@ -65,8 +65,8 @@ else
 fi
 
 echo "[local-release] Packaging MCP server (if present)..."
-if [[ -d mcp/search-server/dist ]]; then
-  (cd mcp && zip -r "../pack/search-mcp-server-${TAG}-dist.zip" search-server/dist >/dev/null)
+if [[ -d mcp-server/dist ]]; then
+  zip -r "pack/search-mcp-server-${TAG}-dist.zip" mcp-server/dist >/dev/null
 else
   echo "[local-release] MCP dist not found; skipping."
 fi

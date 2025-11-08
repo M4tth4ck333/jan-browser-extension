@@ -7,9 +7,9 @@
   "scripts": {
     "build": "node scripts/build-extension.mjs",
     "build:firefox": "node scripts/build-extension.mjs firefox",
-    "dev:mcp": "bash -lc 'cd mcp/search-server && if command -v bun >/dev/null 2>&1; then bun run dev; else npm run dev; fi'",
+    "dev:mcp": "bash -lc 'cd mcp-server && if command -v bun >/dev/null 2>&1; then bun run dev; else npm run dev; fi'",
     "build:mcp": "bash scripts/build-mcp.sh",
-    "start:mcp": "node mcp/search-server/dist/src/index.js",
+    "start:mcp": "node mcp-server/dist/src/index.js",
     "build:all": "npm run build && npm run build:mcp",
     "build:all:firefox": "npm run build:firefox && npm run build:mcp"
   },

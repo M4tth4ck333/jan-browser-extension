@@ -10,7 +10,7 @@ A minimal MCP server that exposes a single `search` tool for LLM clients (Claude
 Using npm:
 
 ```bash
-cd mcp/search-server
+cd mcp-server
 npm install
 npm run build
 ```
@@ -18,7 +18,7 @@ npm run build
 Using Bun:
 
 ```bash
-cd mcp/search-server
+cd mcp-server
 bun install
 bun run build
 ```
@@ -64,7 +64,7 @@ Add an entry under `mcpServers`:
   "mcpServers": {
     "search": {
       "command": "node",
-      "args": ["/absolute/path/to/jan-browser-extension/mcp/search-server/dist/src/index.js"],
+      "args": ["/absolute/path/to/jan-browser-extension/mcp-server/dist/src/index.js"],
       "env": {
         "BRIDGE_HOST": "127.0.0.1",
         "BRIDGE_PORT": "17389"
@@ -82,7 +82,7 @@ Jan Desktop supports MCP servers. To configure:
 
 1. Build the MCP server first:
    ```bash
-   cd /path/to/jan-browser/mcp/search-server
+   cd /path/to/jan-browser/mcp-server
    npm install
    npm run build
    ```
@@ -92,7 +92,7 @@ Jan Desktop supports MCP servers. To configure:
 3. Add a new MCP server with these settings:
    - **Name**: Jan Browser Extension (or any name you prefer)
    - **Command**: `node`
-   - **Arguments**: `/absolute/path/to/jan-browser/mcp/search-server/dist/src/index.js`
+   - **Arguments**: `/absolute/path/to/jan-browser/mcp-server/dist/src/index.js`
    - **Environment variables** (optional):
      - `BRIDGE_HOST`: `127.0.0.1`
      - `BRIDGE_PORT`: `17389`
@@ -109,15 +109,15 @@ Jan Desktop supports MCP servers. To configure:
 **Troubleshooting Jan Desktop:**
 - If you see "Failed to start MCP server", ensure the path to `index.js` is absolute and correct
 - Check that Node.js is installed and accessible in your PATH: `which node`
-- Verify the build completed successfully: `ls /path/to/mcp/search-server/dist/src/index.js`
-- Ensure the file is executable: `chmod +x /path/to/mcp/search-server/dist/src/index.js`
+- Verify the build completed successfully: `ls /path/to/mcp-server/dist/src/index.js`
+- Ensure the file is executable: `chmod +x /path/to/mcp-server/dist/src/index.js`
 - **NVM users**: If you use NVM for Node.js, Jan Desktop may not find node in your PATH. Use one of these solutions:
   - **Option 1 (Recommended)**: Use the wrapper script instead:
-    - Command: `/absolute/path/to/jan-browser/mcp/search-server/start-mcp.sh`
+    - Command: `/absolute/path/to/jan-browser/mcp-server/start-mcp.sh`
     - Args: (leave empty)
   - **Option 2**: Use absolute path to node:
     - Command: `/Users/YOUR_USERNAME/.nvm/versions/node/vXX.XX.X/bin/node`
-    - Args: `/absolute/path/to/jan-browser/mcp/search-server/dist/src/index.js`
+    - Args: `/absolute/path/to/jan-browser/mcp-server/dist/src/index.js`
   - **Option 3**: Install node system-wide (outside NVM) and use `node` as command
 - **Port conflict**: If port 17389 is in use, kill the existing process:
   ```bash
@@ -130,7 +130,7 @@ Jan Desktop supports MCP servers. To configure:
 If your extension supports MCP servers by command, configure it to launch:
 
 - Command: `node`
-- Args: `.../mcp/search-server/dist/src/index.js`
+- Args: `.../mcp-server/dist/src/index.js`
   (no special env needed)
 
 ## Usage
