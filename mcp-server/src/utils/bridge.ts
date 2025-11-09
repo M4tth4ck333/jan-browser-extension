@@ -17,6 +17,29 @@ function logToFile(message: string) {
   }
 }
 
+function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    const stack = error.stack ? `\n${error.stack}` : "";
+    return `${error.name}: ${error.message}${stack}`;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch (e) {
+    return String(error);
+  }
+}
+
+function logError(message: string, error?: unknown) {
+  if (error !== undefined) {
+    logToFile(`ERROR: ${message}\n${formatError(error)}`);
+  } else {
+    logToFile(`ERROR: ${message}`);
+  }
+}
+
 let extSocket: WebSocket | null = null;
 const pendingCalls = new Map<string, { resolve: (val: any) => void; reject: (err: any) => void }>();
 let activeTabId: number | null = null;
@@ -106,6 +129,10 @@ export async function callExtension(tool: string, params: any): Promise<any> {
       const normalized = normalizeError(error);
       lastError = normalized;
       if (!isRetriableBridgeError(normalized)) {
+        logError(
+          `Bridge call failed without retry for tool "${tool}"`,
+          normalized,
+        );
         throw normalized;
       }
 
@@ -114,7 +141,13 @@ export async function callExtension(tool: string, params: any): Promise<any> {
     }
   }
 
-  throw lastError || new Error("Browser extension not connected to bridge");
+  const finalError =
+    lastError || new Error("Browser extension not connected to bridge");
+  logError(
+    `Failed to call extension tool "${tool}" after ${attempts} attempts`,
+    finalError,
+  );
+  throw finalError;
 }
 
 function sendToolCall(tool: string, params: any): Promise<any> {
@@ -160,7 +193,7 @@ function sendToolCall(tool: string, params: any): Promise<any> {
     } catch (error) {
       pendingCalls.delete(callId);
       const normalized = normalizeError(error);
-      logToFile(`Failed to send message: ${normalized.message}`);
+      logError("Failed to send message to extension", normalized);
       reject(normalized);
     }
   });
@@ -194,7 +227,7 @@ export function handleExtensionMessage(data: any) {
           logToFile(`Extension call succeeded: ${msg.id}`);
           resolve(msg);
         } else {
-          logToFile(`Extension call failed: ${msg.error}`);
+          logError("Extension call returned failure", msg.error);
           reject(new Error(msg.error || "Extension call failed"));
         }
       } else {
@@ -206,7 +239,7 @@ export function handleExtensionMessage(data: any) {
       }
     }
   } catch (err) {
-    logToFile(`Error handling extension message: ${err}`);
+    logError("Error handling extension message", err);
   }
 }
 

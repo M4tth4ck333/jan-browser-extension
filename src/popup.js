@@ -15,6 +15,9 @@ const settingsSaveBtn = document.getElementById('settingsSaveButton');
 const settingsMessageEl = document.getElementById('settingsMessage');
 const settingsPortInput = document.getElementById('settingsPortInput');
 
+let settingsOverlayWasOpen = false;
+let settingsLastFocusedElement = null;
+
 const state = {
   bridgeStatus: {
     status: 'idle',
@@ -134,20 +137,54 @@ function updateSettingsUi() {
 
   const isOpen = !!state.settings.open;
 
+  if (isOpen && !settingsOverlayWasOpen) {
+    const activeElement = document.activeElement;
+    settingsLastFocusedElement =
+      activeElement instanceof HTMLElement && !settingsOverlayEl.contains(activeElement)
+        ? activeElement
+        : openSettingsBtn instanceof HTMLElement
+          ? openSettingsBtn
+          : null;
+  }
+
   if (isOpen) {
     settingsOverlayEl.hidden = false;
     settingsOverlayEl.style.display = 'flex';
     settingsOverlayEl.setAttribute('aria-hidden', 'false');
   } else {
+    if (settingsOverlayWasOpen) {
+      const activeElement = document.activeElement;
+      if (activeElement instanceof HTMLElement && settingsOverlayEl.contains(activeElement)) {
+        activeElement.blur();
+      }
+
+      let focusTarget =
+        settingsLastFocusedElement instanceof HTMLElement &&
+        document.contains(settingsLastFocusedElement) &&
+        !settingsOverlayEl.contains(settingsLastFocusedElement)
+          ? settingsLastFocusedElement
+          : openSettingsBtn instanceof HTMLElement
+            ? openSettingsBtn
+            : null;
+
+      if (focusTarget) {
+        focusTarget.focus();
+      }
+    }
+
     settingsOverlayEl.hidden = true;
     settingsOverlayEl.style.display = 'none';
     settingsOverlayEl.setAttribute('aria-hidden', 'true');
+    settingsLastFocusedElement = null;
   }
 
   if (settingsPortInput && isOpen && !state.settings.saving) {
     const bridgePort = state.bridgeStatus?.port;
     const port = typeof bridgePort === 'number' ? bridgePort : DEFAULT_BRIDGE_PORT;
     settingsPortInput.value = String(port);
+    if (!settingsOverlayWasOpen) {
+      settingsPortInput.focus();
+    }
   } else if (settingsPortInput && !isOpen) {
     settingsPortInput.blur();
   }
@@ -160,6 +197,8 @@ function updateSettingsUi() {
   if (settingsSaveBtn) {
     settingsSaveBtn.disabled = !!state.settings.saving;
   }
+
+  settingsOverlayWasOpen = isOpen;
 }
 
 function updateUi() {

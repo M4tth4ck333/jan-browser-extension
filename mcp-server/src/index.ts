@@ -92,6 +92,29 @@ function logToFile(message: string) {
   }
 }
 
+function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    const stack = error.stack ? `\n${error.stack}` : "";
+    return `${error.name}: ${error.message}${stack}`;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch (e) {
+    return String(error);
+  }
+}
+
+function logErrorToFile(message: string, error?: unknown) {
+  if (error !== undefined) {
+    logToFile(`ERROR: ${message}\n${formatError(error)}`);
+  } else {
+    logToFile(`ERROR: ${message}`);
+  }
+}
+
 // Log startup
 logToFile(
   `jan-browser-mcp v${SERVER_VERSION} starting; bridge ws://${bridgeHost}:${bridgePort}`
@@ -143,6 +166,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const tool = allTools.find((t) => t.schema.name === request.params.name);
   if (!tool) {
+    logErrorToFile(`Tool "${request.params.name}" not found`);
     return {
       content: [
         { type: "text", text: `Tool "${request.params.name}" not found` },
@@ -155,8 +179,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const result = await tool.handle(request.params.arguments || {});
     return result;
   } catch (error) {
+    logErrorToFile(
+      `Tool "${request.params.name}" execution failed`,
+      error,
+    );
+    const errorMessage =
+      error instanceof Error ? error.message : String(error);
     return {
-      content: [{ type: "text", text: String(error) }],
+      content: [{ type: "text", text: errorMessage }],
       isError: true,
     };
   }
@@ -210,7 +240,7 @@ wss.on("connection", (ws: WebSocket, req) => {
 });
 
 wss.on("error", (err) => {
-  logToFile(`Failed to start WebSocket server: ${err.message}`);
+  logErrorToFile("Failed to start WebSocket server", err);
   process.exit(1);
 });
 
@@ -223,6 +253,6 @@ async function main() {
 
 // Run
 main().catch((err) => {
-  logToFile(`MCP server failed to start: ${err.message}`);
+  logErrorToFile("MCP server failed to start", err);
   process.exit(1);
 });
