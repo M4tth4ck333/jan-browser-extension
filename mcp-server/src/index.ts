@@ -27,10 +27,58 @@ import * as observation from "./tools/observation.js";
 import type { Tool } from "./tools/tool.js";
 
 // Configuration
-const BRIDGE_HOST = process.env.BRIDGE_HOST || "127.0.0.1";
-const BRIDGE_PORT = Number(process.env.BRIDGE_PORT || 17389);
-const BRIDGE_TOKEN = process.env.BRIDGE_TOKEN || undefined;
+let bridgeHost = process.env.BRIDGE_HOST || "127.0.0.1";
+let bridgePort = Number(process.env.BRIDGE_PORT || 17389);
+let bridgeToken = process.env.BRIDGE_TOKEN || undefined;
 const SERVER_VERSION = "0.12.2";
+const SERVER_NAME = "jan-browser-mcp";
+
+// CLI arguments
+const args = process.argv.slice(2);
+
+for (let i = 0; i < args.length; i++) {
+  const arg = args[i];
+  if (arg === "--bridge-host" || arg === "-H") {
+    const value = args[i + 1];
+    if (value) {
+      bridgeHost = value;
+      i++;
+    }
+  } else if (arg === "--bridge-port" || arg === "-p") {
+    const value = args[i + 1];
+    if (value) {
+      const parsed = Number(value);
+      if (!Number.isNaN(parsed) && parsed > 0 && parsed < 65536) {
+        bridgePort = parsed;
+      }
+      i++;
+    }
+  } else if (arg === "--bridge-token") {
+    const value = args[i + 1];
+    if (value) {
+      bridgeToken = value;
+      i++;
+    }
+  } else if (arg === "--bridge-url") {
+    const value = args[i + 1];
+    if (value) {
+      try {
+        const parsed = new URL(value);
+        bridgeHost = parsed.hostname || bridgeHost;
+        if (parsed.port) {
+          const portNumber = Number(parsed.port);
+          if (!Number.isNaN(portNumber) && portNumber > 0 && portNumber < 65536) {
+            bridgePort = portNumber;
+          }
+        }
+        bridgeToken = parsed.searchParams.get("t") || bridgeToken;
+      } catch (error) {
+        logToFile(`Invalid --bridge-url provided: ${value} (${(error as Error).message})`);
+      }
+      i++;
+    }
+  }
+}
 
 // Optional file logging
 const LOG_FILE = process.env.MCP_LOG_FILE;
@@ -45,12 +93,14 @@ function logToFile(message: string) {
 }
 
 // Log startup
-logToFile(`jan-browser-mcp v${SERVER_VERSION} starting; bridge ws://${BRIDGE_HOST}:${BRIDGE_PORT}`);
+logToFile(
+  `jan-browser-mcp v${SERVER_VERSION} starting; bridge ws://${bridgeHost}:${bridgePort}`
+);
 
 // Create MCP server using the old API like browsermcp
 const server = new Server(
   {
-    name: "jan-browser-mcp",
+    name: SERVER_NAME,
     version: SERVER_VERSION,
   },
   {
@@ -113,33 +163,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 // WebSocket bridge setup
-const wss = new WebSocketServer({ host: BRIDGE_HOST, port: BRIDGE_PORT });
+const wss = new WebSocketServer({ host: bridgeHost, port: bridgePort });
 
 wss.on("listening", () => {
-  logToFile(`Bridge listening on ws://${BRIDGE_HOST}:${BRIDGE_PORT}`);
+  logToFile(`Bridge listening on ws://${bridgeHost}:${bridgePort}`);
 });
 
 wss.on("connection", (ws: WebSocket, req) => {
   // Token authentication
-  if (BRIDGE_TOKEN) {
+  if (bridgeToken) {
     const url = new URL(req.url || "/", `http://${req.headers.host}`);
     const token = url.searchParams.get("t");
-    if (token !== BRIDGE_TOKEN) {
+    if (token !== bridgeToken) {
       logToFile("Bridge rejected connection: invalid token");
       ws.close(1008, "Invalid token");
       return;
     }
   }
 
-  logToFile("Browser extension connected");
+  logToFile("Browser extension connected to MCP bridge");
   setExtensionSocket(ws);
+
+  try {
+    const handshake = {
+      kind: "hello",
+      serverVersion: SERVER_VERSION,
+    };
+    ws.send(JSON.stringify(handshake));
+  } catch (error) {
+    logToFile(`Failed to send handshake to extension: ${(error as Error).message}`);
+  }
 
   ws.on("message", (data: RawData) => {
     handleExtensionMessage(data);
   });
 
   ws.on("close", () => {
-    logToFile("Browser extension disconnected");
+    logToFile("Browser extension disconnected from MCP bridge");
     setExtensionSocket(null);
     cleanupPendingCalls();
   });

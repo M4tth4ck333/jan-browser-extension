@@ -1,7 +1,7 @@
 /**
  * Captures accessibility tree information for LLM understanding
  */
-import { callExtension } from "./bridge.js";
+import { callExtension, setActiveTabId } from "./bridge.js";
 import type { ToolResult } from "../tools/tool.js";
 
 export async function captureAriaSnapshot(url?: string, status: string = ""): Promise<ToolResult> {
@@ -34,6 +34,10 @@ export async function captureAriaSnapshot(url?: string, status: string = ""): Pr
         ],
         isError: true,
       };
+    }
+
+    if (typeof data.data.tabId === "number") {
+      setActiveTabId(data.data.tabId);
     }
 
     const snapshot = formatSnapshotAsYAML(data.data);

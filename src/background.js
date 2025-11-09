@@ -4,7 +4,13 @@
 import {
   MessageTypes,
 } from './constants.js';
-import { initializeMcpBridge, getBridgeStatus, closeBridge } from './mcp-bridge.js';
+import {
+  initializeMcpBridge,
+  getBridgeStatus,
+  connectBridge,
+  disconnectBridge,
+  updateBridgePort,
+} from './mcp-bridge.js';
 import {
   clearMcpRegisteredTab,
   getMcpRegisteredTab,
@@ -63,13 +69,37 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return true;
     }
 
-    case MessageTypes.RECONNECT_BRIDGE: {
+    case MessageTypes.CONNECT_BRIDGE: {
+      (async () => {
+        try {
+          await connectBridge(message?.payload || {});
+          sendResponse({ ok: true });
+        } catch (error) {
+          sendResponse({ ok: false, error: String(error?.message || error) });
+        }
+      })();
+      return true;
+    }
+
+    case MessageTypes.DISCONNECT_BRIDGE: {
       try {
-        closeBridge();
+        disconnectBridge();
         sendResponse({ ok: true });
       } catch (error) {
         sendResponse({ ok: false, error: String(error?.message || error) });
       }
+      return true;
+    }
+
+    case MessageTypes.UPDATE_BRIDGE_PORT: {
+      (async () => {
+        try {
+          await updateBridgePort(message?.payload?.port, { disconnectOnChange: true });
+          sendResponse({ ok: true });
+        } catch (error) {
+          sendResponse({ ok: false, error: String(error?.message || error) });
+        }
+      })();
       return true;
     }
 

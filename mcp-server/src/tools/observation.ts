@@ -4,7 +4,7 @@
  */
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { callExtension, waitForBridgeConnection, hasExtensionConnection, hasActiveTab } from "../utils/bridge.js";
+import { callExtension, waitForBridgeConnection, hasExtensionConnection, setActiveTabId } from "../utils/bridge.js";
 import { captureAriaSnapshot } from "../utils/aria-snapshot.js";
 import type { Tool } from "./tool.js";
 
@@ -23,18 +23,6 @@ export const snapshot: Tool = {
   handle: async (params) => {
     if (!hasExtensionConnection()) {
       await waitForBridgeConnection(4000);
-    }
-
-    if (!hasActiveTab()) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "❌ No active tab. First navigate with navigate_browser(url='...', closeTab=false), then call snapshot().",
-          },
-        ],
-        isError: true,
-      };
     }
 
     try {
@@ -72,18 +60,6 @@ export const screenshot: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    if (!hasActiveTab()) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "❌ No active tab. First navigate with navigate_browser(url='...', closeTab=false), then call screenshot().",
-          },
-        ],
-        isError: true,
-      };
-    }
-
     try {
       const data = await callExtension("screenshot", {});
 
@@ -99,6 +75,10 @@ export const screenshot: Tool = {
           ],
           isError: true,
         };
+      }
+
+      if (typeof data?.data?.tabId === "number") {
+        setActiveTabId(data.data.tabId);
       }
 
       // Extract base64 data from data URL (remove "data:image/png;base64," prefix)

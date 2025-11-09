@@ -29,7 +29,18 @@ bun run build
 node dist/src/index.js
 # or
 bun run dist/src/index.js
+
+# run a second instance on a different bridge port
+node dist/src/index.js --bridge-port 17390
 ```
+
+> [!TIP]
+> Each MCP server process hosts its own WebSocket bridge. Operating systems only
+> allow a single listener per `host:port`, so make sure every concurrently running
+> instance uses a unique combination (for example `--bridge-port 17390`,
+> `--bridge-port 17391`, and so on). You can also set the `BRIDGE_HOST`,
+> `BRIDGE_PORT`, or `BRIDGE_URL` environment variables if you prefer to configure
+> the endpoint outside of CLI arguments.
 
 The process will wait on stdio for MCP clients. You usually don't run it manually—your MCP client will launch it.
 
@@ -43,7 +54,7 @@ npm run build:mcp    # one-time build of MCP TS (or skip if using dev)
 npm run dev:all      # runs Vite (extension) + MCP server watcher
 ```
 
-Then load the extension from `dist/` in Chrome (Developer mode → Load unpacked). The background service worker will connect out to the local bridge at `ws://127.0.0.1:17389` automatically when the MCP server is running.
+Then load the extension from `dist/` in Chrome (Developer mode → Load unpacked). Open the extension popup and press **Connect** to link it to the MCP server running at `ws://127.0.0.1:17389` (or any port you configured).
 
 To verify the connection: open `chrome://extensions`, click "Service worker" → Inspect on this extension. You should see `[MCP Bridge] connected` shortly after starting `dev:all`.
 
@@ -153,15 +164,15 @@ Example prompt in your MCP client:
 
 ## Environment
 
-- `BRIDGE_HOST` (optional): Host for the WebSocket bridge server. Default `127.0.0.1`.
-- `BRIDGE_PORT` (optional): Port for the WebSocket bridge server. Default `17389`.
+- `BRIDGE_HOST` (optional): Host for the WebSocket bridge server. Default `127.0.0.1`. (CLI: `--bridge-host`/`-H`)
+- `BRIDGE_PORT` (optional): Port for the WebSocket bridge server. Default `17389`. (CLI: `--bridge-port`/`-p`)
 - `BRIDGE_TOKEN` (optional): If set, the MCP server requires clients to provide `?t=<token>` on connection. The extension background will read `bridgeToken` from `chrome.storage.sync` and add it automatically.
 - `MCP_LOG_FILE` (optional): If set, the server appends startup and minimal operational logs to this file.
 
 ## Notes
 
 - The Chrome extension must be loaded and running. Its background service worker will connect out to the bridge automatically and handle `search` calls (opens SERP tab, scrapes, returns results).
-- If the extension is not connected yet, tool calls will wait briefly and then may error with "Browser extension not connected to bridge".
+- If the extension is not connected yet, tool calls will retry up to 10 times (with 100 ms spacing) while waiting for the bridge to reconnect before returning "Browser extension not connected to bridge".
 - Ensure the bridge port is free. On macOS, you can find/kill the process using `lsof -iTCP:17389 -sTCP:LISTEN` then `kill -9 <PID>`.
 
 ## Unified Dev with the Extension

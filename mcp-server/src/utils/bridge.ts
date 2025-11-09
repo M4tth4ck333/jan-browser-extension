@@ -6,6 +6,8 @@ import { v4 as uuidv4 } from "uuid";
 import { appendFileSync } from "fs";
 
 const LOG_FILE = process.env.MCP_LOG_FILE;
+const MAX_BRIDGE_RETRIES = 10;
+const BRIDGE_RETRY_DELAY_MS = 100;
 
 function logToFile(message: string) {
   if (LOG_FILE) {
@@ -44,6 +46,27 @@ export function hasExtensionConnection(): boolean {
   return extSocket !== null && extSocket.readyState === WebSocket.OPEN;
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeError(error: unknown): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+  return new Error(typeof error === "string" ? error : String(error));
+}
+
+function isRetriableBridgeError(error: Error): boolean {
+  const message = error.message || "";
+  return (
+    message.includes("not connected") ||
+    message.includes("disconnected") ||
+    message.includes("WebSocket is not open") ||
+    message.includes("closed")
+  );
+}
+
 /**
  * Wait for the browser extension to connect to the bridge
  */
@@ -66,14 +89,43 @@ export async function waitForBridgeConnection(timeoutMs: number = 4000): Promise
  * Call a tool on the browser extension via WebSocket bridge
  */
 export async function callExtension(tool: string, params: any): Promise<any> {
-  if (!hasExtensionConnection()) {
-    throw new Error("Browser extension not connected to bridge");
+  let attempts = 0;
+  let lastError: Error | null = null;
+
+  while (attempts < MAX_BRIDGE_RETRIES) {
+    if (!hasExtensionConnection()) {
+      attempts++;
+      lastError = new Error("Browser extension not connected to bridge");
+      await delay(BRIDGE_RETRY_DELAY_MS);
+      continue;
+    }
+
+    try {
+      return await sendToolCall(tool, params);
+    } catch (error) {
+      const normalized = normalizeError(error);
+      lastError = normalized;
+      if (!isRetriableBridgeError(normalized)) {
+        throw normalized;
+      }
+
+      attempts++;
+      await delay(BRIDGE_RETRY_DELAY_MS);
+    }
   }
 
+  throw lastError || new Error("Browser extension not connected to bridge");
+}
+
+function sendToolCall(tool: string, params: any): Promise<any> {
   return new Promise((resolve, reject) => {
+    if (!hasExtensionConnection()) {
+      reject(new Error("Browser extension not connected to bridge"));
+      return;
+    }
+
     const callId = uuidv4();
-    // Use shorter timeout for screenshot to fail fast instead of hanging
-    const timeoutMs = tool === 'screenshot' ? 10000 : 30000;
+    const timeoutMs = tool === "screenshot" ? 10000 : 30000;
     const timeout = setTimeout(() => {
       pendingCalls.delete(callId);
       const msg = `Tool call timeout after ${timeoutMs}ms: ${tool}`;
@@ -100,8 +152,17 @@ export async function callExtension(tool: string, params: any): Promise<any> {
       tool: tool,
       params: params,
     };
+
     logToFile(`Sending to extension: ${tool} (${callId})`);
-    extSocket!.send(JSON.stringify(message));
+
+    try {
+      extSocket!.send(JSON.stringify(message));
+    } catch (error) {
+      pendingCalls.delete(callId);
+      const normalized = normalizeError(error);
+      logToFile(`Failed to send message: ${normalized.message}`);
+      reject(normalized);
+    }
   });
 }
 

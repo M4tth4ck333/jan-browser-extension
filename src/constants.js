@@ -5,8 +5,18 @@
 // MCP bridge configuration
 // -----------------------------------------------------------------------------
 export const BRIDGE_BASE = 'ws://127.0.0.1:17389';
-export const BRIDGE_RECONNECT_TIMEOUT = 1500;
-export const BRIDGE_RECONNECT_ERROR_TIMEOUT = 2000;
+
+const BRIDGE_BASE_URL = (() => {
+  try {
+    return new URL(BRIDGE_BASE);
+  } catch (_) {
+    return new URL('ws://127.0.0.1:17389');
+  }
+})();
+
+export const DEFAULT_BRIDGE_PORT = BRIDGE_BASE_URL.port
+  ? Number.parseInt(BRIDGE_BASE_URL.port, 10) || 17389
+  : 17389;
 
 // -----------------------------------------------------------------------------
 // Timeouts & delays
@@ -40,10 +50,13 @@ export const VisitOutputModes = {
 // -----------------------------------------------------------------------------
 export const MessageTypes = {
   GET_BRIDGE_STATUS: 'GET_BRIDGE_STATUS',
-  RECONNECT_BRIDGE: 'RECONNECT_BRIDGE',
+  CONNECT_BRIDGE: 'CONNECT_BRIDGE',
+  DISCONNECT_BRIDGE: 'DISCONNECT_BRIDGE',
+  UPDATE_BRIDGE_PORT: 'UPDATE_BRIDGE_PORT',
   MCP_REGISTER_TAB: 'MCP_REGISTER_TAB',
   MCP_GET_REGISTERED_TAB: 'MCP_GET_REGISTERED_TAB',
   MCP_FOCUS_REGISTERED_TAB: 'MCP_FOCUS_REGISTERED_TAB',
+  BRIDGE_STATUS_UPDATED: 'BRIDGE_STATUS_UPDATED',
 };
 
 // -----------------------------------------------------------------------------
