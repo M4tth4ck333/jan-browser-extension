@@ -1,8 +1,12 @@
-const { join } = require('path');
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 
-module.exports = {
+const currentDir = dirname(fileURLToPath(import.meta.url));
+
+/** @type {import('tailwindcss').Config} */
+const config = {
   darkMode: ['class'],
-  content: [join(__dirname, 'src/popup/**/*.{ts,tsx,html}')],
+  content: [join(currentDir, 'src/popup/**/*.{ts,tsx,html}')],
   theme: {
     extend: {
       colors: {
@@ -47,12 +51,12 @@ module.exports = {
       },
       keyframes: {
         'accordion-down': {
-          from: { height: 0 },
+          from: { height: '0' },
           to: { height: 'var(--radix-accordion-content-height)' },
         },
         'accordion-up': {
           from: { height: 'var(--radix-accordion-content-height)' },
-          to: { height: 0 },
+          to: { height: '0' },
         },
       },
       animation: {
@@ -63,3 +67,5 @@ module.exports = {
   },
   plugins: [],
 };
+
+export default config;
