@@ -21,6 +21,9 @@ export const DEFAULT_BRIDGE_PORT = BRIDGE_BASE_URL.port
 // -----------------------------------------------------------------------------
 // Timeouts & delays
 // -----------------------------------------------------------------------------
+
+export const BRIDGE_PING_INTERVAL = 15000;
+export const BRIDGE_PONG_TIMEOUT = 5000;
 export const SCREENSHOT_CAPTURE_TIMEOUT = 5000;
 export const TAB_LOAD_TIMEOUT = 10000;
 export const SEARCH_READINESS_TIMEOUT = 15000;

@@ -232,6 +232,29 @@ function handleSocketMessage(rawData) {
     connectionState.lastHandshake = Date.now();
     connectionState.lastError = null;
     broadcastBridgeStatus();
+
+    // Send ready acknowledgment to MCP server
+    const socket = connectionState.socket;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      try {
+        socket.send(JSON.stringify({ kind: 'ready' }));
+      } catch (error) {
+        console.error('[MCP Bridge] Failed to send ready acknowledgment:', error);
+      }
+    }
+    return;
+  }
+
+  // Handle ping request - respond with pong to keep connection alive
+  if (message.kind === 'ping') {
+    const socket = connectionState.socket;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      try {
+        socket.send(JSON.stringify({ kind: 'pong' }));
+      } catch (error) {
+        console.error('[MCP Bridge] Failed to send pong:', error);
+      }
+    }
     return;
   }
 
