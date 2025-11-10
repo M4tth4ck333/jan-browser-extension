@@ -224,6 +224,10 @@ wss.on("connection", (ws: WebSocket, req) => {
     logToFile(`Failed to send handshake to extension: ${(error as Error).message}`);
   }
 
+  ws.on("pong", () => {
+    logToFile("Native WebSocket pong received");
+  });
+
   ws.on("message", (data: RawData) => {
     handleExtensionMessage(data);
   });

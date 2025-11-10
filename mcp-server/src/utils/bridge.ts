@@ -43,6 +43,18 @@ function logError(message: string, error?: unknown) {
 let extSocket: WebSocket | null = null;
 const pendingCalls = new Map<string, { resolve: (val: any) => void; reject: (err: any) => void }>();
 let activeTabId: number | null = null;
+let isExtensionReady: boolean = false;
+
+// Ping/Pong heartbeat configuration
+const PING_INTERVAL_MS = 15000; // Send ping every 15 seconds
+const PONG_TIMEOUT_MS = 5000; // Expect pong within 5 seconds
+let pingInterval: NodeJS.Timeout | null = null;
+let pongTimeout: NodeJS.Timeout | null = null;
+let lastPongTime: number = Date.now();
+
+// Exponential backoff retry configuration
+const INITIAL_RETRY_DELAY_MS = 1000; // Start with 1s delay
+const MAX_RETRY_DELAY_MS = 10000;    // Cap at 10s delay
 
 export function setActiveTabId(tabId: number | null) {
   activeTabId = tabId;
@@ -59,6 +71,18 @@ export function hasActiveTab(): boolean {
 
 export function setExtensionSocket(socket: WebSocket | null) {
   extSocket = socket;
+
+  // Reset ready state when socket changes
+  if (!socket) {
+    isExtensionReady = false;
+  }
+
+  // Start heartbeat when socket is set
+  if (socket) {
+    startHeartbeat();
+  } else {
+    stopHeartbeat();
+  }
 }
 
 export function getExtensionSocket(): WebSocket | null {
@@ -66,7 +90,7 @@ export function getExtensionSocket(): WebSocket | null {
 }
 
 export function hasExtensionConnection(): boolean {
-  return extSocket !== null && extSocket.readyState === WebSocket.OPEN;
+  return extSocket !== null && extSocket.readyState === WebSocket.OPEN && isExtensionReady;
 }
 
 function delay(ms: number): Promise<void> {
@@ -91,6 +115,80 @@ function isRetriableBridgeError(error: Error): boolean {
 }
 
 /**
+ * Start ping/pong heartbeat to keep connection alive
+ */
+function startHeartbeat() {
+  stopHeartbeat(); // Clear any existing intervals
+  lastPongTime = Date.now();
+
+  pingInterval = setInterval(() => {
+    if (!extSocket || extSocket.readyState !== WebSocket.OPEN) {
+      logToFile("Heartbeat: Socket not open, stopping");
+      stopHeartbeat();
+      return;
+    }
+
+    // Check if we received a pong recently
+    const timeSinceLastPong = Date.now() - lastPongTime;
+    if (timeSinceLastPong > PING_INTERVAL_MS + PONG_TIMEOUT_MS) {
+      logToFile(`Heartbeat: No pong received for ${timeSinceLastPong}ms, connection may be stale`);
+      // Connection appears stale, close and let reconnection logic handle it
+      try {
+        extSocket.close();
+      } catch (e) {
+        logToFile(`Heartbeat: Error closing stale socket: ${e}`);
+      }
+      stopHeartbeat();
+      return;
+    }
+
+    // Send ping
+    try {
+      logToFile("Heartbeat: Sending ping");
+      extSocket.send(JSON.stringify({ kind: "ping" }));
+
+      // Set timeout to check for pong
+      if (pongTimeout) clearTimeout(pongTimeout);
+      pongTimeout = setTimeout(() => {
+        logToFile("Heartbeat: Pong timeout, connection may be unhealthy");
+      }, PONG_TIMEOUT_MS);
+    } catch (e) {
+      logToFile(`Heartbeat: Error sending ping: ${e}`);
+      stopHeartbeat();
+    }
+  }, PING_INTERVAL_MS);
+
+  logToFile("Heartbeat: Started");
+}
+
+/**
+ * Stop ping/pong heartbeat
+ */
+function stopHeartbeat() {
+  if (pingInterval) {
+    clearInterval(pingInterval);
+    pingInterval = null;
+  }
+  if (pongTimeout) {
+    clearTimeout(pongTimeout);
+    pongTimeout = null;
+  }
+  logToFile("Heartbeat: Stopped");
+}
+
+/**
+ * Handle pong response from extension
+ */
+export function handlePong() {
+  lastPongTime = Date.now();
+  if (pongTimeout) {
+    clearTimeout(pongTimeout);
+    pongTimeout = null;
+  }
+  logToFile("Heartbeat: Received pong");
+}
+
+/**
  * Wait for the browser extension to connect to the bridge
  */
 export async function waitForBridgeConnection(timeoutMs: number = 4000): Promise<void> {
@@ -109,7 +207,7 @@ export async function waitForBridgeConnection(timeoutMs: number = 4000): Promise
 }
 
 /**
- * Call a tool on the browser extension via WebSocket bridge
+ * Call a tool on the browser extension via WebSocket bridge with retry logic and exponential backoff
  */
 export async function callExtension(tool: string, params: any): Promise<any> {
   let attempts = 0;
@@ -119,7 +217,14 @@ export async function callExtension(tool: string, params: any): Promise<any> {
     if (!hasExtensionConnection()) {
       attempts++;
       lastError = new Error("Browser extension not connected to bridge");
-      await delay(BRIDGE_RETRY_DELAY_MS);
+
+      // Use exponential backoff for reconnection waits
+      const delayMs = Math.min(
+        INITIAL_RETRY_DELAY_MS * Math.pow(2, attempts - 1),
+        MAX_RETRY_DELAY_MS
+      );
+      logToFile(`Retry ${attempts}/${MAX_BRIDGE_RETRIES}: Bridge not connected, waiting ${delayMs}ms...`);
+      await delay(delayMs);
       continue;
     }
 
@@ -128,6 +233,7 @@ export async function callExtension(tool: string, params: any): Promise<any> {
     } catch (error) {
       const normalized = normalizeError(error);
       lastError = normalized;
+
       if (!isRetriableBridgeError(normalized)) {
         logError(
           `Bridge call failed without retry for tool "${tool}"`,
@@ -137,7 +243,14 @@ export async function callExtension(tool: string, params: any): Promise<any> {
       }
 
       attempts++;
-      await delay(BRIDGE_RETRY_DELAY_MS);
+
+      // Use exponential backoff for retryable errors
+      const delayMs = Math.min(
+        INITIAL_RETRY_DELAY_MS * Math.pow(2, attempts - 1),
+        MAX_RETRY_DELAY_MS
+      );
+      logToFile(`Retry ${attempts}/${MAX_BRIDGE_RETRIES} for ${tool} after ${delayMs}ms (error: ${normalized.message})`);
+      await delay(delayMs);
     }
   }
 
@@ -158,7 +271,8 @@ function sendToolCall(tool: string, params: any): Promise<any> {
     }
 
     const callId = uuidv4();
-    const timeoutMs = tool === "screenshot" ? 10000 : 30000;
+    // Increased timeout for long-running operations
+    const timeoutMs = tool === "screenshot" ? 10000 : 60000; // Increased from 30s to 60s
     const timeout = setTimeout(() => {
       pendingCalls.delete(callId);
       const msg = `Tool call timeout after ${timeoutMs}ms: ${tool}`;
@@ -191,6 +305,7 @@ function sendToolCall(tool: string, params: any): Promise<any> {
     try {
       extSocket!.send(JSON.stringify(message));
     } catch (error) {
+      clearTimeout(timeout);
       pendingCalls.delete(callId);
       const normalized = normalizeError(error);
       logError("Failed to send message to extension", normalized);
@@ -201,7 +316,7 @@ function sendToolCall(tool: string, params: any): Promise<any> {
 
 /**
  * Handle incoming message from browser extension
- * Extension sends: {id, kind: "result", ok, data?, error?}
+ * Extension sends: {id, kind: "result", ok, data?, error?} or {kind: "pong"} or {kind: "ready"}
  */
 export function handleExtensionMessage(data: any) {
   try {
@@ -217,6 +332,17 @@ export function handleExtensionMessage(data: any) {
       msg = data;
     }
     logToFile(`Received from extension: ${JSON.stringify(msg)}`);
+
+    if (msg.kind === "pong") {
+      handlePong();
+      return;
+    }
+
+    if (msg.kind === "ready") {
+      isExtensionReady = true;
+      logToFile("Extension handshake complete - bridge is ready");
+      return;
+    }
 
     if (msg.id && pendingCalls.has(msg.id)) {
       const { resolve, reject } = pendingCalls.get(msg.id)!;
