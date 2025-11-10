@@ -144,13 +144,13 @@ describe.skip('MCP Server Integration Tests', () => {
       expect(response.result.tools.length).toBeGreaterThan(0);
 
       const toolNames = response.result.tools.map((t: any) => t.name);
-      expect(toolNames).toContain('navigate_browser');
+      expect(toolNames).toContain('browser_navigate');
       expect(toolNames).toContain('web_search');
-      expect(toolNames).toContain('snapshot');
-      expect(toolNames).toContain('screenshot');
+      expect(toolNames).toContain('browser_snapshot');
+      expect(toolNames).toContain('browser_screenshot');
       expect(toolNames).toContain('bridge_status');
-      expect(toolNames).toContain('click');
-      expect(toolNames).toContain('type');
+      expect(toolNames).toContain('browser_click');
+      expect(toolNames).toContain('browser_type');
     });
 
     it('should have valid tool schemas', async () => {
@@ -189,7 +189,7 @@ describe.skip('MCP Server Integration Tests', () => {
   describe('Browser Navigate Tool', () => {
     it('should fail gracefully when extension is not connected', async () => {
       const response = await client.sendRequest('tools/call', {
-        name: 'navigate_browser',
+        name: 'browser_navigate',
         arguments: {
           url: 'https://example.com',
           mode: 'markdown',
@@ -217,7 +217,7 @@ describe.skip('MCP Server Integration Tests', () => {
 
     it('should validate required url parameter', async () => {
       const response = await client.sendRequest('tools/call', {
-        name: 'navigate_browser',
+        name: 'browser_navigate',
         arguments: {
           mode: 'markdown',
         },
@@ -246,7 +246,7 @@ describe.skip('MCP Server Integration Tests', () => {
   describe('Snapshot Tool', () => {
     it('should fail gracefully when extension is not connected', async () => {
       const response = await client.sendRequest('tools/call', {
-        name: 'snapshot',
+        name: 'browser_snapshot',
         arguments: {
           url: 'https://example.com',
         },
@@ -271,7 +271,7 @@ describe.skip('MCP Server Integration Tests', () => {
 
     it('should handle malformed requests gracefully', async () => {
       const response = await client.sendRequest('tools/call', {
-        name: 'navigate_browser',
+        name: 'browser_navigate',
         arguments: 'invalid' as any,
       });
 

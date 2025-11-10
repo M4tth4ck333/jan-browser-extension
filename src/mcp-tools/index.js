@@ -2,12 +2,13 @@
 // MCP Tools registry and dispatcher
 
 import {
-  handleExecuteScript,
   handleClickElement,
   handleFillForm,
   handleTypeText,
   handleHoverElement,
-  handleSelectOption
+  handleSelectOption,
+  handlePressKey,
+  handleDragElement
 } from './automation.js';
 
 import {
@@ -30,12 +31,13 @@ import { handleSearch } from './search.js';
  */
 export const mcpToolHandlers = {
   // Automation tools
-  execute_script: handleExecuteScript,
   click_element: handleClickElement,
   fill_form: handleFillForm,
   type_text: handleTypeText,
   hover_element: handleHoverElement,
   select_option: handleSelectOption,
+  press_key: handlePressKey,
+  drag_element: handleDragElement,
 
   // Navigation tools
   visit: handleVisit,

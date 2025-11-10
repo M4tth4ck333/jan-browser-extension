@@ -10,14 +10,14 @@ import type { Tool, ToolResult } from "./tool.js";
 
 /**
  * Capture a comprehensive snapshot of the CURRENTLY ACTIVE TAB
- * Operates on whatever tab was opened with navigate_browser(closeTab=false)
+ * Operates on whatever tab was opened with browser_navigate
  */
 const SnapshotSchema = z.object({});
 
-export const snapshot: Tool = {
+export const browserSnapshot: Tool = {
   schema: {
-    name: "snapshot",
-    description: "Capture a comprehensive snapshot of the CURRENTLY ACTIVE TAB including: ARIA accessibility tree (roles, labels, interactive elements, landmarks), metadata, links, images, forms, headings, and viewport info. NO parameters needed - operates on the tab you opened with navigate_browser(closeTab=false). Perfect for understanding page structure before clicking/filling forms. Returns formatted YAML snapshot optimized for LLM context.",
+    name: "browser_snapshot",
+    description: "Capture accessibility snapshot of the current page. Use this for getting references to elements to interact with.",
     inputSchema: zodToJsonSchema(SnapshotSchema) as any,
   },
   handle: async (params) => {
@@ -26,9 +26,7 @@ export const snapshot: Tool = {
     }
 
     try {
-      // Use the same captureAriaSnapshot helper that automation tools use
-      // This provides a compact YAML format instead of large JSON
-      return await captureAriaSnapshot(undefined, "Snapshot captured");
+      return await captureAriaSnapshot();
     } catch (err: any) {
       return {
         content: [
@@ -45,14 +43,14 @@ export const snapshot: Tool = {
 
 /**
  * Capture a screenshot of the CURRENTLY ACTIVE TAB
- * Operates on whatever tab was opened with navigate_browser(closeTab=false)
+ * Operates on whatever tab was opened with browser_navigate
  */
 const ScreenshotSchema = z.object({});
 
-export const screenshot: Tool = {
+export const browserScreenshot: Tool = {
   schema: {
-    name: "screenshot",
-    description: "Capture a screenshot of the CURRENTLY ACTIVE TAB. NO parameters needed - captures whatever page you navigated to with navigate_browser(closeTab=false). Returns a base64-encoded PNG image. Use this to see what the page looks like visually.",
+    name: "browser_screenshot",
+    description: "Take a screenshot of the current page",
     inputSchema: zodToJsonSchema(ScreenshotSchema) as any,
   },
   handle: async (params) => {
@@ -136,7 +134,7 @@ const WebSearchSchema = z.object({
 export const webSearch: Tool = {
   schema: {
     name: "web_search",
-    description: "Search the web via Google by asking the installed browser extension to perform the search and scrape the SERP. Returns search results with titles, URLs, snippets, and optionally knowledge graph and People Also Ask sections.",
+    description: "Search the web and return SERP results (titles, URLs, snippets, optional knowledge graph and People Also Ask).",
     inputSchema: zodToJsonSchema(WebSearchSchema) as any,
   },
   handle: async (params) => {
@@ -243,7 +241,7 @@ const BridgeStatusSchema = z.object({});
 export const bridgeStatus: Tool = {
   schema: {
     name: "bridge_status",
-    description: "Check if the browser extension is connected to the MCP bridge.",
+    description: "Check whether the browser extension is connected to the MCP bridge.",
     inputSchema: zodToJsonSchema(BridgeStatusSchema) as any,
   },
   handle: async () => {

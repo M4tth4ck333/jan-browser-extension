@@ -1,16 +1,18 @@
 # browsermcp/mcp tool parity audit
 
-The Jan Browser MCP bridge now mirrors the upstream [`browsermcp/mcp`](https://github.com/browsermcp/mcp) tool catalog. Every automation, navigation, observation, and search handler emits MCP-native envelopes (`content`, `_meta`, `isError`) and automatically attaches accessibility snapshots so responses can flow directly into the protocol without post-processing.
+Jan Browser MCP now ships the same `browser_*` tool catalog that upstream [`browsermcp/mcp`](https://github.com/browsermcp/mcp) exposes. Every automation or navigation call triggers the action in the extension and then asks the browser for a fresh ARIA snapshot, so the envelopes match upstream responses byte-for-byte: a short action line followed by the YAML snapshot with `- Page Snapshot` heading.
 
-## Highlights
+## What matches
 
-* **MCP-compliant envelopes** – All browser tools now return rich `content` payloads (text or images) with optional `_meta` data such as tab identifiers and citation URLs.【F:src/mcp-tools/automation.js†L15-L690】【F:src/mcp-tools/navigation.js†L1-L330】【F:src/mcp-tools/observation.js†L1-L155】【F:src/mcp-tools/search.js†L1-L142】 Upstream servers receive the same structures, so parity is maintained both in-browser and on the bridge.【F:mcp-server/src/tools/automation.ts†L1-L210】【F:mcp-server/src/tools/navigation.ts†L1-L210】【F:mcp-server/src/tools/observation.ts†L1-L210】
-* **Automatic ARIA snapshots** – Clicks, typing, scrolling, history navigation, and explicit snapshot calls all route through the shared `captureSnapshotResponse` helper, producing YAML summaries identical to the upstream MCP implementation.【F:src/mcp-tools/snapshot-utils.js†L1-L420】【F:src/mcp-tools/automation.js†L52-L680】【F:src/mcp-tools/navigation.js†L150-L322】 The server side detects and forwards these envelopes without re-requesting data.【F:mcp-server/src/utils/aria-snapshot.ts†L7-L120】
-* **Unified error handling** – Validation and runtime failures now surface as `isError` responses with human-readable messages inside `content`, matching the upstream protocol expectations.【F:src/mcp-tools/snapshot-utils.js†L6-L45】【F:src/mcp-tools/automation.js†L15-L690】【F:src/mcp-tools/navigation.js†L13-L330】【F:src/mcp-tools/search.js†L1-L142】
-* **Search parity** – The web search bridge formats both structured JSON and human-readable summaries, including citation metadata, so upstream `web_search` consumers see the same output regardless of backend (DuckDuckGo or Google).【F:src/mcp-tools/search.js†L1-L142】【F:mcp-server/src/tools/observation.ts†L122-L210】
+* **Tool names** – The MCP server advertises the canonical tools: `browser_navigate`, `browser_click`, `browser_type`, `browser_hover`, `browser_select_option`, `browser_press_key`, `browser_drag`, `browser_snapshot`, `browser_screenshot`, `browser_go_back`, `browser_go_forward`, and `browser_wait`. Custom helpers (`scroll`, `fill_form`, `web_search`, `bridge_status`) remain available as add-ons.
+* **Element references** – `browser_snapshot` now emits the same `ref` strings upstream uses (`css:body > …`). Automation tools accept `{ element, ref }` payloads, so prompts can copy/paste directly from the snapshot just like in browsermcp.
+* **Response shape** – Actions return two text blocks just like upstream: an action summary and a YAML snapshot built on the server via `captureAriaSnapshot`. Navigation (`browser_navigate`) returns only the snapshot, matching `common.navigate(true)` from upstream.
+* **Snapshot formatting** – The server rebuilds every snapshot response into the upstream format (`- Page URL`, `- Page Title`, `- Page Snapshot`), so automation tools, navigation tools, and the explicit `browser_snapshot` tool all render identical context blocks.
+* **Extension behavior** – Automation and navigation handlers no longer capture their own snapshots; they simply perform the action and return lightweight status text, just like the Browser MCP extension. The ARIA capture happens once per tool from the server layer, reducing duplicate work.
 
-## Remaining differences
+## Intentional differences
 
-* **GitHub helper utilities** – Jan Browser no longer bundles the experimental repository browsing helpers, restoring a one-to-one tool list with `browsermcp/mcp`. Any future GitHub integration should live in a dedicated MCP service rather than the browser extension.【F:src/mcp-tools/index.js†L1-L90】
+* **Console logs** – The upstream `browser_get_console_logs` tool is still omitted because Jan workflows rarely need it. Everything else in the core catalog is present.
+* **Extra utilities** – Jan Browser keeps `scroll`, `fill_form`, `web_search`, and `bridge_status` for Jan-specific workflows. Upstream does not ship these helpers, but they remain optional alongside the canonical catalog.
 
-With these changes in place, an upstream MCP server can consume Jan Browser tool responses without additional translation, and Jan’s in-browser handlers provide the same accessibility context, error semantics, and metadata that browsermcp/mcp agents expect.
+With these adjustments, MCP clients (Claude, Cursor, Jan Desktop, etc.) can swap between Jan Browser MCP and browsermcp/mcp without changing prompts: tool names, descriptions, and response envelopes are aligned, and element targeting now relies on the same ARIA references.

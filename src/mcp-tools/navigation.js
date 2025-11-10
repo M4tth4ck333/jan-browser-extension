@@ -3,7 +3,7 @@
 
 import { selectTab, setMcpRegisteredTab, getMcpRegisteredTab } from '../lib/tab-manager.js';
 import { CONTENT_LOAD_TIMEOUT, TAB_REGISTRATION_DELAY, VisitOutputModes } from '../constants.js';
-import { captureSnapshotResponse, createErrorResult } from './snapshot-utils.js';
+import { createErrorResult } from './snapshot-utils.js';
 
 /**
  * Visits a URL and extracts page content
@@ -192,26 +192,23 @@ export async function handleGoBack(params) {
 
     const finalTab = await chrome.tabs.get(tabId);
 
-    const snapshotResult = await captureSnapshotResponse({
-      tabId,
-      status: 'Navigated back',
-      details: finalTab.url ? [`Current URL: ${finalTab.url}`] : [],
-      fallbackUrl: finalTab.url,
-    });
-
-    if (!snapshotResult.ok) {
-      return snapshotResult;
-    }
+    const meta = {};
+    if (finalTab.url) meta.urls = [finalTab.url];
+    if (typeof tabId === 'number') meta.tabId = tabId;
 
     return {
       ok: true,
-      content: snapshotResult.content,
-      _meta: snapshotResult._meta,
+      content: [
+        {
+          type: 'text',
+          text: 'Navigated back',
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
       data: {
         url: finalTab.url,
         timestamp: new Date().toISOString(),
         tabId,
-        snapshot: snapshotResult.snapshot,
       },
     };
   } catch (e) {
@@ -237,26 +234,23 @@ export async function handleGoForward(params) {
 
     const finalTab = await chrome.tabs.get(tabId);
 
-    const snapshotResult = await captureSnapshotResponse({
-      tabId,
-      status: 'Navigated forward',
-      details: finalTab.url ? [`Current URL: ${finalTab.url}`] : [],
-      fallbackUrl: finalTab.url,
-    });
-
-    if (!snapshotResult.ok) {
-      return snapshotResult;
-    }
+    const meta = {};
+    if (finalTab.url) meta.urls = [finalTab.url];
+    if (typeof tabId === 'number') meta.tabId = tabId;
 
     return {
       ok: true,
-      content: snapshotResult.content,
-      _meta: snapshotResult._meta,
+      content: [
+        {
+          type: 'text',
+          text: 'Navigated forward',
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
       data: {
         url: finalTab.url,
         timestamp: new Date().toISOString(),
         tabId,
-        snapshot: snapshotResult.snapshot,
       },
     };
   } catch (e) {
@@ -293,28 +287,25 @@ export async function handleScroll(params) {
 
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    const snapshotResult = await captureSnapshotResponse({
-      tabId,
-      status: `Scrolled ${direction}`,
-      details: [`Amount: ${amount}`],
-      fallbackUrl: tab?.url,
-    });
-
-    if (!snapshotResult.ok) {
-      return snapshotResult;
-    }
+    const meta = {};
+    if (tab?.url) meta.urls = [tab.url];
+    if (typeof tabId === 'number') meta.tabId = tabId;
 
     return {
       ok: true,
-      content: snapshotResult.content,
-      _meta: snapshotResult._meta,
+      content: [
+        {
+          type: 'text',
+          text: `Scrolled ${direction} (${amount}px)`,
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
       data: {
         url: tab.url,
         direction,
         amount,
         timestamp: new Date().toISOString(),
         tabId,
-        snapshot: snapshotResult.snapshot,
       },
     };
   } catch (e) {

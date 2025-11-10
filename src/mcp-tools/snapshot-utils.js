@@ -176,6 +176,34 @@ async function captureDomSnapshot(tabId) {
   const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId },
     func: () => {
+      const buildElementRef = (element) => {
+        if (!element || element.nodeType !== Node.ELEMENT_NODE) return null;
+        if (element === document.body) return 'css:body';
+
+        const segments = [];
+        let current = element;
+        while (current && current !== document.body) {
+          const parent = current.parentElement;
+          if (!parent) break;
+
+          let selector = current.tagName.toLowerCase();
+          const siblings = Array.from(parent.children).filter((child) => child.tagName === current.tagName);
+          if (siblings.length > 1) {
+            const index = siblings.indexOf(current) + 1;
+            selector += `:nth-of-type(${index})`;
+          }
+
+          segments.unshift(selector);
+          current = parent;
+        }
+
+        if (!segments.length) {
+          return 'css:body';
+        }
+
+        return `css:body > ${segments.join(' > ')}`;
+      };
+
       const isInViewport = (element) => {
         const rect = element.getBoundingClientRect();
         return (
@@ -248,6 +276,9 @@ async function captureDomSnapshot(tabId) {
           tag: element.tagName.toLowerCase(),
         };
 
+        const ref = buildElementRef(element);
+        if (ref) node.ref = ref;
+
         const attr = (name) => element.getAttribute(name);
 
         if (attr('aria-expanded')) node.expanded = attr('aria-expanded') === 'true';
@@ -301,6 +332,7 @@ async function captureDomSnapshot(tabId) {
             disabled: el.disabled || undefined,
             ariaExpanded: el.getAttribute('aria-expanded') || undefined,
             ariaSelected: el.getAttribute('aria-selected') || undefined,
+            ref: buildElementRef(el) || undefined,
           });
           index += 1;
         }
@@ -319,6 +351,7 @@ async function captureDomSnapshot(tabId) {
             tag: el.tagName.toLowerCase(),
             ariaLabel: el.getAttribute('aria-label') || undefined,
             id: el.id || undefined,
+            ref: buildElementRef(el) || undefined,
           });
           if (results.length >= 10) break;
         }
@@ -344,6 +377,7 @@ async function captureDomSnapshot(tabId) {
             src: img.src,
             alt: img.alt || '',
             ariaLabel: img.getAttribute('aria-label') || undefined,
+            ref: buildElementRef(img) || undefined,
           }));
 
       const collectForms = () => {
@@ -354,6 +388,7 @@ async function captureDomSnapshot(tabId) {
           action: form.action || '',
           method: form.method || '',
           ariaLabel: form.getAttribute('aria-label') || undefined,
+          ref: buildElementRef(form) || undefined,
           fields: Array.from(form.querySelectorAll('input, select, textarea'))
             .filter(isInViewport)
             .slice(0, 15)
@@ -364,6 +399,7 @@ async function captureDomSnapshot(tabId) {
               placeholder: field.placeholder || undefined,
               ariaLabel: field.getAttribute('aria-label') || undefined,
               required: field.required || undefined,
+              ref: buildElementRef(field) || undefined,
             })),
         }));
       };
@@ -483,6 +519,7 @@ function serializeAxNode(node, map, depth = 0) {
 
   const serialized = compactObject({
     id: node.nodeId,
+    ref: node.nodeId,
     role,
     name,
     description,
@@ -566,6 +603,7 @@ function extractInteractiveFromAxNodes(nodes) {
       actions: actions.length ? actions.slice(0, 6) : undefined,
       backendNodeId: node.backendDOMNodeId || undefined,
       domNodeId: node.domNodeId || undefined,
+      ref: node.nodeId || undefined,
       properties: compactObject(mergedProperties),
     });
 
@@ -603,6 +641,7 @@ function extractLandmarksFromAxNodes(nodes) {
         description,
         backendNodeId: node.backendDOMNodeId || undefined,
         domNodeId: node.domNodeId || undefined,
+        ref: node.nodeId || undefined,
       }),
     );
 
@@ -634,6 +673,7 @@ function extractHeadingsFromAxNodes(nodes) {
         name: text,
         backendNodeId: node.backendDOMNodeId || undefined,
         domNodeId: node.domNodeId || undefined,
+        ref: node.nodeId || undefined,
       }),
     );
 

@@ -1,76 +1,22 @@
 // automation.js
-// MCP Bridge automation tools: click, type, hover, fill_form, select_option, execute_script
+// MCP Bridge automation tools: click, type, hover, fill_form, select_option, press_key, drag
 
 import { selectTab } from '../lib/tab-manager.js';
 import { TAB_REGISTRATION_DELAY } from '../constants.js';
-import { captureSnapshotResponse, createErrorResult } from './snapshot-utils.js';
+import { createErrorResult } from './snapshot-utils.js';
 
 /**
  * Executes arbitrary JavaScript in the selected tab
  */
-export async function handleExecuteScript(params) {
-  const script = String(params?.script || '').trim();
-
-  if (!script) {
-    return createErrorResult('Execute script failed', 'Missing script parameter');
-  }
-
-  console.log('[MCP Tools] execute_script', { scriptLength: script.length });
-
-  try {
-    const selection = await selectTab({ toolName: 'execute_script' });
-    if (!selection.ok) {
-      return createErrorResult('Execute script failed', selection.error);
-    }
-
-    const { tabId, tab } = selection;
-
-    const args = Array.isArray(params?.args) ? params.args : [];
-    const [{ result }] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: new Function('args', script),
-      args: [args],
-    });
-
-    console.log('[MCP Tools] script executed', { url: tab.url, resultType: typeof result });
-
-    const meta = {};
-    if (tab?.url) meta.urls = [tab.url];
-    if (typeof tabId === 'number') meta.tabId = tabId;
-
-    const text = `Script executed successfully on ${tab?.url || 'current page'}.` +
-      `\n\nResult:\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\``;
-
-    return {
-      ok: true,
-      content: [
-        {
-          type: 'text',
-          text,
-        },
-      ],
-      _meta: Object.keys(meta).length ? meta : undefined,
-      data: {
-        url: tab.url,
-        result,
-        timestamp: new Date().toISOString(),
-        tabId,
-      },
-    };
-  } catch (e) {
-    console.error('[MCP Tools] execute_script error:', e);
-    return createErrorResult('Execute script failed', e);
-  }
-}
-
 /**
  * Clicks an element with comprehensive mouse event simulation
  */
 export async function handleClickElement(params) {
+  const ref = typeof params?.ref === 'string' ? params.ref.trim() : '';
   const selector = String(params?.selector || '').trim();
 
-  if (!selector) {
-    return createErrorResult('Click failed', 'Missing selector parameter');
+  if (!ref && !selector) {
+    return createErrorResult('Click failed', 'Missing element ref or selector parameter');
   }
 
   const waitForNavigation = params?.waitForNavigation !== false; // default true
@@ -90,8 +36,22 @@ export async function handleClickElement(params) {
 
     const [{ result: clicked }] = await chrome.scripting.executeScript({
       target: { tabId },
-      func: (sel) => {
-        const el = document.querySelector(sel);
+      func: ({ sel, ref }) => {
+        const resolveElementFromRef = (reference) => {
+          if (typeof reference !== 'string' || reference.length === 0) return null;
+          if (reference.startsWith('css:')) {
+            const selectorText = reference.slice(4);
+            if (!selectorText) return null;
+            try {
+              return document.querySelector(selectorText);
+            } catch (_) {
+              return null;
+            }
+          }
+          return null;
+        };
+
+        const el = resolveElementFromRef(ref) || (sel ? document.querySelector(sel) : null);
         if (!el) return { success: false, error: 'Element not found' };
 
         el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
@@ -136,7 +96,7 @@ export async function handleClickElement(params) {
 
         return { success: true, element: el.tagName, focused: document.activeElement === el };
       },
-      args: [selector],
+      args: [{ sel: selector, ref }],
     });
 
     if (!clicked.success) {
@@ -152,37 +112,27 @@ export async function handleClickElement(params) {
 
     console.log('[MCP Tools] element clicked', { originalUrl, finalUrl, selector });
 
-    const details = [];
-    if (originalUrl && originalUrl !== finalUrl) {
-      details.push(`Original URL: ${originalUrl}`);
-    }
-    if (finalUrl) {
-      details.push(`Final URL: ${finalUrl}`);
-    }
-
-    const snapshotResult = await captureSnapshotResponse({
-      tabId,
-      status: `Clicked "${selector}"`,
-      details,
-      fallbackUrl: finalUrl,
-    });
-
-    if (!snapshotResult.ok) {
-      return snapshotResult;
-    }
+    const meta = {};
+    if (finalUrl) meta.urls = [finalUrl];
+    if (typeof tabId === 'number') meta.tabId = tabId;
 
     return {
       ok: true,
-      content: snapshotResult.content,
-      _meta: snapshotResult._meta,
+      content: [
+        {
+          type: 'text',
+          text: `Clicked "${params?.element || selector || ref || 'target element'}"`,
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
       data: {
         originalUrl,
         finalUrl,
         selector,
+        ref,
         clicked: true,
         timestamp: new Date().toISOString(),
         tabId,
-        snapshot: snapshotResult.snapshot,
       },
     };
   } catch (e) {
@@ -195,9 +145,9 @@ export async function handleClickElement(params) {
  * Fills multiple form fields
  */
 export async function handleFillForm(params) {
-  const fields = params?.fields || [];
+  const fields = Array.isArray(params?.fields) ? params.fields : [];
 
-  if (!Array.isArray(fields) || fields.length === 0) {
+  if (fields.length === 0) {
     return createErrorResult('Fill form failed', 'Missing or empty fields array');
   }
 
@@ -214,11 +164,25 @@ export async function handleFillForm(params) {
     const [{ result: fillResult }] = await chrome.scripting.executeScript({
       target: { tabId },
       func: (fieldsToFill) => {
+        const resolveElementFromRef = (reference) => {
+          if (typeof reference !== 'string' || reference.length === 0) return null;
+          if (reference.startsWith('css:')) {
+            const selectorText = reference.slice(4);
+            if (!selectorText) return null;
+            try {
+              return document.querySelector(selectorText);
+            } catch (_) {
+              return null;
+            }
+          }
+          return null;
+        };
+
         const results = [];
         for (const field of fieldsToFill) {
-          const el = document.querySelector(field.selector);
+          const el = resolveElementFromRef(field.ref) || (field.selector ? document.querySelector(field.selector) : null);
           if (!el) {
-            results.push({ selector: field.selector, success: false, error: 'Element not found' });
+            results.push({ selector: field.selector, ref: field.ref, success: false, error: 'Element not found' });
             continue;
           }
 
@@ -234,7 +198,7 @@ export async function handleFillForm(params) {
             el.dispatchEvent(new Event('change', { bubbles: true }));
           }
 
-          results.push({ selector: field.selector, success: true, value: field.value });
+          results.push({ selector: field.selector, ref: field.ref, success: true, value: field.value });
         }
         return results;
       },
@@ -257,21 +221,19 @@ export async function handleFillForm(params) {
       details.push(`Failed selectors: ${failedList.slice(0, 200)}`);
     }
 
-    const snapshotResult = await captureSnapshotResponse({
-      tabId,
-      status,
-      details,
-      fallbackUrl: tab?.url,
-    });
-
-    if (!snapshotResult.ok) {
-      return snapshotResult;
-    }
+    const meta = {};
+    if (tab?.url) meta.urls = [tab.url];
+    if (typeof tabId === 'number') meta.tabId = tabId;
 
     const response = {
       ok: success,
-      content: snapshotResult.content,
-      _meta: snapshotResult._meta,
+      content: [
+        {
+          type: 'text',
+          text: status,
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
       data: {
         url: tab.url,
         totalFields: fields.length,
@@ -280,7 +242,6 @@ export async function handleFillForm(params) {
         results: fillResult,
         timestamp: new Date().toISOString(),
         tabId,
-        snapshot: snapshotResult.snapshot,
       },
     };
 
@@ -299,13 +260,14 @@ export async function handleFillForm(params) {
  * Types text into an element (supports input, textarea, and contenteditable)
  */
 export async function handleTypeText(params) {
+  const ref = typeof params?.ref === 'string' ? params.ref.trim() : '';
   const selector = String(params?.selector || '').trim();
   const text = String(params?.text || '');
   const clear = params?.clear !== false;
   const pressEnter = params?.pressEnter === true;
 
-  if (!selector) {
-    return createErrorResult('Type text failed', 'Missing selector parameter');
+  if (!ref && !selector) {
+    return createErrorResult('Type text failed', 'Missing element ref or selector parameter');
   }
 
   try {
@@ -318,8 +280,22 @@ export async function handleTypeText(params) {
 
     const [{ result: typed }] = await chrome.scripting.executeScript({
       target: { tabId },
-      func: (sel, txt, clr, pressEnter) => {
-        const el = document.querySelector(sel);
+      func: ({ sel, ref, txt, clr, pressEnter }) => {
+        const resolveElementFromRef = (reference) => {
+          if (typeof reference !== 'string' || reference.length === 0) return null;
+          if (reference.startsWith('css:')) {
+            const selectorText = reference.slice(4);
+            if (!selectorText) return null;
+            try {
+              return document.querySelector(selectorText);
+            } catch (_) {
+              return null;
+            }
+          }
+          return null;
+        };
+
+        const el = resolveElementFromRef(ref) || (sel ? document.querySelector(sel) : null);
         if (!el) return { success: false, error: 'Element not found' };
 
         el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
@@ -499,7 +475,7 @@ export async function handleTypeText(params) {
 
         return { success: false, error: 'Element is not a valid input, textarea, or contenteditable element' };
       },
-      args: [selector, text, clear, pressEnter],
+      args: [{ sel: selector, ref, txt: text, clr: clear, pressEnter }],
     });
 
     if (!typed.success) {
@@ -507,43 +483,34 @@ export async function handleTypeText(params) {
     }
 
     const truncated = text.length > 80 ? `${text.slice(0, 77)}...` : text;
+    const targetLabel = params?.element || selector || ref || 'target element';
     const status = pressEnter
-      ? `Typed "${truncated}" and pressed Enter into "${selector}"`
-      : `Typed "${truncated}" into "${selector}"`;
+      ? `Typed "${truncated}" and pressed Enter into "${targetLabel}"`
+      : `Typed "${truncated}" into "${targetLabel}"`;
 
-    const details = [];
-    if (typed.finalValue) {
-      details.push(`Final value: ${typed.finalValue}`);
-    }
-    if (typed.finalContent) {
-      details.push(`Final content: ${typed.finalContent}`);
-    }
-
-    const snapshotResult = await captureSnapshotResponse({
-      tabId,
-      status,
-      details,
-      fallbackUrl: tab?.url,
-    });
-
-    if (!snapshotResult.ok) {
-      return snapshotResult;
-    }
+    const meta = {};
+    if (tab?.url) meta.urls = [tab.url];
+    if (typeof tabId === 'number') meta.tabId = tabId;
 
     return {
       ok: true,
-      content: snapshotResult.content,
-      _meta: snapshotResult._meta,
+      content: [
+        {
+          type: 'text',
+          text: status,
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
       data: {
         url: tab.url,
         selector,
+        ref,
         text: text.slice(0, 200),
         clear,
         pressEnter,
         result: typed,
         timestamp: new Date().toISOString(),
         tabId,
-        snapshot: snapshotResult.snapshot,
       },
     };
   } catch (e) {
@@ -556,10 +523,11 @@ export async function handleTypeText(params) {
  * Hovers over an element
  */
 export async function handleHoverElement(params) {
+  const ref = typeof params?.ref === 'string' ? params.ref.trim() : '';
   const selector = String(params?.selector || '').trim();
 
-  if (!selector) {
-    return createErrorResult('Hover failed', 'Missing selector parameter');
+  if (!ref && !selector) {
+    return createErrorResult('Hover failed', 'Missing element ref or selector parameter');
   }
 
   try {
@@ -572,14 +540,28 @@ export async function handleHoverElement(params) {
 
     const [{ result: hovered }] = await chrome.scripting.executeScript({
       target: { tabId },
-      func: (sel) => {
-        const el = document.querySelector(sel);
+      func: ({ sel, ref }) => {
+        const resolveElementFromRef = (reference) => {
+          if (typeof reference !== 'string' || reference.length === 0) return null;
+          if (reference.startsWith('css:')) {
+            const selectorText = reference.slice(4);
+            if (!selectorText) return null;
+            try {
+              return document.querySelector(selectorText);
+            } catch (_) {
+              return null;
+            }
+          }
+          return null;
+        };
+
+        const el = resolveElementFromRef(ref) || (sel ? document.querySelector(sel) : null);
         if (!el) return { success: false, error: 'Element not found' };
         const event = new MouseEvent('mouseover', { bubbles: true, cancelable: true });
         el.dispatchEvent(event);
         return { success: true };
       },
-      args: [selector],
+      args: [{ sel: selector, ref }],
     });
 
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -588,26 +570,25 @@ export async function handleHoverElement(params) {
       return createErrorResult('Hover failed', hovered.error || 'Hover failed');
     }
 
-    const snapshotResult = await captureSnapshotResponse({
-      tabId,
-      status: `Hovered over "${selector}"`,
-      fallbackUrl: tab?.url,
-    });
-
-    if (!snapshotResult.ok) {
-      return snapshotResult;
-    }
+    const meta = {};
+    if (tab?.url) meta.urls = [tab.url];
+    if (typeof tabId === 'number') meta.tabId = tabId;
 
     return {
       ok: true,
-      content: snapshotResult.content,
-      _meta: snapshotResult._meta,
+      content: [
+        {
+          type: 'text',
+      text: `Hovered over "${params?.element || selector || ref || 'target element'}"`,
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
       data: {
         url: tab.url,
         selector,
+        ref,
         timestamp: new Date().toISOString(),
         tabId,
-        snapshot: snapshotResult.snapshot,
       },
     };
   } catch (e) {
@@ -620,11 +601,14 @@ export async function handleHoverElement(params) {
  * Selects an option from a dropdown
  */
 export async function handleSelectOption(params) {
+  const ref = typeof params?.ref === 'string' ? params.ref.trim() : '';
   const selector = String(params?.selector || '').trim();
-  const value = String(params?.value || '');
+  const values = Array.isArray(params?.values) && params.values.length > 0
+    ? params.values.map((val) => String(val))
+    : (params?.value ? [String(params.value)] : []);
 
-  if (!selector || !value) {
-    return createErrorResult('Select option failed', 'Missing selector or value parameter');
+  if ((!ref && !selector) || values.length === 0) {
+    return createErrorResult('Select option failed', 'Missing element ref/selector or values parameter');
   }
 
   try {
@@ -637,45 +621,288 @@ export async function handleSelectOption(params) {
 
     const [{ result: selected }] = await chrome.scripting.executeScript({
       target: { tabId },
-      func: (sel, val) => {
-        const el = document.querySelector(sel);
+      func: ({ sel, ref, vals }) => {
+        const resolveElementFromRef = (reference) => {
+          if (typeof reference !== 'string' || reference.length === 0) return null;
+          if (reference.startsWith('css:')) {
+            const selectorText = reference.slice(4);
+            if (!selectorText) return null;
+            try {
+              return document.querySelector(selectorText);
+            } catch (_) {
+              return null;
+            }
+          }
+          return null;
+        };
+
+        const el = resolveElementFromRef(ref) || (sel ? document.querySelector(sel) : null);
         if (!el || el.tagName !== 'SELECT') return { success: false, error: 'Select element not found' };
-        el.value = val;
+
+        const normalizedValues = Array.isArray(vals) && vals.length ? vals : [];
+        if (el.multiple) {
+          const valueSet = new Set(normalizedValues);
+          Array.from(el.options).forEach((option) => {
+            option.selected = valueSet.has(option.value) || valueSet.has(option.textContent || '');
+          });
+        } else if (normalizedValues.length) {
+          el.value = normalizedValues[0];
+        }
+
         el.dispatchEvent(new Event('change', { bubbles: true }));
-        return { success: true, selectedValue: el.value };
+        return { success: true, selectedValues: normalizedValues, finalValue: el.value };
       },
-      args: [selector, value],
+      args: [{ sel: selector, ref, vals: values }],
     });
 
     if (!selected.success) {
       return createErrorResult('Select option failed', selected.error || 'Selection failed');
     }
 
-    const snapshotResult = await captureSnapshotResponse({
-      tabId,
-      status: `Selected option "${selected.selectedValue}" in "${selector}"`,
-      fallbackUrl: tab?.url,
-    });
-
-    if (!snapshotResult.ok) {
-      return snapshotResult;
-    }
+    const meta = {};
+    if (tab?.url) meta.urls = [tab.url];
+    if (typeof tabId === 'number') meta.tabId = tabId;
 
     return {
       ok: true,
-      content: snapshotResult.content,
-      _meta: snapshotResult._meta,
+      content: [
+        {
+          type: 'text',
+          text: `Selected option in "${params?.element || selector || ref || 'target element'}"`,
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
       data: {
         url: tab.url,
         selector,
-        value: selected.selectedValue,
+        ref,
+        values,
+        result: selected,
         timestamp: new Date().toISOString(),
         tabId,
-        snapshot: snapshotResult.snapshot,
       },
     };
   } catch (e) {
     console.error('[MCP Tools] select_option error:', e);
     return createErrorResult('Select option failed', e);
+  }
+}
+
+/**
+ * Press a keyboard key on the active element (or document body)
+ */
+export async function handlePressKey(params = {}) {
+  const key = String(params?.key || '').trim();
+
+  if (!key) {
+    return createErrorResult('Press key failed', 'Missing key parameter');
+  }
+
+  try {
+    const selection = await selectTab({ toolName: 'press_key' });
+    if (!selection.ok) {
+      return createErrorResult('Press key failed', selection.error);
+    }
+
+    const { tabId, tab } = selection;
+
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (pressedKey) => {
+        const target = document.activeElement && document.activeElement !== document.body
+          ? document.activeElement
+          : document.body;
+        if (!target) {
+          return { success: false, error: 'No active element to dispatch key events' };
+        }
+
+        const keyCode = pressedKey.length === 1 ? pressedKey.toUpperCase().charCodeAt(0) : 0;
+        const eventInit = {
+          key: pressedKey,
+          code: pressedKey.length === 1 ? `Key${pressedKey.toUpperCase()}` : pressedKey,
+          keyCode,
+          which: keyCode,
+          bubbles: true,
+          cancelable: true,
+        };
+
+        const keydown = new KeyboardEvent('keydown', eventInit);
+        target.dispatchEvent(keydown);
+
+        if (!keydown.defaultPrevented) {
+          const keypress = new KeyboardEvent('keypress', eventInit);
+          target.dispatchEvent(keypress);
+        }
+
+        const keyup = new KeyboardEvent('keyup', eventInit);
+        target.dispatchEvent(keyup);
+
+        return { success: true, tagName: target.tagName || 'BODY' };
+      },
+      args: [key],
+    });
+
+    if (!result?.success) {
+      return createErrorResult('Press key failed', result?.error || 'Key dispatch failed');
+    }
+
+    const meta = {};
+    if (tab?.url) meta.urls = [tab.url];
+    if (typeof tabId === 'number') meta.tabId = tabId;
+
+    return {
+      ok: true,
+      content: [
+        {
+          type: 'text',
+          text: `Pressed key ${key}`,
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
+      data: {
+        url: tab?.url,
+        key,
+        target: result.tagName,
+        timestamp: new Date().toISOString(),
+        tabId,
+      },
+    };
+  } catch (e) {
+    console.error('[MCP Tools] press_key error:', e);
+    return createErrorResult('Press key failed', e);
+  }
+}
+
+/**
+ * Drag an element and drop it on another element
+ */
+export async function handleDragElement(params = {}) {
+  const startRef = typeof params?.startRef === 'string' ? params.startRef.trim() : '';
+  const endRef = typeof params?.endRef === 'string' ? params.endRef.trim() : '';
+  const fromSelector = String(params?.fromSelector || params?.startSelector || '').trim();
+  const toSelector = String(params?.toSelector || params?.endSelector || '').trim();
+
+  if ((!startRef && !fromSelector) || (!endRef && !toSelector)) {
+    return createErrorResult('Drag failed', 'Missing drag start or end reference');
+  }
+
+  try {
+    const selection = await selectTab({ toolName: 'drag_element' });
+    if (!selection.ok) {
+      return createErrorResult('Drag failed', selection.error);
+    }
+
+    const { tabId, tab } = selection;
+
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: ({ startParams, endParams }) => {
+        const resolveElement = ({ ref, selector }) => {
+          if (typeof ref === 'string' && ref.startsWith('css:')) {
+            const selectorText = ref.slice(4);
+            if (selectorText) {
+              try {
+                const resolved = document.querySelector(selectorText);
+                if (resolved) return resolved;
+              } catch (_) {
+                // ignore
+              }
+            }
+          }
+          if (selector) {
+            try {
+              return document.querySelector(selector);
+            } catch (_) {
+              return null;
+            }
+          }
+          return null;
+        };
+
+        const start = resolveElement(startParams);
+        const end = resolveElement(endParams);
+        if (!start) {
+          return { success: false, error: 'Start element not found' };
+        }
+        if (!end) {
+          return { success: false, error: 'End element not found' };
+        }
+
+        const startRect = start.getBoundingClientRect();
+        const endRect = end.getBoundingClientRect();
+
+        const startX = startRect.left + startRect.width / 2;
+        const startY = startRect.top + startRect.height / 2;
+        const endX = endRect.left + endRect.width / 2;
+        const endY = endRect.top + endRect.height / 2;
+
+        const pointerInit = (x, y) => ({
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          clientX: x,
+          clientY: y,
+        });
+
+        const movePointer = (x, y) => document.dispatchEvent(new PointerEvent('pointermove', {
+          ...pointerInit(x, y),
+          buttons: 1,
+        }));
+
+        start.dispatchEvent(new PointerEvent('pointerdown', { ...pointerInit(startX, startY), buttons: 1 }));
+        start.dispatchEvent(new MouseEvent('mousedown', { ...pointerInit(startX, startY), buttons: 1 }));
+
+        const steps = 6;
+        for (let i = 1; i <= steps; i += 1) {
+          const progress = i / steps;
+          const x = startX + (endX - startX) * progress;
+          const y = startY + (endY - startY) * progress;
+          movePointer(x, y);
+        }
+
+        end.dispatchEvent(new PointerEvent('pointerup', { ...pointerInit(endX, endY) }));
+        end.dispatchEvent(new MouseEvent('mouseup', { ...pointerInit(endX, endY) }));
+
+        return {
+          success: true,
+          startTag: start.tagName,
+          endTag: end.tagName,
+        };
+      },
+      args: [{ startParams: { ref: startRef, selector: fromSelector }, endParams: { ref: endRef, selector: toSelector } }],
+    });
+
+    if (!result?.success) {
+      return createErrorResult('Drag failed', result?.error || 'Drag operation failed');
+    }
+
+    const meta = {};
+    if (tab?.url) meta.urls = [tab.url];
+    if (typeof tabId === 'number') meta.tabId = tabId;
+
+    return {
+      ok: true,
+      content: [
+        {
+          type: 'text',
+          text: `Dragged "${params?.startElement || fromSelector || startRef || 'start element'}" to "${params?.endElement || toSelector || endRef || 'end element'}"`,
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
+      data: {
+        url: tab?.url,
+        fromSelector,
+        toSelector,
+        startRef,
+        endRef,
+        startTag: result.startTag,
+        endTag: result.endTag,
+        timestamp: new Date().toISOString(),
+        tabId,
+      },
+    };
+  } catch (e) {
+    console.error('[MCP Tools] drag_element error:', e);
+    return createErrorResult('Drag failed', e);
   }
 }
