@@ -3,23 +3,23 @@
 
 import {
   MessageTypes,
-} from './constants.js';
+} from '../constants.js';
 import {
   initializeMcpBridge,
   getBridgeStatus,
   connectBridge,
   disconnectBridge,
   updateBridgePort,
-} from './mcp-bridge.js';
+} from '../mcp-bridge.js';
 import {
   clearMcpRegisteredTab,
   getMcpRegisteredTab,
   setMcpRegisteredTab,
-} from './lib/tab-manager.js';
+} from '../lib/tab-manager.js';
 import {
   performDuckDuckGoSearchAndScrape,
   performGoogleSearchAndScrape,
-} from './search/index.js';
+} from '../search/index.js';
 
 // -----------------------------------------------------------------------------
 // Browser API shim (kept for Chromium/Firefox compatibility)

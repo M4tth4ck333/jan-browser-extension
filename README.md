@@ -50,9 +50,12 @@ npm run build:firefox
 ```
 jan-browser/
 ├── src/
-│   ├── background.js          # Minimal service worker for MCP routing
-│   ├── content.js             # Page data + SERP helpers for MCP tools
+│   ├── background/            # Service worker for MCP routing
+│   │   └── index.js
+│   ├── content/               # Page data + SERP helpers for MCP tools
+│   │   └── index.js
 │   ├── constants.js           # Message types, timeouts, defaults
+│   ├── popup/                 # React + Tailwind popup UI (Vite entry)
 │   ├── mcp-bridge.js          # WebSocket bridge for the local MCP server
 │   ├── lib/
 │   │   ├── fetch-utils.js     # Async helpers, retries, timeouts
@@ -68,8 +71,8 @@ jan-browser/
 │
 ├── manifest.json              # Chrome MV3 manifest
 ├── manifest.firefox.json      # Firefox MV3 manifest
-├── scripts/build-extension.mjs# Simple copy-based build script
-└── package.json               # Minimal scripts
+├── scripts/build-extension.mjs# Builds React UI + copies runtime scripts
+└── package.json               # Scripts & dependencies
 ```
 
 ---
@@ -95,11 +98,10 @@ npm run build:all:firefox  # Firefox manifest + MCP server
 
 ## Why this refactor?
 
-The extension no longer ships a chat UI, side panel, or inline assistant. All remaining code exists solely to support the browser MCP toolchain:
+The popup experience has been rebuilt with React, Tailwind CSS, and shadcn-inspired components so that the extension feels polished while keeping automation logic isolated:
 
-- No React, Vite, Tailwind, Playwright, or Vitest dependencies
-- A tiny service worker dedicated to MCP bridge management
-- Content script logic focused on search scraping and DOM capture
-- Build scripts that simply copy files into `dist/`
+- 🧩 UI lives under `src/popup` with modern component patterns
+- 🧠 Core automation, bridge, and content logic remain framework-free under `src/lib`, `src/mcp-tools`, and friends
+- 🏗️ `scripts/build-extension.mjs` compiles the popup via Vite and assembles the final extension bundle
 
 Use the MCP server (`mcp-server`) if you need a local bridge that exposes the browser tools to an LLM client.

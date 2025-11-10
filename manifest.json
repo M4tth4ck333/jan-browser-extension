@@ -15,7 +15,7 @@
       "16": "icons/toolbar-16.png",
       "32": "icons/toolbar-32.png"
     },
-    "default_popup": "src/popup.html"
+    "default_popup": "popup/index.html"
   },
   "permissions": [
     "storage",
@@ -28,7 +28,7 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "src/background.js",
+    "service_worker": "background/index.js",
     "type": "module"
   },
   "commands": {},
@@ -38,7 +38,7 @@
         "<all_urls>"
       ],
       "js": [
-        "src/content.js"
+        "content/index.js"
       ],
       "run_at": "document_idle",
       "all_frames": true,

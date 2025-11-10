@@ -7,6 +7,8 @@
   "scripts": {
     "build": "node scripts/build-extension.mjs",
     "build:firefox": "node scripts/build-extension.mjs firefox",
+    "dev:ui": "vite",
+    "build:ui": "vite build",
     "dev:mcp": "bash -lc 'cd mcp-server && if command -v bun >/dev/null 2>&1; then bun run dev; else npm run dev; fi'",
     "build:mcp": "bash scripts/build-mcp.sh",
     "start:mcp": "node mcp-server/dist/src/index.js",
@@ -16,6 +18,26 @@
   "keywords": [],
   "author": "",
   "license": "Apache-2.0",
-  "dependencies": {},
-  "devDependencies": {}
+  "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-label": "^2.0.2",
+    "@radix-ui/react-slot": "^1.0.2",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.0",
+    "lucide-react": "^0.363.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tailwind-merge": "^2.2.1"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.246",
+    "@types/node": "^20.10.5",
+    "@types/react": "^18.2.37",
+    "@types/react-dom": "^18.2.15",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.16",
+    "tailwindcss": "3.4.17",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.0"
+  }
 }
