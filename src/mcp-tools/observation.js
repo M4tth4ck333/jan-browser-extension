@@ -4,7 +4,46 @@
 import { selectTab, validateWindow } from '../lib/tab-manager.js';
 import { captureWithTimeout } from '../lib/fetch-utils.js';
 import { SCREENSHOT_CAPTURE_TIMEOUT } from '../constants.js';
-import { captureSnapshotResponse, ensureTabForSnapshot, createErrorResult } from './snapshot-utils.js';
+import {
+  captureSnapshotResponse,
+  captureSnapshotForTab,
+  ensureTabForSnapshot,
+  createErrorResult,
+  formatSnapshotAsYAML,
+} from './snapshot-utils.js';
+
+const waitForLoadCompletion = async (tabId, timeoutMs = 10000) => {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const ready = document.readyState;
+          const hasMain = !!document.querySelector('main, [role="main"], #contents');
+          const hasFeed = !!document.querySelector('ytd-rich-grid-renderer, ytd-rich-item-renderer, ytd-video-renderer');
+          const pendingNetwork = window.performance?.getEntriesByType('resource')?.some((entry) => entry.initiatorType === 'xmlhttprequest' && !entry.responseEnd);
+          return { ready, hasMain, hasFeed, pendingNetwork };
+        },
+      });
+
+      if (
+        result &&
+        (result.ready === 'complete' || result.ready === 'interactive') &&
+        result.hasMain &&
+        (result.hasFeed || result.pendingNetwork === false)
+      ) {
+        return true;
+      }
+    } catch (error) {
+      console.warn('[MCP Tools] waitForLoadCompletion check failed', error);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  return false;
+};
 
 /**
  * Captures a screenshot of the visible tab
@@ -102,6 +141,8 @@ export async function handleSnapshot(params = {}) {
       ? params.status.trim()
       : 'Snapshot captured';
 
+    await waitForLoadCompletion(tabId);
+
     const snapshotResult = await captureSnapshotResponse({
       tabId,
       status,
@@ -125,5 +166,116 @@ export async function handleSnapshot(params = {}) {
   } catch (e) {
     console.error('[MCP Tools] snapshot error:', e);
     return createErrorResult('Snapshot failed', e);
+  }
+}
+
+export async function handleBrowserSnapshotYaml(params = {}) {
+  try {
+    const selection = await ensureTabForSnapshot({ toolName: 'browser_snapshot', preferredUrl: params?.url });
+    if (selection?.ok === false && selection.content) {
+      return selection;
+    }
+    if (!selection?.ok) {
+      return createErrorResult('Snapshot failed', selection?.error || 'Unable to select tab');
+    }
+
+    const { tabId, tab } = selection;
+    const snapshot = await captureSnapshotForTab(tabId);
+    if (!snapshot) {
+      return createErrorResult('Snapshot failed', 'Snapshot capture returned empty result');
+    }
+
+    const yaml = formatSnapshotAsYAML(snapshot);
+    const urls = snapshot.url ? [snapshot.url] : tab?.url ? [tab.url] : [];
+    const meta = {};
+    if (urls.length) meta.urls = urls;
+    if (typeof tabId === 'number') meta.tabId = tabId;
+
+    return {
+      ok: true,
+      content: [
+        {
+          type: 'text',
+          text: yaml,
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
+      data: {
+        ...snapshot,
+        tabId,
+      },
+    };
+  } catch (e) {
+    console.error('[MCP Tools] browser_snapshot error:', e);
+    return createErrorResult('Snapshot failed', e);
+  }
+}
+
+export async function handleGetUrl(params = {}) {
+  try {
+    const selection = await ensureTabForSnapshot({ toolName: 'getUrl', preferredUrl: params?.url });
+    if (selection?.ok === false && selection.content) {
+      return selection;
+    }
+    if (!selection?.ok) {
+      return createErrorResult('getUrl failed', selection?.error || 'Unable to select tab');
+    }
+
+    const { tabId, tab } = selection;
+    const url = tab?.url || '';
+    const meta = { tabId };
+    if (url) meta.urls = [url];
+
+    return {
+      ok: true,
+      content: [
+        {
+          type: 'text',
+          text: url,
+        },
+      ],
+      _meta: meta,
+      data: {
+        url,
+        tabId,
+      },
+    };
+  } catch (e) {
+    console.error('[MCP Tools] getUrl error:', e);
+    return createErrorResult('getUrl failed', e);
+  }
+}
+
+export async function handleGetTitle(params = {}) {
+  try {
+    const selection = await ensureTabForSnapshot({ toolName: 'getTitle', preferredUrl: params?.url });
+    if (selection?.ok === false && selection.content) {
+      return selection;
+    }
+    if (!selection?.ok) {
+      return createErrorResult('getTitle failed', selection?.error || 'Unable to select tab');
+    }
+
+    const { tabId, tab } = selection;
+    const title = tab?.title || '';
+    const meta = { tabId };
+
+    return {
+      ok: true,
+      content: [
+        {
+          type: 'text',
+          text: title,
+        },
+      ],
+      _meta: meta,
+      data: {
+        title,
+        tabId,
+      },
+    };
+  } catch (e) {
+    console.error('[MCP Tools] getTitle error:', e);
+    return createErrorResult('getTitle failed', e);
   }
 }

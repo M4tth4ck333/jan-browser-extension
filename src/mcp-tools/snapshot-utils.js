@@ -57,6 +57,14 @@ const LANDMARK_ROLE_KEYS = new Set(
   ].map((role) => role.toLowerCase()),
 );
 
+let currentAxRefMap = new Map();
+let currentAxRefCounter = 2;
+
+function resetAccessibleRefMap() {
+  currentAxRefMap = new Map();
+  currentAxRefCounter = 2;
+}
+
 function createErrorResult(message, error) {
   const text = `${message}: ${String(error?.message || error)}`;
   return {
@@ -77,76 +85,85 @@ function formatSnapshotAsYAML(data) {
     return 'error: No snapshot data available';
   }
 
+  const tree = data.aria?.tree;
+  if (tree) {
+    return renderTree(tree).join('\n');
+  }
+
   const lines = [];
-
-  const pageUrl = data.url || 'unknown';
-  const pageTitle = data.title || 'Untitled';
-
-  lines.push(`url: ${pageUrl}`);
-  lines.push(`title: ${pageTitle}`);
-
-  if (data.description) {
-    lines.push(`description: ${data.description}`);
-  }
-
-  if (data.viewport) {
-    lines.push('viewport:');
-    lines.push(`  width: ${data.viewport.width || 0}`);
-    lines.push(`  height: ${data.viewport.height || 0}`);
-  }
-
-  if (data.aria?.landmarks?.length) {
-    lines.push('landmarks:');
-    for (const landmark of data.aria.landmarks.slice(0, 10)) {
-      lines.push(`  - role: ${landmark.role || 'unknown'}`);
-      if (landmark.ariaLabel) lines.push(`    label: "${landmark.ariaLabel}"`);
-      if (landmark.id) lines.push(`    id: ${landmark.id}`);
-    }
-  }
-
-  if (data.aria?.interactive?.length) {
-    lines.push('interactive:');
-    for (const el of data.aria.interactive.slice(0, 20)) {
-      const role = el.role || 'unknown';
-      const index = typeof el.index === 'number' ? el.index : '?';
-      lines.push(`  - [${index}] ${role}`);
-      if (el.label) lines.push(`    label: "${el.label.slice(0, 80)}"`);
-      if (el.id) lines.push(`    id: ${el.id}`);
-      if (el.href) lines.push(`    href: ${el.href}`);
-      if (el.type) lines.push(`    type: ${el.type}`);
-    }
-  }
-
-  if (data.headings?.length) {
-    lines.push('headings:');
-    for (const heading of data.headings.slice(0, 10)) {
-      const level = heading.level || 'h?';
-      const text = (heading.text || '').slice(0, 100);
-      lines.push(`  - ${level}: "${text}"`);
-    }
-  }
-
-  if (data.forms?.length) {
-    lines.push('forms:');
-    for (const form of data.forms.slice(0, 3)) {
-      lines.push(`  - action: ${form.action || '(none)'}`);
-      lines.push(`    method: ${form.method || 'get'}`);
-      if (form.fields?.length) {
-        lines.push('    fields:');
-        for (const field of form.fields.slice(0, 5)) {
-          const type = field.type || 'unknown';
-          const identifier = field.name || field.id || '(unnamed)';
-          lines.push(`      - ${type}: ${identifier}`);
-        }
-      }
-    }
-  }
-
-  if (lines.length < 3) {
-    lines.push('note: Page snapshot appears minimal or empty');
-  }
-
+  lines.push(`url: ${data.url || 'unknown'}`);
+  lines.push(`title: ${data.title || 'Untitled'}`);
+  if (data.description) lines.push(`description: ${data.description}`);
   return lines.join('\n');
+}
+
+function renderTree(node, depth = 0) {
+  if (!node) return [];
+
+  const lines = [];
+  const indent = '  '.repeat(depth);
+  const parts = [];
+  const rawRole = (node?.role || node?.tag || 'node').toString();
+  const role = rawRole.toLowerCase();
+  parts.push(role);
+
+  if (node?.name && role !== 'document') {
+    parts.push(`"${String(node.name)}"`);
+  }
+
+  const state = node?.state || {};
+  const stateFlags = [];
+  if (state.expanded || node?.expanded) stateFlags.push('[expanded]');
+  if (state.selected || node?.selected) stateFlags.push('[selected]');
+  if (state.checked || node?.checked) stateFlags.push('[checked]');
+  if (state.focused || node?.focused) stateFlags.push('[focused]');
+  if (state.disabled || node?.disabled) stateFlags.push('[disabled]');
+
+  const properties = node?.properties || {};
+  const headerMeta = [];
+  const level =
+    node?.level ?? properties.level ?? properties.headingLevel ?? properties.hierarchicalLevel;
+  if (level !== undefined && level !== null && String(level).trim() !== '') {
+    headerMeta.push(`[level=${level}]`);
+  }
+
+  const ref = node?.ref || node?.id || node?.backendNodeId || node?.domNodeId;
+  const headerParts = [...parts, ...stateFlags, ...headerMeta];
+  if (ref) {
+    headerParts.push(`[ref=${ref}]`);
+  }
+
+  const headerBody = headerParts.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  const children = Array.isArray(node?.children) ? node.children : [];
+  const detailLines = buildDetailLines(node, depth + 1);
+  const needsColon = children.length > 0 || detailLines.length > 0;
+  const header = `${indent}- ${headerBody}${needsColon ? ':' : ''}`;
+  lines.push(header);
+  lines.push(...detailLines);
+
+  for (const child of children) {
+    lines.push(...renderTree(child, depth + 1));
+  }
+
+  return lines;
+}
+
+function buildDetailLines(node, depth) {
+  const lines = [];
+  const indent = '  '.repeat(depth);
+
+  const roleKey = String(node?.role || node?.tag || '').toLowerCase();
+  const url = node?.properties?.url || node?.href;
+  if (url && (roleKey === 'link' || roleKey === 'a')) {
+    lines.push(`${indent}- /url: ${url}`);
+  }
+
+  const textValue = node?.value || node?.text || node?.description;
+  if (textValue) {
+    lines.push(`${indent}- text: ${String(textValue).slice(0, 400)}`);
+  }
+
+  return lines;
 }
 
 function buildSnapshotText(snapshot, status, details = []) {
@@ -165,7 +182,7 @@ function buildSnapshotText(snapshot, status, details = []) {
     `${detailBlock}` +
     `- Page URL: ${pageUrl}\n` +
     `- Page Title: ${pageTitle}\n` +
-    `- Page Snapshot (ARIA Tree + Metadata)\n` +
+    `- Page Snapshot\n` +
     '```yaml\n' +
     `${yaml}\n` +
     '```'
@@ -242,7 +259,7 @@ async function captureDomSnapshot(tabId) {
         return null;
       };
 
-      const buildAriaTree = (element, depth = 0, maxDepth = 8) => {
+      const buildAriaTree = (element, depth = 0, maxDepth = MAX_TREE_DEPTH) => {
         if (!element || depth > maxDepth) return null;
 
         const role = inferRole(element);
@@ -257,7 +274,7 @@ async function captureDomSnapshot(tabId) {
               role: 'group',
               name: '',
               tag: element.tagName.toLowerCase(),
-              children: children.slice(0, 15),
+              children: children.slice(0, MAX_CHILDREN_PER_NODE),
             };
           }
           return null;
@@ -301,7 +318,7 @@ async function captureDomSnapshot(tabId) {
           const childNode = buildAriaTree(child, depth + 1, maxDepth);
           if (childNode) children.push(childNode);
         }
-        if (children.length) node.children = children.slice(0, 15);
+        if (children.length) node.children = children.slice(0, MAX_CHILDREN_PER_NODE);
 
         return node;
       };
@@ -509,49 +526,121 @@ function compactObject(source = {}) {
   return result;
 }
 
-function serializeAxNode(node, map, depth = 0) {
-  if (!node || depth > MAX_TREE_DEPTH) return null;
+function formatAccessibleRef(nodeId) {
+  if (nodeId === undefined || nodeId === null) {
+    return undefined;
+  }
 
-  const role = getRole(node);
+  if (!currentAxRefMap.has(nodeId)) {
+    currentAxRefMap.set(nodeId, `s1e${currentAxRefCounter}`);
+    currentAxRefCounter += 1;
+  }
+
+  return currentAxRefMap.get(nodeId);
+}
+
+function normalizeAxRole(role) {
+  if (!role) return undefined;
+
+  const key = role.toLowerCase();
+  switch (key) {
+    case 'rootwebarea':
+    case 'webarea':
+      return 'document';
+    case 'genericcontainer':
+      return 'generic';
+    case 'inlinetextbox':
+      return 'text';
+    default:
+      return key;
+  }
+}
+
+function shouldFlattenAxNode(node) {
+  if (!node) return true;
+  if (node.ignored) return true;
+
+  const roleKey = getRoleKey(node);
+  if (!roleKey) return true;
+
+  if (
+    roleKey === 'generic' ||
+    roleKey === 'group' ||
+    roleKey === 'presentation' ||
+    roleKey === 'none' ||
+    roleKey === 'text' ||
+    roleKey === 'statictext' ||
+    roleKey === 'inlinetextbox'
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function serializeAxNode(node, map, depth = 0) {
+  if (!node || depth > MAX_TREE_DEPTH) return [];
+
+  const includeNode = !shouldFlattenAxNode(node);
+  const nextDepth = includeNode ? depth + 1 : depth;
+
+  const rawRole = getRole(node);
+  const role = normalizeAxRole(rawRole) || rawRole;
   const name = getAccessibleName(node);
   const description = getAccessibleDescription(node);
   const value = axValueToPrimitive(node?.value);
 
-  const serialized = compactObject({
-    id: node.nodeId,
-    ref: node.nodeId,
-    role,
-    name,
-    description,
-    value,
-    ignored: node.ignored ? true : undefined,
-  });
+  let serialized = null;
 
-  if (Array.isArray(node.actions) && node.actions.length) {
-    serialized.actions = node.actions.slice(0, 6);
+  if (includeNode) {
+    serialized = compactObject({
+      id: formatAccessibleRef(node.nodeId),
+      ref: formatAccessibleRef(node.nodeId),
+      axNodeId: node.nodeId,
+      role,
+      name,
+      description,
+      value,
+    });
+
+    if (Array.isArray(node.actions) && node.actions.length) {
+      serialized.actions = node.actions.slice(0, 6);
+    }
+
+    const properties = compactObject(axEntriesToObject(node.properties));
+    const state = compactObject(axEntriesToObject(node.state));
+
+    if (Object.keys(properties).length) serialized.properties = properties;
+    if (Object.keys(state).length) serialized.state = state;
+
+    if (node.backendDOMNodeId) serialized.backendNodeId = node.backendDOMNodeId;
+    if (node.domNodeId) serialized.domNodeId = node.domNodeId;
   }
 
-  const properties = compactObject(axEntriesToObject(node.properties));
-  const state = compactObject(axEntriesToObject(node.state));
-
-  if (Object.keys(properties).length) serialized.properties = properties;
-  if (Object.keys(state).length) serialized.state = state;
-
-  if (node.backendDOMNodeId) serialized.backendNodeId = node.backendDOMNodeId;
-  if (node.domNodeId) serialized.domNodeId = node.domNodeId;
-
+  const children = [];
   if (Array.isArray(node.childIds) && node.childIds.length) {
-    const children = [];
     for (const childId of node.childIds) {
       const child = map.get(childId);
-      const childNode = serializeAxNode(child, map, depth + 1);
-      if (childNode) children.push(childNode);
+      const serializedChildren = serializeAxNode(child, map, nextDepth);
+      if (serializedChildren.length) {
+        for (const entry of serializedChildren) {
+          children.push(entry);
+          if (children.length >= MAX_CHILDREN_PER_NODE) break;
+        }
+      }
       if (children.length >= MAX_CHILDREN_PER_NODE) break;
     }
-    if (children.length) serialized.children = children;
   }
 
-  return serialized;
+  if (!includeNode) {
+    return children;
+  }
+
+  if (children.length) {
+    serialized.children = children;
+  }
+
+  return [serialized];
 }
 
 function extractInteractiveFromAxNodes(nodes) {
@@ -810,6 +899,8 @@ async function captureAccessibilityTree(tabId) {
     return null;
   }
 
+  resetAccessibleRefMap();
+
   const target = { tabId };
 
   try {
@@ -839,7 +930,10 @@ async function captureAccessibilityTree(tabId) {
       nodes.find((node) => !node.ignored) ||
       nodes[0];
 
-    const tree = serializeAxNode(root, nodeMap, 0);
+    const serializedTree = serializeAxNode(root, nodeMap, 0);
+    const tree = Array.isArray(serializedTree)
+      ? serializedTree[0] || null
+      : serializedTree || null;
     const interactive = extractInteractiveFromAxNodes(nodes);
     const landmarks = extractLandmarksFromAxNodes(nodes);
     const headings = extractHeadingsFromAxNodes(nodes);
@@ -863,9 +957,25 @@ async function captureAccessibilityTree(tabId) {
 }
 
 async function captureRawSnapshot(tabId) {
-  const domSnapshot = await captureDomSnapshot(tabId);
+  let domSnapshot = null;
+  try {
+    domSnapshot = await captureDomSnapshot(tabId);
+  } catch (error) {
+    console.warn('[snapshot] DOM snapshot failed', error);
+  }
+
   if (!domSnapshot) {
-    return null;
+    domSnapshot = {
+      url: null,
+      title: null,
+      description: null,
+      aria: { tree: null, interactive: [], landmarks: [] },
+      links: [],
+      images: [],
+      forms: [],
+      headings: [],
+      timestamp: new Date().toISOString(),
+    };
   }
 
   const fallbackAria = domSnapshot.aria || { tree: null, interactive: [], landmarks: [] };
@@ -947,4 +1057,4 @@ export async function ensureTabForSnapshot(params = {}) {
   return selection;
 }
 
-export { createErrorResult };
+export { createErrorResult, formatSnapshotAsYAML };

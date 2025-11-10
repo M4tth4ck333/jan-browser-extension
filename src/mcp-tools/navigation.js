@@ -5,6 +5,47 @@ import { selectTab, setMcpRegisteredTab, getMcpRegisteredTab } from '../lib/tab-
 import { CONTENT_LOAD_TIMEOUT, TAB_REGISTRATION_DELAY, VisitOutputModes } from '../constants.js';
 import { createErrorResult } from './snapshot-utils.js';
 
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const waitForPageReady = async (tabId, timeoutMs = 10000) => {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const ready = document.readyState;
+          const hasMain = !!document.querySelector('main, [role="main"], #contents');
+          const feedEl = document.querySelector(
+            'ytd-rich-grid-renderer, ytd-rich-item-renderer, ytd-video-renderer, [data-testid="feed"]'
+          );
+          const pendingRequests =
+            window.performance?.getEntriesByType('resource')?.some(
+              (entry) => entry.initiatorType === 'xmlhttprequest' && entry.responseEnd === 0,
+            ) || false;
+
+          return { ready, hasMain, hasFeed: !!feedEl, pendingRequests };
+        },
+      });
+
+      if (
+        result &&
+        (result.ready === 'complete' || result.ready === 'interactive') &&
+        (result.hasMain || result.hasFeed) &&
+        result.pendingRequests === false
+      ) {
+        return true;
+      }
+    } catch (error) {
+      console.warn('[MCP Tools] waitForPageReady check failed', error);
+    }
+
+    await wait(250);
+  }
+
+  return false;
+};
+
 /**
  * Visits a URL and extracts page content
  * If no tab is registered, creates and registers a new tab
@@ -69,6 +110,8 @@ export async function handleVisit(params) {
       };
       chrome.tabs.onUpdated.addListener(listener);
     });
+
+    await waitForPageReady(tabId);
 
     // Extract page content
     const response = await chrome.tabs.sendMessage(tabId, { type: 'GET_PAGE_CONTENT' });

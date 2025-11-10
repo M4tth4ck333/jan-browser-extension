@@ -20,7 +20,10 @@ import {
 
 import {
   handleScreenshot,
-  handleSnapshot
+  handleSnapshot,
+  handleBrowserSnapshotYaml,
+  handleGetUrl,
+  handleGetTitle,
 } from './observation.js';
 
 import { handleSearch } from './search.js';
@@ -48,6 +51,9 @@ export const mcpToolHandlers = {
   // Observation tools
   screenshot: handleScreenshot,
   snapshot: handleSnapshot,
+  browser_snapshot: handleBrowserSnapshotYaml,
+  getUrl: handleGetUrl,
+  getTitle: handleGetTitle,
 
   // Search tool (requires external dependencies)
   search: handleSearch,

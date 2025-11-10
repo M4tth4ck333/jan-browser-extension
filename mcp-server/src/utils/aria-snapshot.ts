@@ -4,45 +4,53 @@
 import { callExtension, setActiveTabId } from "./bridge.js";
 import type { ToolResult } from "../tools/tool.js";
 
-export async function captureAriaSnapshot(targetUrl?: string): Promise<ToolResult> {
+function extractText(response: any, fallback: string = ""): string {
+  if (!response) return fallback;
+  const direct = response?.data?.text || response?.data?.title || response?.data?.url;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  const contentEntry = Array.isArray(response?.content) ? response.content.find((item: any) => item?.type === "text") : null;
+  if (contentEntry?.text) return String(contentEntry.text);
+  return fallback;
+}
+
+export async function captureAriaSnapshot(targetUrl?: string, status: string = ""): Promise<ToolResult> {
   try {
-    const response = await callExtension("snapshot", targetUrl ? { url: targetUrl } : {});
-    const snapshot = response?.data;
+    const params = targetUrl ? { url: targetUrl } : {};
 
-    if (!snapshot) {
-      console.error("[aria-snapshot] No data returned from extension", { response });
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Failed to capture snapshot: No data returned from extension",
-          },
-        ],
-        isError: true,
-      };
+    const urlResponse = await callExtension("getUrl", params);
+    const titleResponse = await callExtension("getTitle", params);
+    const snapshotResponse = await callExtension("browser_snapshot", params);
+
+    const pageUrl =
+      urlResponse?.data?.url ||
+      extractText(urlResponse) ||
+      snapshotResponse?.data?.url ||
+      targetUrl ||
+      "unknown";
+    const pageTitle =
+      titleResponse?.data?.title ||
+      extractText(titleResponse) ||
+      snapshotResponse?.data?.title ||
+      "Untitled";
+
+    const yamlEntry = Array.isArray(snapshotResponse?.content)
+      ? snapshotResponse.content.find((item: any) => item?.type === "text")
+      : null;
+    const yaml =
+      (yamlEntry?.text && String(yamlEntry.text)) ||
+      (snapshotResponse?.data ? formatSnapshotAsYAML(snapshotResponse.data) : 'error: No snapshot data available');
+
+    const tabId =
+      (snapshotResponse?._meta?.tabId ??
+        snapshotResponse?.data?.tabId ??
+        urlResponse?._meta?.tabId ??
+        titleResponse?._meta?.tabId) as number | undefined;
+    if (typeof tabId === "number") {
+      setActiveTabId(tabId);
     }
 
-    if (!snapshot.url && !snapshot.title) {
-      console.error("[aria-snapshot] Snapshot data missing required fields", { snapshot });
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Failed to capture snapshot: Snapshot data is incomplete (missing url and title)",
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    if (typeof snapshot.tabId === "number") {
-      setActiveTabId(snapshot.tabId);
-    }
-
-    const pageUrl = snapshot.url || targetUrl || "unknown";
-    const pageTitle = snapshot.title || "Untitled";
-    const yaml = formatSnapshotAsYAML(snapshot);
-    const text = `- Page URL: ${pageUrl}
+    const statusLine = status ? `${status}\n` : "";
+    const text = `${statusLine}- Page URL: ${pageUrl}
 - Page Title: ${pageTitle}
 - Page Snapshot
 \`\`\`yaml
@@ -54,8 +62,8 @@ ${yaml}
     if (pageUrl && pageUrl !== "unknown") {
       meta.urls = [pageUrl];
     }
-    if (typeof snapshot.tabId === "number") {
-      meta.tabId = snapshot.tabId;
+    if (typeof tabId === "number") {
+      meta.tabId = tabId;
     }
 
     return {
