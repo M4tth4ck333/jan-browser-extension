@@ -54,6 +54,7 @@ export async function selectTab(options = {}) {
 
   let targetTabId = null;
   let tab = null;
+  let createdNewTab = false;
 
   // Strategy 1: Use registered tab if available
   if (mcpRegisteredTabId) {
@@ -75,27 +76,48 @@ export async function selectTab(options = {}) {
     // Use lastFocusedWindow instead of currentWindow
     // Service workers have no concept of "current window"
     const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (!activeTab) {
-      console.log(`[Tab Manager] ${toolName} - no active tab found`);
-      return {
-        ok: false,
-        error: 'No active tab. First navigate with visit(url="...", closeTab=false), or focus a tab manually.'
-      };
+    if (activeTab) {
+      tab = activeTab;
+      targetTabId = activeTab.id;
+      console.log(`[Tab Manager] ${toolName} - using active tab:`, targetTabId, 'window:', tab.windowId);
+    } else {
+      console.log(`[Tab Manager] ${toolName} - no active tab found, creating dedicated MCP tab`);
+      try {
+        tab = await chrome.tabs.create({ url: 'about:blank', active: true });
+        targetTabId = tab.id;
+        createdNewTab = true;
+        console.log(`[Tab Manager] ${toolName} - created new MCP tab:`, targetTabId);
+      } catch (error) {
+        console.error('[Tab Manager] Failed to create MCP tab:', error);
+        return {
+          ok: false,
+          error: 'Unable to create a browser tab for MCP operations. Please open a tab manually and try again.'
+        };
+      }
     }
-    tab = activeTab;
-    targetTabId = activeTab.id;
-    console.log(`[Tab Manager] ${toolName} - using active tab:`, targetTabId, 'window:', tab.windowId);
   }
 
   // Validate URL if required
   if (requireUrl) {
-    if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('about:')) {
+    const url = tab.url || '';
+    const normalized = url.toLowerCase();
+    if (
+      !url ||
+      normalized.startsWith('chrome://') ||
+      normalized.startsWith('chrome-extension://') ||
+      normalized.startsWith('edge://') ||
+      (normalized.startsWith('about:') && normalized !== 'about:blank')
+    ) {
       console.log(`[Tab Manager] ${toolName} - invalid URL:`, tab.url);
       return {
         ok: false,
-        error: 'Cannot operate on chrome:// or about: pages'
+        error: 'Cannot operate on browser-internal pages. Please navigate to a regular website first.'
       };
     }
+  }
+
+  if ((createdNewTab || !mcpRegisteredTabId) && typeof targetTabId === 'number') {
+    setMcpRegisteredTab(targetTabId);
   }
 
   return {

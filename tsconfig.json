@@ -1,16 +1,22 @@
 {
   "compilerOptions": {
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./ui/*"]
-    },
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["DOM", "DOM.Iterable", "ES2020"],
     "allowJs": true,
-    "jsx": "react-jsx",
-    "lib": ["ES2020", "DOM"],
-    "types": ["vitest", "vite/client"],
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
     "noEmit": true,
-    "skipLibCheck": true
+    "jsx": "react-jsx",
+    "types": ["chrome", "node"]
   },
-  "include": ["ui", "src", "tests", "vite.config.js", "postcss.config.js"],
-  "exclude": ["dist", "node_modules"]
+  "include": ["src/popup/**/*", "vite.config.ts"],
+  "exclude": ["node_modules", "dist", "build"]
 }

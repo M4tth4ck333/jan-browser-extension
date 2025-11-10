@@ -1,1 +1,0 @@
-[2025-08-14T08:01:27.627Z] search-mcp-server starting; bridge ws://127.0.0.1:17389

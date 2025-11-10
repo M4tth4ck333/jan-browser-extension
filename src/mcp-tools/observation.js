@@ -52,7 +52,8 @@ export async function handleScreenshot(params) {
       data: {
         url: tab.url,
         screenshot: dataUrl,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        tabId
       }
     };
   } catch (e) {
@@ -258,7 +259,7 @@ export async function handleSnapshot(params) {
       tabId: tabId
     });
 
-    return { ok: true, data: snapshot };
+    return { ok: true, data: { ...snapshot, tabId } };
   } catch (e) {
     console.error('[MCP Tools] snapshot error:', e);
     return { ok: false, error: String(e?.message || e) };

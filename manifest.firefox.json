@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Jan",
+  "name": "Jan Browser MCP",
   "version": "0.12.17",
-  "description": "The Jan companion for your browser: chat, inline writing help, search, and page context in the sidebar.",
+  "description": "Minimal browser extension that exposes tab automation to the Jan MCP bridge.",
   "browser_specific_settings": {
     "gecko": {
       "id": "jan-browser-extension@temp.local",
@@ -16,71 +16,31 @@
     "128": "icons/app-128.png"
   },
   "action": {
-    "default_title": "Open Jan",
+    "default_title": "Jan Browser MCP",
     "default_icon": {
       "16": "icons/toolbar-16.png",
       "32": "icons/toolbar-32.png"
-    }
+    },
+    "default_popup": "popup/index.html"
   },
   "permissions": [
     "storage",
     "activeTab",
     "tabs",
-    "scripting",
-    "clipboardWrite"
+    "windows",
+    "scripting"
   ],
   "host_permissions": [
-    "https://*/*",
-    "http://*/*",
-    "https://duckduckgo.com/*",
-    "https://html.duckduckgo.com/*",
-    "https://www.google.com/*",
-    "https://google.com/*"
+    "<all_urls>"
   ],
   "background": {
-    "scripts": ["src/background.js"]
+    "scripts": ["background/index.js"]
   },
-  "commands": {
-    "open_sidepanel": {
-      "suggested_key": {
-        "default": "Alt+J",
-        "mac": "Command+Shift+Y",
-        "windows": "Ctrl+Shift+Y",
-        "chromeos": "Ctrl+Shift+Y",
-        "linux": "Ctrl+Shift+Y"
-      },
-      "description": "Open Jan sidebar"
-    },
-    "open_custom_prompt": {
-      "suggested_key": {
-        "default": "Alt+Shift+P",
-        "mac": "Command+Shift+P",
-        "windows": "Ctrl+Shift+P",
-        "chromeos": "Ctrl+Shift+P",
-        "linux": "Ctrl+Shift+P"
-      },
-      "description": "Open custom prompt input"
-    },
-    "toggle_autocomplete": {
-      "suggested_key": {
-        "default": "Alt+K",
-        "mac": "Command+Shift+K",
-        "windows": "Ctrl+Shift+K",
-        "chromeos": "Ctrl+Shift+K",
-        "linux": "Ctrl+Shift+K"
-      },
-      "description": "Toggle Jan Autocomplete"
-    }
-  },
-  "sidebar_action": {
-    "default_title": "Jan",
-    "default_panel": "ui/sidepanel/index.html"
-  },
-  "options_page": "ui/options/index.html",
+  "commands": {},
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["src/content.js"],
+      "js": ["content/index.js"],
       "run_at": "document_idle",
       "all_frames": true,
       "match_about_blank": true
