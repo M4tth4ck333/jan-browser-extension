@@ -3,9 +3,9 @@
  */
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { callExtension, waitForBridgeConnection, hasExtensionConnection } from "../utils/bridge.js";
+import { callExtension, waitForBridgeConnection, hasExtensionConnection, setActiveTabId } from "../utils/bridge.js";
 import { captureAriaSnapshot } from "../utils/aria-snapshot.js";
-import type { Tool } from "./tool.js";
+import type { Tool, ToolResult } from "./tool.js";
 
 /**
  * Click an element on the page by CSS selector
@@ -27,7 +27,11 @@ export const click: Tool = {
     }
     const data = await callExtension("click_element", params);
 
-    // Return snapshot after clicking
+    const direct = useExtensionResult(data);
+    if (direct) {
+      return direct;
+    }
+
     return captureAriaSnapshot(data.data.finalUrl, `Clicked "${params.selector}"`);
   },
 };
@@ -54,6 +58,11 @@ export const type: Tool = {
     }
     const data = await callExtension("type_text", params);
 
+    const direct = useExtensionResult(data);
+    if (direct) {
+      return direct;
+    }
+
     const action = params.pressEnter ? `Typed "${params.text}" and pressed Enter` : `Typed "${params.text}"`;
     return captureAriaSnapshot(data.data.url, `${action} into "${params.selector}"`);
   },
@@ -78,6 +87,11 @@ export const hover: Tool = {
     }
     const data = await callExtension("hover_element", params);
 
+    const direct = useExtensionResult(data);
+    if (direct) {
+      return direct;
+    }
+
     return captureAriaSnapshot(data.data.url, `Hovered over "${params.selector}"`);
   },
 };
@@ -101,6 +115,11 @@ export const selectOption: Tool = {
       await waitForBridgeConnection(4000);
     }
     const data = await callExtension("select_option", params);
+
+    const direct = useExtensionResult(data);
+    if (direct) {
+      return direct;
+    }
 
     return captureAriaSnapshot(data.data.url, `Selected option "${params.value}" in "${params.selector}"`);
   },
@@ -129,6 +148,11 @@ export const fillForm: Tool = {
       await waitForBridgeConnection(4000);
     }
     const data = await callExtension("fill_form", params);
+
+    const direct = useExtensionResult(data);
+    if (direct) {
+      return direct;
+    }
 
     const fieldCount = data.data.successfulFields || 0;
     return captureAriaSnapshot(data.data.url, `Filled ${fieldCount} form fields`);
@@ -172,3 +196,29 @@ export const executeScript: Tool = {
     };
   },
 };
+
+function useExtensionResult(data: any): ToolResult | null {
+  if (Array.isArray(data?.content)) {
+    if (typeof data?._meta?.tabId === "number") {
+      setActiveTabId(data._meta.tabId);
+    } else if (typeof data?.data?.tabId === "number") {
+      setActiveTabId(data.data.tabId);
+    }
+
+    const result: ToolResult = {
+      content: data.content,
+    };
+
+    if (data._meta) {
+      result._meta = data._meta;
+    }
+
+    if (data.isError) {
+      result.isError = data.isError;
+    }
+
+    return result;
+  }
+
+  return null;
+}

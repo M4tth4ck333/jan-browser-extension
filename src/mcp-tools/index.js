@@ -49,6 +49,7 @@ export const mcpToolHandlers = {
 
   // Search tool (requires external dependencies)
   search: handleSearch,
+
 };
 
 /**

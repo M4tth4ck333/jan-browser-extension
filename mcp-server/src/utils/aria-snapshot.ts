@@ -8,6 +8,20 @@ export async function captureAriaSnapshot(url?: string, status: string = ""): Pr
   try {
     const data = await callExtension("snapshot", url ? { url } : {});
 
+    if (Array.isArray(data?.content)) {
+      if (typeof data?._meta?.tabId === "number") {
+        setActiveTabId(data._meta.tabId);
+      } else if (typeof data?.data?.tabId === "number") {
+        setActiveTabId(data.data.tabId);
+      }
+
+      return {
+        content: data.content,
+        _meta: data._meta,
+        isError: data.isError,
+      };
+    }
+
     // Validate that we have snapshot data
     if (!data || !data.data) {
       console.error("[aria-snapshot] No data returned from extension", { data });

@@ -19,6 +19,7 @@ export type ToolResult = {
   isError?: boolean;
   _meta?: {
     urls?: string[];
+    tabId?: number | null;
   };
 };
 

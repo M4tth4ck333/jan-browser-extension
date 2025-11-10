@@ -3,6 +3,7 @@
 
 import { selectTab } from '../lib/tab-manager.js';
 import { TAB_REGISTRATION_DELAY } from '../constants.js';
+import { captureSnapshotResponse, createErrorResult } from './snapshot-utils.js';
 
 /**
  * Executes arbitrary JavaScript in the selected tab
@@ -11,38 +12,54 @@ export async function handleExecuteScript(params) {
   const script = String(params?.script || '').trim();
 
   if (!script) {
-    return { ok: false, error: 'Missing script parameter' };
+    return createErrorResult('Execute script failed', 'Missing script parameter');
   }
 
   console.log('[MCP Tools] execute_script', { scriptLength: script.length });
 
   try {
     const selection = await selectTab({ toolName: 'execute_script' });
-    if (!selection.ok) return selection;
+    if (!selection.ok) {
+      return createErrorResult('Execute script failed', selection.error);
+    }
 
     const { tabId, tab } = selection;
 
-    // Execute the script
-    const args = params?.args || [];
+    const args = Array.isArray(params?.args) ? params.args : [];
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId },
       func: new Function('args', script),
-      args: [args]
+      args: [args],
     });
 
     console.log('[MCP Tools] script executed', { url: tab.url, resultType: typeof result });
 
+    const meta = {};
+    if (tab?.url) meta.urls = [tab.url];
+    if (typeof tabId === 'number') meta.tabId = tabId;
+
+    const text = `Script executed successfully on ${tab?.url || 'current page'}.` +
+      `\n\nResult:\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\``;
+
     return {
       ok: true,
+      content: [
+        {
+          type: 'text',
+          text,
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
       data: {
         url: tab.url,
-        result: result,
-        timestamp: new Date().toISOString()
-      }
+        result,
+        timestamp: new Date().toISOString(),
+        tabId,
+      },
     };
   } catch (e) {
     console.error('[MCP Tools] execute_script error:', e);
-    return { ok: false, error: String(e?.message || e) };
+    return createErrorResult('Execute script failed', e);
   }
 }
 
@@ -53,7 +70,7 @@ export async function handleClickElement(params) {
   const selector = String(params?.selector || '').trim();
 
   if (!selector) {
-    return { ok: false, error: 'Missing selector parameter' };
+    return createErrorResult('Click failed', 'Missing selector parameter');
   }
 
   const waitForNavigation = params?.waitForNavigation !== false; // default true
@@ -62,30 +79,27 @@ export async function handleClickElement(params) {
 
   try {
     const selection = await selectTab({ toolName: 'click_element' });
-    if (!selection.ok) return selection;
+    if (!selection.ok) {
+      return createErrorResult('Click failed', selection.error);
+    }
 
     const { tabId } = selection;
 
-    // Get current URL before clicking
     const beforeTab = await chrome.tabs.get(tabId);
     const originalUrl = beforeTab.url;
 
-    // Click the element with comprehensive event simulation
     const [{ result: clicked }] = await chrome.scripting.executeScript({
       target: { tabId },
       func: (sel) => {
         const el = document.querySelector(sel);
         if (!el) return { success: false, error: 'Element not found' };
 
-        // Scroll element into view smoothly
         el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
 
-        // Get element position for accurate event coordinates
         const rect = el.getBoundingClientRect();
         const x = rect.left + rect.width / 2;
         const y = rect.top + rect.height / 2;
 
-        // Create comprehensive mouse event options
         const mouseEventOptions = {
           bubbles: true,
           cancelable: true,
@@ -96,68 +110,84 @@ export async function handleClickElement(params) {
           screenY: y,
           button: 0,
           buttons: 1,
-          composed: true
+          composed: true,
         };
 
-        // Full mouse interaction sequence
         el.dispatchEvent(new MouseEvent('mouseover', mouseEventOptions));
         el.dispatchEvent(new MouseEvent('mouseenter', { ...mouseEventOptions, bubbles: false }));
         el.dispatchEvent(new MouseEvent('mousemove', mouseEventOptions));
         el.dispatchEvent(new MouseEvent('mousedown', mouseEventOptions));
 
-        // Focus the element
         if (el.focus) {
           el.focus();
         }
 
-        // Complete the click sequence
         el.dispatchEvent(new MouseEvent('mouseup', mouseEventOptions));
         el.dispatchEvent(new MouseEvent('click', { ...mouseEventOptions, detail: 1 }));
 
-        // Trigger native click for maximum compatibility
         try {
           el.click();
         } catch (e) {
-          // Some elements may not support native click
+          // ignore
         }
 
-        // Trigger pointer events for modern frameworks
         el.dispatchEvent(new PointerEvent('pointerdown', mouseEventOptions));
         el.dispatchEvent(new PointerEvent('pointerup', mouseEventOptions));
 
         return { success: true, element: el.tagName, focused: document.activeElement === el };
       },
-      args: [selector]
+      args: [selector],
     });
 
     if (!clicked.success) {
-      return { ok: false, error: clicked.error || 'Click failed' };
+      return createErrorResult('Click failed', clicked.error || 'Click failed');
     }
 
-    // Wait for navigation if requested
     if (waitForNavigation) {
       await new Promise((resolve) => setTimeout(resolve, TAB_REGISTRATION_DELAY));
     }
 
-    // Get the new URL after clicking
     const afterTab = await chrome.tabs.get(tabId);
     const finalUrl = afterTab.url;
 
     console.log('[MCP Tools] element clicked', { originalUrl, finalUrl, selector });
 
+    const details = [];
+    if (originalUrl && originalUrl !== finalUrl) {
+      details.push(`Original URL: ${originalUrl}`);
+    }
+    if (finalUrl) {
+      details.push(`Final URL: ${finalUrl}`);
+    }
+
+    const snapshotResult = await captureSnapshotResponse({
+      tabId,
+      status: `Clicked "${selector}"`,
+      details,
+      fallbackUrl: finalUrl,
+    });
+
+    if (!snapshotResult.ok) {
+      return snapshotResult;
+    }
+
     return {
       ok: true,
+      content: snapshotResult.content,
+      _meta: snapshotResult._meta,
       data: {
-        originalUrl: originalUrl,
-        finalUrl: finalUrl,
-        selector: selector,
+        originalUrl,
+        finalUrl,
+        selector,
         clicked: true,
-        timestamp: new Date().toISOString()
-      }
+        timestamp: new Date().toISOString(),
+        tabId,
+        snapshot: snapshotResult.snapshot,
+      },
     };
   } catch (e) {
     console.error('[MCP Tools] click_element error:', e);
-    return { ok: false, error: String(e?.message || e) };
+    return createErrorResult('Click failed', e);
   }
 }
 
@@ -168,18 +198,19 @@ export async function handleFillForm(params) {
   const fields = params?.fields || [];
 
   if (!Array.isArray(fields) || fields.length === 0) {
-    return { ok: false, error: 'Missing or empty fields array' };
+    return createErrorResult('Fill form failed', 'Missing or empty fields array');
   }
 
   console.log('[MCP Tools] fill_form', { fieldCount: fields.length });
 
   try {
     const selection = await selectTab({ toolName: 'fill_form' });
-    if (!selection.ok) return selection;
+    if (!selection.ok) {
+      return createErrorResult('Fill form failed', selection.error);
+    }
 
     const { tabId, tab } = selection;
 
-    // Fill the form fields
     const [{ result: fillResult }] = await chrome.scripting.executeScript({
       target: { tabId },
       func: (fieldsToFill) => {
@@ -191,7 +222,6 @@ export async function handleFillForm(params) {
             continue;
           }
 
-          // Handle different input types
           if (el.tagName === 'SELECT') {
             el.value = field.value;
             el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -208,28 +238,60 @@ export async function handleFillForm(params) {
         }
         return results;
       },
-      args: [fields]
+      args: [fields],
     });
 
-    const failedFields = fillResult.filter(r => !r.success);
-    const successCount = fillResult.filter(r => r.success).length;
+    const failedFields = fillResult.filter((r) => !r.success);
+    const successCount = fillResult.length - failedFields.length;
 
     console.log('[MCP Tools] form filled', { url: tab.url, successCount, failedCount: failedFields.length });
 
-    return {
-      ok: failedFields.length === 0,
+    const success = failedFields.length === 0;
+    const status = success
+      ? `Filled ${successCount} form fields`
+      : `Filled ${successCount} of ${fields.length} form fields (some failed)`;
+
+    const details = [];
+    if (failedFields.length > 0) {
+      const failedList = failedFields.map((f) => f.selector).join(', ');
+      details.push(`Failed selectors: ${failedList.slice(0, 200)}`);
+    }
+
+    const snapshotResult = await captureSnapshotResponse({
+      tabId,
+      status,
+      details,
+      fallbackUrl: tab?.url,
+    });
+
+    if (!snapshotResult.ok) {
+      return snapshotResult;
+    }
+
+    const response = {
+      ok: success,
+      content: snapshotResult.content,
+      _meta: snapshotResult._meta,
       data: {
         url: tab.url,
         totalFields: fields.length,
         successfulFields: successCount,
-        failedFields: failedFields,
+        failedFields,
         results: fillResult,
-        timestamp: new Date().toISOString()
-      }
+        timestamp: new Date().toISOString(),
+        tabId,
+        snapshot: snapshotResult.snapshot,
+      },
     };
+
+    if (!success) {
+      response.isError = true;
+    }
+
+    return response;
   } catch (e) {
     console.error('[MCP Tools] fill_form error:', e);
-    return { ok: false, error: String(e?.message || e) };
+    return createErrorResult('Fill form failed', e);
   }
 }
 
@@ -240,14 +302,17 @@ export async function handleTypeText(params) {
   const selector = String(params?.selector || '').trim();
   const text = String(params?.text || '');
   const clear = params?.clear !== false;
+  const pressEnter = params?.pressEnter === true;
 
   if (!selector) {
-    return { ok: false, error: 'Missing selector parameter' };
+    return createErrorResult('Type text failed', 'Missing selector parameter');
   }
 
   try {
     const selection = await selectTab({ toolName: 'type_text' });
-    if (!selection.ok) return selection;
+    if (!selection.ok) {
+      return createErrorResult('Type text failed', selection.error);
+    }
 
     const { tabId, tab } = selection;
 
@@ -257,10 +322,8 @@ export async function handleTypeText(params) {
         const el = document.querySelector(sel);
         if (!el) return { success: false, error: 'Element not found' };
 
-        // Scroll into view and focus
         el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
 
-        // Click to focus properly (important for contenteditable)
         const rect = el.getBoundingClientRect();
         const x = rect.left + rect.width / 2;
         const y = rect.top + rect.height / 2;
@@ -269,7 +332,7 @@ export async function handleTypeText(params) {
           cancelable: true,
           view: window,
           clientX: x,
-          clientY: y
+          clientY: y,
         }));
         el.focus();
         el.dispatchEvent(new MouseEvent('mouseup', {
@@ -277,44 +340,36 @@ export async function handleTypeText(params) {
           cancelable: true,
           view: window,
           clientX: x,
-          clientY: y
+          clientY: y,
         }));
 
-        // Helper to dispatch keyboard event with proper options
         function dispatchKey(element, type, char) {
           const keyCode = char.charCodeAt(0);
-          const key = char;
           const code = char.length === 1 && char.match(/[a-zA-Z]/) ? `Key${char.toUpperCase()}` : char;
 
           element.dispatchEvent(new KeyboardEvent(type, {
-            key: key,
-            code: code,
-            keyCode: keyCode,
+            key: char,
+            code,
+            keyCode,
             which: keyCode,
             charCode: type === 'keypress' ? keyCode : 0,
             bubbles: true,
             cancelable: true,
             composed: true,
-            view: window
+            view: window,
           }));
         }
 
-        // Handle contenteditable elements (Slack, Discord, Notion, etc.)
         const isContentEditable = el.contentEditable === 'true' || el.getAttribute('contenteditable') === 'true';
 
         if (isContentEditable) {
-          // Clear existing content if requested
           if (clr) {
             el.textContent = '';
             el.innerHTML = '';
           }
 
-          // Set focus and selection at the end
-          el.focus();
           const selection = window.getSelection();
           const range = document.createRange();
-
-          // Move cursor to end of content
           if (el.childNodes.length > 0) {
             const lastNode = el.childNodes[el.childNodes.length - 1];
             range.setStartAfter(lastNode);
@@ -326,26 +381,22 @@ export async function handleTypeText(params) {
           selection.removeAllRanges();
           selection.addRange(range);
 
-          // Type character by character with proper events
           for (let i = 0; i < txt.length; i++) {
             const char = txt[i];
 
-            // Dispatch beforeinput event (modern way)
             const beforeInputEvent = new InputEvent('beforeinput', {
               bubbles: true,
               cancelable: true,
               inputType: 'insertText',
               data: char,
-              composed: true
+              composed: true,
             });
             el.dispatchEvent(beforeInputEvent);
 
-            // Insert the character using execCommand (works better for contenteditable)
             if (document.execCommand) {
               document.execCommand('insertText', false, char);
             } else {
-              // Fallback: insert text node at cursor position
-              const textNode = document.createTextNode(char);
+              const textNode = new Text(char);
               const sel = window.getSelection();
               if (sel.rangeCount > 0) {
                 const currentRange = sel.getRangeAt(0);
@@ -360,40 +411,32 @@ export async function handleTypeText(params) {
               }
             }
 
-            // Dispatch keyboard events
             dispatchKey(el, 'keydown', char);
             dispatchKey(el, 'keypress', char);
 
-            // Dispatch input event (after content is inserted)
-            const inputEvent = new InputEvent('input', {
+            el.dispatchEvent(new InputEvent('input', {
               bubbles: true,
               cancelable: false,
               inputType: 'insertText',
               data: char,
-              composed: true
-            });
-            el.dispatchEvent(inputEvent);
+              composed: true,
+            }));
 
             dispatchKey(el, 'keyup', char);
           }
 
-          // Dispatch change event after all typing
           el.dispatchEvent(new Event('change', { bubbles: true }));
 
-          // Press Enter if requested
           if (pressEnter) {
             dispatchKey(el, 'keydown', 'Enter');
-
-            // Insert line break or trigger submit
             if (document.execCommand) {
               document.execCommand('insertLineBreak', false, null);
             }
-
             dispatchKey(el, 'keypress', 'Enter');
             el.dispatchEvent(new InputEvent('input', {
               bubbles: true,
               inputType: 'insertLineBreak',
-              composed: true
+              composed: true,
             }));
             dispatchKey(el, 'keyup', 'Enter');
           }
@@ -402,63 +445,47 @@ export async function handleTypeText(params) {
             success: true,
             type: 'contenteditable',
             pressedEnter: pressEnter,
-            finalContent: el.textContent.slice(0, 100)
+            finalContent: el.textContent.slice(0, 100),
           };
         }
 
-        // Handle regular input/textarea elements
         if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-          // Clear if requested
           if (clr) {
             el.value = '';
           }
 
-          const startValue = el.value;
-
-          // Use native value setter to bypass React/Vue watchers
           const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
             el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype,
-            'value'
+            'value',
           ).set;
 
-          // Type character by character for better compatibility
           for (let i = 0; i < txt.length; i++) {
             const char = txt[i];
             const currentValue = el.value;
-            const newValue = currentValue + char;
+            nativeInputValueSetter.call(el, currentValue + char);
 
-            // Update value
-            nativeInputValueSetter.call(el, newValue);
-
-            // Dispatch keyboard events
             dispatchKey(el, 'keydown', char);
             dispatchKey(el, 'keypress', char);
 
-            // Dispatch input event for React/Vue
             el.dispatchEvent(new InputEvent('input', {
               bubbles: true,
               cancelable: false,
               inputType: 'insertText',
               data: char,
-              composed: true
+              composed: true,
             }));
 
             dispatchKey(el, 'keyup', char);
           }
 
-          // Dispatch change event
           el.dispatchEvent(new Event('change', { bubbles: true }));
 
-          // Press Enter if requested
           if (pressEnter) {
             dispatchKey(el, 'keydown', 'Enter');
             dispatchKey(el, 'keypress', 'Enter');
-
-            // For input fields in forms, submit
             if (el.form && el.tagName === 'INPUT') {
               el.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
             }
-
             dispatchKey(el, 'keyup', 'Enter');
           }
 
@@ -466,23 +493,62 @@ export async function handleTypeText(params) {
             success: true,
             type: el.tagName.toLowerCase(),
             pressedEnter: pressEnter,
-            finalValue: el.value.slice(0, 100)
+            finalValue: el.value.slice(0, 100),
           };
         }
 
-        // Fallback for other elements
         return { success: false, error: 'Element is not a valid input, textarea, or contenteditable element' };
       },
-      args: [selector, text, clear, params?.pressEnter || false]
+      args: [selector, text, clear, pressEnter],
     });
 
     if (!typed.success) {
-      return { ok: false, error: typed.error };
+      return createErrorResult('Type text failed', typed.error || 'Typing failed');
     }
 
-    return { ok: true, data: { url: tab.url, selector, text: text.slice(0, 50) } };
+    const truncated = text.length > 80 ? `${text.slice(0, 77)}...` : text;
+    const status = pressEnter
+      ? `Typed "${truncated}" and pressed Enter into "${selector}"`
+      : `Typed "${truncated}" into "${selector}"`;
+
+    const details = [];
+    if (typed.finalValue) {
+      details.push(`Final value: ${typed.finalValue}`);
+    }
+    if (typed.finalContent) {
+      details.push(`Final content: ${typed.finalContent}`);
+    }
+
+    const snapshotResult = await captureSnapshotResponse({
+      tabId,
+      status,
+      details,
+      fallbackUrl: tab?.url,
+    });
+
+    if (!snapshotResult.ok) {
+      return snapshotResult;
+    }
+
+    return {
+      ok: true,
+      content: snapshotResult.content,
+      _meta: snapshotResult._meta,
+      data: {
+        url: tab.url,
+        selector,
+        text: text.slice(0, 200),
+        clear,
+        pressEnter,
+        result: typed,
+        timestamp: new Date().toISOString(),
+        tabId,
+        snapshot: snapshotResult.snapshot,
+      },
+    };
   } catch (e) {
-    return { ok: false, error: String(e?.message || e) };
+    console.error('[MCP Tools] type_text error:', e);
+    return createErrorResult('Type text failed', e);
   }
 }
 
@@ -493,12 +559,14 @@ export async function handleHoverElement(params) {
   const selector = String(params?.selector || '').trim();
 
   if (!selector) {
-    return { ok: false, error: 'Missing selector parameter' };
+    return createErrorResult('Hover failed', 'Missing selector parameter');
   }
 
   try {
     const selection = await selectTab({ toolName: 'hover_element' });
-    if (!selection.ok) return selection;
+    if (!selection.ok) {
+      return createErrorResult('Hover failed', selection.error);
+    }
 
     const { tabId, tab } = selection;
 
@@ -511,18 +579,40 @@ export async function handleHoverElement(params) {
         el.dispatchEvent(event);
         return { success: true };
       },
-      args: [selector]
+      args: [selector],
     });
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     if (!hovered.success) {
-      return { ok: false, error: hovered.error };
+      return createErrorResult('Hover failed', hovered.error || 'Hover failed');
     }
 
-    return { ok: true, data: { url: tab.url, selector } };
+    const snapshotResult = await captureSnapshotResponse({
+      tabId,
+      status: `Hovered over "${selector}"`,
+      fallbackUrl: tab?.url,
+    });
+
+    if (!snapshotResult.ok) {
+      return snapshotResult;
+    }
+
+    return {
+      ok: true,
+      content: snapshotResult.content,
+      _meta: snapshotResult._meta,
+      data: {
+        url: tab.url,
+        selector,
+        timestamp: new Date().toISOString(),
+        tabId,
+        snapshot: snapshotResult.snapshot,
+      },
+    };
   } catch (e) {
-    return { ok: false, error: String(e?.message || e) };
+    console.error('[MCP Tools] hover_element error:', e);
+    return createErrorResult('Hover failed', e);
   }
 }
 
@@ -534,12 +624,14 @@ export async function handleSelectOption(params) {
   const value = String(params?.value || '');
 
   if (!selector || !value) {
-    return { ok: false, error: 'Missing selector or value parameter' };
+    return createErrorResult('Select option failed', 'Missing selector or value parameter');
   }
 
   try {
     const selection = await selectTab({ toolName: 'select_option' });
-    if (!selection.ok) return selection;
+    if (!selection.ok) {
+      return createErrorResult('Select option failed', selection.error);
+    }
 
     const { tabId, tab } = selection;
 
@@ -552,15 +644,38 @@ export async function handleSelectOption(params) {
         el.dispatchEvent(new Event('change', { bubbles: true }));
         return { success: true, selectedValue: el.value };
       },
-      args: [selector, value]
+      args: [selector, value],
     });
 
     if (!selected.success) {
-      return { ok: false, error: selected.error };
+      return createErrorResult('Select option failed', selected.error || 'Selection failed');
     }
 
-    return { ok: true, data: { url: tab.url, selector, value: selected.selectedValue } };
+    const snapshotResult = await captureSnapshotResponse({
+      tabId,
+      status: `Selected option "${selected.selectedValue}" in "${selector}"`,
+      fallbackUrl: tab?.url,
+    });
+
+    if (!snapshotResult.ok) {
+      return snapshotResult;
+    }
+
+    return {
+      ok: true,
+      content: snapshotResult.content,
+      _meta: snapshotResult._meta,
+      data: {
+        url: tab.url,
+        selector,
+        value: selected.selectedValue,
+        timestamp: new Date().toISOString(),
+        tabId,
+        snapshot: snapshotResult.snapshot,
+      },
+    };
   } catch (e) {
-    return { ok: false, error: String(e?.message || e) };
+    console.error('[MCP Tools] select_option error:', e);
+    return createErrorResult('Select option failed', e);
   }
 }

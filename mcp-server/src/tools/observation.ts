@@ -6,7 +6,7 @@ import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { callExtension, waitForBridgeConnection, hasExtensionConnection, setActiveTabId } from "../utils/bridge.js";
 import { captureAriaSnapshot } from "../utils/aria-snapshot.js";
-import type { Tool } from "./tool.js";
+import type { Tool, ToolResult } from "./tool.js";
 
 /**
  * Capture a comprehensive snapshot of the CURRENTLY ACTIVE TAB
@@ -62,6 +62,11 @@ export const screenshot: Tool = {
 
     try {
       const data = await callExtension("screenshot", {});
+
+      const direct = useExtensionResult(data);
+      if (direct) {
+        return direct;
+      }
 
       // Validate screenshot data exists and is not empty
       const screenshot = data?.data?.screenshot;
@@ -142,7 +147,11 @@ export const webSearch: Tool = {
     try {
       const data = await callExtension("search", params);
 
-      // Format the search results
+      const direct = useExtensionResult(data);
+      if (direct) {
+        return direct;
+      }
+
       const result = data.data;
       const format = params.format || "serper";
 
@@ -175,17 +184,17 @@ export const webSearch: Tool = {
           content: [{ type: "text", text }],
           _meta: { urls: result.urls || [] },
         };
-      } else {
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-          _meta: { urls: result.urls || [] },
-        };
       }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+        _meta: { urls: result.urls || [] },
+      };
     } catch (err: any) {
       return {
         content: [
@@ -199,6 +208,32 @@ export const webSearch: Tool = {
     }
   },
 };
+
+function useExtensionResult(data: any): ToolResult | null {
+  if (Array.isArray(data?.content)) {
+    if (typeof data?._meta?.tabId === "number") {
+      setActiveTabId(data._meta.tabId);
+    } else if (typeof data?.data?.tabId === "number") {
+      setActiveTabId(data.data.tabId);
+    }
+
+    const result: ToolResult = {
+      content: data.content,
+    };
+
+    if (data._meta) {
+      result._meta = data._meta;
+    }
+
+    if (data.isError) {
+      result.isError = data.isError;
+    }
+
+    return result;
+  }
+
+  return null;
+}
 
 /**
  * Get current browser status

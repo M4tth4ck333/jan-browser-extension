@@ -1,0 +1,910 @@
+// snapshot-utils.js
+// Shared helpers for building ARIA snapshot responses that match the MCP server
+
+import { selectTab } from '../lib/tab-manager.js';
+
+const DEBUGGER_PROTOCOL_VERSION = '1.3';
+const MAX_TREE_DEPTH = 8;
+const MAX_CHILDREN_PER_NODE = 16;
+const MAX_INTERACTIVE_ELEMENTS = 60;
+const MAX_LANDMARKS = 20;
+
+const INTERACTIVE_ROLE_KEYS = new Set(
+  [
+    'button',
+    'link',
+    'textbox',
+    'textfield',
+    'searchbox',
+    'combobox',
+    'menuitem',
+    'menuitemcheckbox',
+    'menuitemradio',
+    'menu',
+    'menubar',
+    'listitem',
+    'listboxoption',
+    'option',
+    'treeitem',
+    'gridcell',
+    'row',
+    'cell',
+    'switch',
+    'checkbox',
+    'radiobutton',
+    'slider',
+    'tab',
+    'tabpanel',
+    'togglebutton',
+    'buttonmenu',
+    'text',
+  ].map((role) => role.toLowerCase()),
+);
+
+const LANDMARK_ROLE_KEYS = new Set(
+  [
+    'banner',
+    'navigation',
+    'main',
+    'contentinfo',
+    'complementary',
+    'search',
+    'region',
+    'form',
+    'aside',
+    'footer',
+    'header',
+  ].map((role) => role.toLowerCase()),
+);
+
+function createErrorResult(message, error) {
+  const text = `${message}: ${String(error?.message || error)}`;
+  return {
+    ok: false,
+    error: text,
+    content: [
+      {
+        type: 'text',
+        text,
+      },
+    ],
+    isError: true,
+  };
+}
+
+function formatSnapshotAsYAML(data) {
+  if (!data) {
+    return 'error: No snapshot data available';
+  }
+
+  const lines = [];
+
+  const pageUrl = data.url || 'unknown';
+  const pageTitle = data.title || 'Untitled';
+
+  lines.push(`url: ${pageUrl}`);
+  lines.push(`title: ${pageTitle}`);
+
+  if (data.description) {
+    lines.push(`description: ${data.description}`);
+  }
+
+  if (data.viewport) {
+    lines.push('viewport:');
+    lines.push(`  width: ${data.viewport.width || 0}`);
+    lines.push(`  height: ${data.viewport.height || 0}`);
+  }
+
+  if (data.aria?.landmarks?.length) {
+    lines.push('landmarks:');
+    for (const landmark of data.aria.landmarks.slice(0, 10)) {
+      lines.push(`  - role: ${landmark.role || 'unknown'}`);
+      if (landmark.ariaLabel) lines.push(`    label: "${landmark.ariaLabel}"`);
+      if (landmark.id) lines.push(`    id: ${landmark.id}`);
+    }
+  }
+
+  if (data.aria?.interactive?.length) {
+    lines.push('interactive:');
+    for (const el of data.aria.interactive.slice(0, 20)) {
+      const role = el.role || 'unknown';
+      const index = typeof el.index === 'number' ? el.index : '?';
+      lines.push(`  - [${index}] ${role}`);
+      if (el.label) lines.push(`    label: "${el.label.slice(0, 80)}"`);
+      if (el.id) lines.push(`    id: ${el.id}`);
+      if (el.href) lines.push(`    href: ${el.href}`);
+      if (el.type) lines.push(`    type: ${el.type}`);
+    }
+  }
+
+  if (data.headings?.length) {
+    lines.push('headings:');
+    for (const heading of data.headings.slice(0, 10)) {
+      const level = heading.level || 'h?';
+      const text = (heading.text || '').slice(0, 100);
+      lines.push(`  - ${level}: "${text}"`);
+    }
+  }
+
+  if (data.forms?.length) {
+    lines.push('forms:');
+    for (const form of data.forms.slice(0, 3)) {
+      lines.push(`  - action: ${form.action || '(none)'}`);
+      lines.push(`    method: ${form.method || 'get'}`);
+      if (form.fields?.length) {
+        lines.push('    fields:');
+        for (const field of form.fields.slice(0, 5)) {
+          const type = field.type || 'unknown';
+          const identifier = field.name || field.id || '(unnamed)';
+          lines.push(`      - ${type}: ${identifier}`);
+        }
+      }
+    }
+  }
+
+  if (lines.length < 3) {
+    lines.push('note: Page snapshot appears minimal or empty');
+  }
+
+  return lines.join('\n');
+}
+
+function buildSnapshotText(snapshot, status, details = []) {
+  const normalizedDetails = (details || []).filter(Boolean);
+  const detailLines = normalizedDetails.map((line) => (line.startsWith('- ') ? line : `- ${line}`));
+  const detailBlock = detailLines.length ? `${detailLines.join('\n')}\n` : '';
+
+  const yaml = formatSnapshotAsYAML(snapshot);
+  const pageUrl = snapshot?.url || 'unknown';
+  const pageTitle = snapshot?.title || 'Untitled';
+
+  const statusLine = status ? `${status}\n` : '';
+
+  return (
+    `${statusLine}` +
+    `${detailBlock}` +
+    `- Page URL: ${pageUrl}\n` +
+    `- Page Title: ${pageTitle}\n` +
+    `- Page Snapshot (ARIA Tree + Metadata)\n` +
+    '```yaml\n' +
+    `${yaml}\n` +
+    '```'
+  );
+}
+
+async function captureDomSnapshot(tabId) {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const isInViewport = (element) => {
+        const rect = element.getBoundingClientRect();
+        return (
+          rect.top < window.innerHeight &&
+          rect.bottom > 0 &&
+          rect.left < window.innerWidth &&
+          rect.right > 0 &&
+          rect.width > 0 &&
+          rect.height > 0
+        );
+      };
+
+      const inferRole = (element) => {
+        const explicitRole = element.getAttribute('role');
+        if (explicitRole) return explicitRole;
+
+        const tag = element.tagName;
+        if (tag === 'A') return 'link';
+        if (tag === 'BUTTON') return 'button';
+        if (tag === 'INPUT') {
+          if (element.type === 'checkbox') return 'checkbox';
+          if (element.type === 'radio') return 'radio';
+          if (element.type === 'submit') return 'button';
+          return 'textbox';
+        }
+        if (tag === 'IMG') return 'img';
+        if (tag === 'NAV') return 'navigation';
+        if (tag === 'MAIN') return 'main';
+        if (tag === 'HEADER') return 'banner';
+        if (tag === 'FOOTER') return 'contentinfo';
+        if (tag === 'ASIDE') return 'complementary';
+        if (tag === 'SECTION') return 'region';
+        if (tag.match(/^H[1-6]$/)) return 'heading';
+        if (tag === 'FORM') return 'form';
+        if (element.hasAttribute('contenteditable')) return 'textbox';
+        return null;
+      };
+
+      const buildAriaTree = (element, depth = 0, maxDepth = 8) => {
+        if (!element || depth > maxDepth) return null;
+
+        const role = inferRole(element);
+        if (!role) {
+          const children = [];
+          for (const child of element.children) {
+            const childNode = buildAriaTree(child, depth + 1, maxDepth);
+            if (childNode) children.push(childNode);
+          }
+          if (children.length) {
+            return {
+              role: 'group',
+              name: '',
+              tag: element.tagName.toLowerCase(),
+              children: children.slice(0, 15),
+            };
+          }
+          return null;
+        }
+
+        const textContent = element.textContent?.trim() || '';
+        const ariaLabel =
+          element.getAttribute('aria-label') ||
+          element.getAttribute('aria-labelledby') ||
+          element.getAttribute('title') ||
+          (role === 'link' || role === 'button' ? textContent.slice(0, 100) : '');
+
+        const node = {
+          role,
+          name: ariaLabel || textContent.slice(0, 50) || '',
+          tag: element.tagName.toLowerCase(),
+        };
+
+        const attr = (name) => element.getAttribute(name);
+
+        if (attr('aria-expanded')) node.expanded = attr('aria-expanded') === 'true';
+        if (attr('aria-selected')) node.selected = attr('aria-selected') === 'true';
+        if (attr('aria-checked')) node.checked = attr('aria-checked') === 'true';
+        if (attr('aria-disabled')) node.disabled = attr('aria-disabled') === 'true';
+        if (attr('aria-level')) node.level = Number.parseInt(attr('aria-level'), 10);
+        if (attr('aria-current')) node.current = attr('aria-current');
+
+        if (element.id) node.id = element.id;
+        if (element.className && typeof element.className === 'string') {
+          const trimmed = element.className.trim();
+          if (trimmed) node.className = trimmed.split(/\s+/).slice(0, 3).join(' ');
+        }
+
+        if (element.href) node.href = element.href;
+
+        const children = [];
+        for (const child of element.children) {
+          const childNode = buildAriaTree(child, depth + 1, maxDepth);
+          if (childNode) children.push(childNode);
+        }
+        if (children.length) node.children = children.slice(0, 15);
+
+        return node;
+      };
+
+      const collectInteractiveElements = () => {
+        const results = [];
+        const selectors = 'a[href], button, input, select, textarea, [role="button"], [role="link"], [tabindex]';
+        const elements = Array.from(document.querySelectorAll(selectors));
+        let index = 0;
+        for (const el of elements) {
+          if (!isInViewport(el)) continue;
+          if (index >= 50) break;
+          const role = inferRole(el) || el.getAttribute('role') || el.tagName.toLowerCase();
+          const label =
+            el.getAttribute('aria-label') ||
+            el.getAttribute('placeholder') ||
+            el.getAttribute('title') ||
+            el.textContent?.trim().slice(0, 80) || '';
+          results.push({
+            index,
+            role,
+            tag: el.tagName.toLowerCase(),
+            label,
+            id: el.id || undefined,
+            name: el.name || undefined,
+            type: el.type || undefined,
+            href: el.href || undefined,
+            disabled: el.disabled || undefined,
+            ariaExpanded: el.getAttribute('aria-expanded') || undefined,
+            ariaSelected: el.getAttribute('aria-selected') || undefined,
+          });
+          index += 1;
+        }
+        return results;
+      };
+
+      const collectLandmarks = () => {
+        const results = [];
+        const selectors =
+          'main, nav, header, footer, aside, [role="main"], [role="navigation"], [role="banner"], [role="contentinfo"], [role="complementary"], [role="search"]';
+        for (const el of Array.from(document.querySelectorAll(selectors))) {
+          if (!isInViewport(el)) continue;
+          const role = inferRole(el) || el.getAttribute('role') || el.tagName.toLowerCase();
+          results.push({
+            role,
+            tag: el.tagName.toLowerCase(),
+            ariaLabel: el.getAttribute('aria-label') || undefined,
+            id: el.id || undefined,
+          });
+          if (results.length >= 10) break;
+        }
+        return results;
+      };
+
+      const collectLinks = () =>
+        Array.from(document.querySelectorAll('a[href]'))
+          .filter(isInViewport)
+          .slice(0, 30)
+          .map((a) => ({
+            text: a.textContent?.trim().slice(0, 120) || '',
+            href: a.href,
+            rel: a.rel || undefined,
+            ariaLabel: a.getAttribute('aria-label') || undefined,
+          }));
+
+      const collectImages = () =>
+        Array.from(document.querySelectorAll('img[src]'))
+          .filter(isInViewport)
+          .slice(0, 20)
+          .map((img) => ({
+            src: img.src,
+            alt: img.alt || '',
+            ariaLabel: img.getAttribute('aria-label') || undefined,
+          }));
+
+      const collectForms = () => {
+        const forms = Array.from(document.querySelectorAll('form'))
+          .filter(isInViewport)
+          .slice(0, 5);
+        return forms.map((form) => ({
+          action: form.action || '',
+          method: form.method || '',
+          ariaLabel: form.getAttribute('aria-label') || undefined,
+          fields: Array.from(form.querySelectorAll('input, select, textarea'))
+            .filter(isInViewport)
+            .slice(0, 15)
+            .map((field) => ({
+              type: field.type || field.tagName.toLowerCase(),
+              name: field.name || undefined,
+              id: field.id || undefined,
+              placeholder: field.placeholder || undefined,
+              ariaLabel: field.getAttribute('aria-label') || undefined,
+              required: field.required || undefined,
+            })),
+        }));
+      };
+
+      const collectHeadings = () =>
+        Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6'))
+          .filter(isInViewport)
+          .slice(0, 20)
+          .map((heading) => ({
+            level: heading.tagName,
+            text: heading.textContent?.trim().slice(0, 120) || '',
+            ariaLevel: heading.getAttribute('aria-level') || undefined,
+          }));
+
+      const description = document.querySelector('meta[name="description"]')?.content || '';
+      const canonical = document.querySelector('link[rel="canonical"]')?.href || '';
+
+      const snapshot = {
+        url: window.location.href,
+        title: document.title || '',
+        description,
+        canonical,
+        aria: {
+          tree: buildAriaTree(document.body) || null,
+          interactive: collectInteractiveElements(),
+          landmarks: collectLandmarks(),
+        },
+        links: collectLinks(),
+        images: collectImages(),
+        forms: collectForms(),
+        headings: collectHeadings(),
+        viewport: {
+          width: window.innerWidth,
+          height: window.innerHeight,
+          scrollX: window.scrollX,
+          scrollY: window.scrollY,
+        },
+        timestamp: new Date().toISOString(),
+      };
+
+      return snapshot;
+    },
+  });
+
+  return result || null;
+}
+
+function axValueToPrimitive(value) {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== 'object') return value;
+  if (Object.prototype.hasOwnProperty.call(value, 'value') && value.value !== undefined) {
+    return value.value;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, 'stringValue')) {
+    return value.stringValue;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, 'intValue')) {
+    return value.intValue;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, 'numberValue')) {
+    return value.numberValue;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, 'boolValue')) {
+    return value.boolValue;
+  }
+  return undefined;
+}
+
+function getRole(node) {
+  const value = axValueToPrimitive(node?.role);
+  return typeof value === 'string' ? value : undefined;
+}
+
+function getRoleKey(node) {
+  const role = getRole(node);
+  return role ? role.toLowerCase() : '';
+}
+
+function getAccessibleName(node) {
+  const value = axValueToPrimitive(node?.name);
+  return typeof value === 'string' ? value : undefined;
+}
+
+function getAccessibleDescription(node) {
+  const value = axValueToPrimitive(node?.description);
+  return typeof value === 'string' ? value : undefined;
+}
+
+function axEntriesToObject(entries = []) {
+  const result = {};
+  for (const entry of entries || []) {
+    if (!entry || !entry.name) continue;
+    const primitive = axValueToPrimitive(entry.value);
+    if (primitive === undefined || primitive === null || primitive === '') continue;
+    result[entry.name] = primitive;
+  }
+  return result;
+}
+
+function compactObject(source = {}) {
+  const result = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (value === undefined || value === null) continue;
+    if (typeof value === 'string' && value.trim() === '') continue;
+    result[key] = value;
+  }
+  return result;
+}
+
+function serializeAxNode(node, map, depth = 0) {
+  if (!node || depth > MAX_TREE_DEPTH) return null;
+
+  const role = getRole(node);
+  const name = getAccessibleName(node);
+  const description = getAccessibleDescription(node);
+  const value = axValueToPrimitive(node?.value);
+
+  const serialized = compactObject({
+    id: node.nodeId,
+    role,
+    name,
+    description,
+    value,
+    ignored: node.ignored ? true : undefined,
+  });
+
+  if (Array.isArray(node.actions) && node.actions.length) {
+    serialized.actions = node.actions.slice(0, 6);
+  }
+
+  const properties = compactObject(axEntriesToObject(node.properties));
+  const state = compactObject(axEntriesToObject(node.state));
+
+  if (Object.keys(properties).length) serialized.properties = properties;
+  if (Object.keys(state).length) serialized.state = state;
+
+  if (node.backendDOMNodeId) serialized.backendNodeId = node.backendDOMNodeId;
+  if (node.domNodeId) serialized.domNodeId = node.domNodeId;
+
+  if (Array.isArray(node.childIds) && node.childIds.length) {
+    const children = [];
+    for (const childId of node.childIds) {
+      const child = map.get(childId);
+      const childNode = serializeAxNode(child, map, depth + 1);
+      if (childNode) children.push(childNode);
+      if (children.length >= MAX_CHILDREN_PER_NODE) break;
+    }
+    if (children.length) serialized.children = children;
+  }
+
+  return serialized;
+}
+
+function extractInteractiveFromAxNodes(nodes) {
+  if (!Array.isArray(nodes) || !nodes.length) return [];
+
+  const results = [];
+
+  for (const node of nodes) {
+    if (!node || node.ignored) continue;
+
+    const role = getRole(node);
+    const roleKey = getRoleKey(node);
+    const name = getAccessibleName(node);
+    const description = getAccessibleDescription(node);
+    const value = axValueToPrimitive(node?.value);
+    const properties = axEntriesToObject(node.properties);
+    const state = axEntriesToObject(node.state);
+    const actions = Array.isArray(node.actions) ? node.actions : [];
+
+    const interactiveRole = INTERACTIVE_ROLE_KEYS.has(roleKey);
+    const focusable = properties.focusable === true || properties.focusable === 'true' || state.focused === true;
+    const actionable = properties.clickable === true || actions.length > 0 || properties.haspopup === true;
+    const selected = state.selected === true;
+    const checked = state.checked === true;
+    const disabled = state.disabled === true || properties.disabled === true;
+
+    if (!interactiveRole && !focusable && !actionable && !selected && !checked) {
+      continue;
+    }
+
+    const mergedProperties = { ...properties };
+    delete mergedProperties.focusable;
+    delete mergedProperties.focused;
+    delete mergedProperties.selected;
+    delete mergedProperties.disabled;
+    delete mergedProperties.checked;
+    delete mergedProperties.clickable;
+
+    const entry = compactObject({
+      role,
+      label: name,
+      name,
+      description,
+      value,
+      focused: state.focused === true ? true : undefined,
+      selected: selected ? true : undefined,
+      checked: checked ? true : undefined,
+      disabled: disabled ? true : undefined,
+      actions: actions.length ? actions.slice(0, 6) : undefined,
+      backendNodeId: node.backendDOMNodeId || undefined,
+      domNodeId: node.domNodeId || undefined,
+      properties: compactObject(mergedProperties),
+    });
+
+    if (entry.properties && !Object.keys(entry.properties).length) {
+      delete entry.properties;
+    }
+
+    results.push(entry);
+
+    if (results.length >= MAX_INTERACTIVE_ELEMENTS) break;
+  }
+
+  return results.map((entry, index) => ({ ...entry, index }));
+}
+
+function extractLandmarksFromAxNodes(nodes) {
+  if (!Array.isArray(nodes) || !nodes.length) return [];
+
+  const results = [];
+
+  for (const node of nodes) {
+    if (!node || node.ignored) continue;
+
+    const role = getRole(node);
+    const roleKey = getRoleKey(node);
+    if (!LANDMARK_ROLE_KEYS.has(roleKey)) continue;
+
+    const name = getAccessibleName(node);
+    const description = getAccessibleDescription(node);
+
+    results.push(
+      compactObject({
+        role,
+        ariaLabel: name,
+        description,
+        backendNodeId: node.backendDOMNodeId || undefined,
+        domNodeId: node.domNodeId || undefined,
+      }),
+    );
+
+    if (results.length >= MAX_LANDMARKS) break;
+  }
+
+  return results;
+}
+
+function extractHeadingsFromAxNodes(nodes) {
+  if (!Array.isArray(nodes) || !nodes.length) return [];
+
+  const results = [];
+
+  for (const node of nodes) {
+    if (!node || node.ignored) continue;
+    if (getRoleKey(node) !== 'heading') continue;
+
+    const properties = axEntriesToObject(node.properties);
+    const name = getAccessibleName(node);
+    const value = axValueToPrimitive(node?.value);
+    const level = properties.level || properties.headingLevel || properties.hierarchicalLevel;
+    const text = name || (typeof value === 'string' ? value : undefined);
+
+    results.push(
+      compactObject({
+        level: typeof level === 'number' ? `H${level}` : level || 'heading',
+        text,
+        name: text,
+        backendNodeId: node.backendDOMNodeId || undefined,
+        domNodeId: node.domNodeId || undefined,
+      }),
+    );
+
+    if (results.length >= 30) break;
+  }
+
+  return results;
+}
+
+function mergeInteractiveLists(axInteractive, domInteractive) {
+  const fallback = Array.isArray(domInteractive) ? domInteractive : [];
+  if (!Array.isArray(axInteractive) || !axInteractive.length) {
+    return fallback;
+  }
+  if (!fallback.length) {
+    return axInteractive.map((entry, index) => ({ ...entry, index }));
+  }
+
+  const fallbackMap = new Map();
+  for (const item of fallback) {
+    if (!item) continue;
+    const key = `${(item.role || '').toLowerCase()}::${(item.label || item.name || '').toLowerCase()}`;
+    if (!fallbackMap.has(key)) fallbackMap.set(key, item);
+  }
+
+  const merged = axInteractive.map((item) => {
+    const key = `${(item.role || '').toLowerCase()}::${(item.label || item.name || '').toLowerCase()}`;
+    const fallbackItem = fallbackMap.get(key);
+    if (fallbackItem) {
+      return { ...fallbackItem, ...item };
+    }
+    return item;
+  });
+
+  return merged.map((entry, index) => ({ ...entry, index }));
+}
+
+function mergeLandmarks(axLandmarks, domLandmarks) {
+  const fallback = Array.isArray(domLandmarks) ? domLandmarks : [];
+  if (!Array.isArray(axLandmarks) || !axLandmarks.length) {
+    return fallback;
+  }
+  if (!fallback.length) {
+    return axLandmarks;
+  }
+
+  const fallbackMap = new Map();
+  for (const item of fallback) {
+    if (!item) continue;
+    const key = `${(item.role || '').toLowerCase()}::${(item.id || item.ariaLabel || '')}`;
+    if (!fallbackMap.has(key)) fallbackMap.set(key, item);
+  }
+
+  return axLandmarks.map((item) => {
+    const key = `${(item.role || '').toLowerCase()}::${item.ariaLabel || ''}`;
+    const fallbackItem = fallbackMap.get(key);
+    return fallbackItem ? { ...fallbackItem, ...item } : item;
+  });
+}
+
+function mergeHeadings(domHeadings = [], axHeadings = []) {
+  const merged = [];
+  const seen = new Set();
+  const combined = [];
+
+  if (Array.isArray(domHeadings)) combined.push(...domHeadings);
+  if (Array.isArray(axHeadings)) combined.push(...axHeadings);
+
+  for (const heading of combined) {
+    if (!heading) continue;
+    const level = heading.level || heading.tag || heading.role || '';
+    const text = heading.text || heading.name || '';
+    const key = `${String(level).toLowerCase()}::${text.toLowerCase()}`;
+    if (seen.has(key)) continue;
+
+    const normalized = { ...heading };
+    if (typeof normalized.level === 'number') {
+      normalized.level = `H${normalized.level}`;
+    }
+    if (!normalized.text && normalized.name) {
+      normalized.text = normalized.name;
+    }
+
+    merged.push(normalized);
+    seen.add(key);
+
+    if (merged.length >= 40) break;
+  }
+
+  return merged;
+}
+
+function attachDebugger(target) {
+  return new Promise((resolve, reject) => {
+    chrome.debugger.attach(target, DEBUGGER_PROTOCOL_VERSION, () => {
+      const error = chrome.runtime?.lastError;
+      if (error) {
+        reject(new Error(error.message));
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+function detachDebugger(target) {
+  return new Promise((resolve, reject) => {
+    chrome.debugger.detach(target, () => {
+      const error = chrome.runtime?.lastError;
+      if (error) {
+        reject(new Error(error.message));
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+function sendDebuggerCommand(target, method, params) {
+  return new Promise((resolve, reject) => {
+    chrome.debugger.sendCommand(target, method, params, (result) => {
+      const error = chrome.runtime?.lastError;
+      if (error) {
+        reject(new Error(error.message));
+      } else {
+        resolve(result);
+      }
+    });
+  });
+}
+
+async function captureAccessibilityTree(tabId) {
+  if (!chrome?.debugger?.attach) {
+    return null;
+  }
+
+  const target = { tabId };
+
+  try {
+    await attachDebugger(target);
+  } catch (error) {
+    console.warn('[snapshot] debugger attach failed', error);
+    return null;
+  }
+
+  try {
+    await sendDebuggerCommand(target, 'Accessibility.enable');
+
+    const response = await sendDebuggerCommand(target, 'Accessibility.getFullAXTree', {
+      maxDepth: MAX_TREE_DEPTH + 2,
+      fetchRelatives: true,
+    });
+
+    const nodes = Array.isArray(response?.nodes) ? response.nodes : [];
+    if (!nodes.length) {
+      return null;
+    }
+
+    const nodeMap = new Map(nodes.map((node) => [node.nodeId, node]));
+
+    const root =
+      nodes.find((node) => !node.ignored && ['rootwebarea', 'webarea'].includes(getRoleKey(node))) ||
+      nodes.find((node) => !node.ignored) ||
+      nodes[0];
+
+    const tree = serializeAxNode(root, nodeMap, 0);
+    const interactive = extractInteractiveFromAxNodes(nodes);
+    const landmarks = extractLandmarksFromAxNodes(nodes);
+    const headings = extractHeadingsFromAxNodes(nodes);
+
+    return {
+      tree,
+      interactive,
+      landmarks,
+      headings,
+    };
+  } catch (error) {
+    console.warn('[snapshot] accessibility capture failed', error);
+    return null;
+  } finally {
+    try {
+      await detachDebugger(target);
+    } catch (error) {
+      console.warn('[snapshot] debugger detach failed', error);
+    }
+  }
+}
+
+async function captureRawSnapshot(tabId) {
+  const domSnapshot = await captureDomSnapshot(tabId);
+  if (!domSnapshot) {
+    return null;
+  }
+
+  const fallbackAria = domSnapshot.aria || { tree: null, interactive: [], landmarks: [] };
+  const accessibility = await captureAccessibilityTree(tabId);
+
+  if (accessibility) {
+    const tree = accessibility.tree || fallbackAria.tree || null;
+    const interactive = mergeInteractiveLists(accessibility.interactive, fallbackAria.interactive);
+    const landmarks = mergeLandmarks(accessibility.landmarks, fallbackAria.landmarks);
+
+    domSnapshot.aria = {
+      tree,
+      interactive,
+      landmarks,
+    };
+
+    domSnapshot.headings = mergeHeadings(domSnapshot.headings, accessibility.headings);
+  } else if (!domSnapshot.aria) {
+    domSnapshot.aria = fallbackAria;
+  }
+
+  return domSnapshot;
+}
+
+export async function captureSnapshotForTab(tabId) {
+  try {
+    return await captureRawSnapshot(tabId);
+  } catch (error) {
+    throw createErrorResult('Snapshot capture failed', error);
+  }
+}
+
+export async function captureSnapshotResponse({
+  tabId,
+  status,
+  details = [],
+  fallbackUrl,
+}) {
+  try {
+    const snapshot = await captureRawSnapshot(tabId);
+    if (!snapshot) {
+      throw new Error('Snapshot returned empty result');
+    }
+
+    const text = buildSnapshotText(snapshot, status, details);
+    const urls = [];
+    if (snapshot.url) urls.push(snapshot.url);
+    else if (fallbackUrl) urls.push(fallbackUrl);
+
+    const meta = {};
+    if (urls.length) meta.urls = urls;
+    if (typeof tabId === 'number') meta.tabId = tabId;
+
+    return {
+      ok: true,
+      content: [
+        {
+          type: 'text',
+          text,
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
+      snapshot,
+    };
+  } catch (error) {
+    if (error?.ok === false && error.content) {
+      return error;
+    }
+    return createErrorResult('Snapshot failed', error);
+  }
+}
+
+export async function ensureTabForSnapshot(params = {}) {
+  const { toolName = 'snapshot', preferredUrl } = params;
+  const selection = await selectTab({ toolName, preferredUrl });
+  if (!selection.ok) {
+    return createErrorResult(`${toolName} tab selection failed`, selection.error);
+  }
+  return selection;
+}
+
+export { createErrorResult };

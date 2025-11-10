@@ -6,7 +6,7 @@ import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { callExtension, waitForBridgeConnection, hasExtensionConnection, setActiveTabId, getActiveTabId } from "../utils/bridge.js";
 import { captureAriaSnapshot } from "../utils/aria-snapshot.js";
-import type { Tool } from "./tool.js";
+import type { Tool, ToolResult } from "./tool.js";
 
 /**
  * Navigate to a specific URL and extract readable content
@@ -100,6 +100,11 @@ export const goBack: Tool = {
     }
     const data = await callExtension("go_back", params);
 
+    const direct = useExtensionResult(data);
+    if (direct) {
+      return direct;
+    }
+
     return captureAriaSnapshot(data.data.url, "Navigated back");
   },
 };
@@ -120,6 +125,11 @@ export const goForward: Tool = {
       await waitForBridgeConnection(4000);
     }
     const data = await callExtension("go_forward", params);
+
+    const direct = useExtensionResult(data);
+    if (direct) {
+      return direct;
+    }
 
     return captureAriaSnapshot(data.data.url, "Navigated forward");
   },
@@ -144,6 +154,11 @@ export const scroll: Tool = {
       await waitForBridgeConnection(4000);
     }
     const data = await callExtension("scroll_page", params);
+
+    const direct = useExtensionResult(data);
+    if (direct) {
+      return direct;
+    }
 
     return captureAriaSnapshot(data.data.url, `Scrolled ${params.direction}`);
   },
@@ -176,3 +191,29 @@ export const wait: Tool = {
     };
   },
 };
+
+function useExtensionResult(data: any): ToolResult | null {
+  if (Array.isArray(data?.content)) {
+    if (typeof data?._meta?.tabId === "number") {
+      setActiveTabId(data._meta.tabId);
+    } else if (typeof data?.data?.tabId === "number") {
+      setActiveTabId(data.data.tabId);
+    }
+
+    const result: ToolResult = {
+      content: data.content,
+    };
+
+    if (data._meta) {
+      result._meta = data._meta;
+    }
+
+    if (data.isError) {
+      result.isError = data.isError;
+    }
+
+    return result;
+  }
+
+  return null;
+}
