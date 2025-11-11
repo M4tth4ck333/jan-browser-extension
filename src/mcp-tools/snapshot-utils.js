@@ -2,12 +2,13 @@
 // Shared helpers for building ARIA snapshot responses that match the MCP server
 
 import { selectTab } from '../lib/tab-manager.js';
+import { setElementRefMap } from '../lib/element-ref-map.js';
 
 const DEBUGGER_PROTOCOL_VERSION = '1.3';
-const MAX_TREE_DEPTH = 8;
-const MAX_CHILDREN_PER_NODE = 16;
-const MAX_INTERACTIVE_ELEMENTS = 60;
-const MAX_LANDMARKS = 20;
+const MAX_TREE_DEPTH = 100;
+const MAX_CHILDREN_PER_NODE = 100;
+const MAX_INTERACTIVE_ELEMENTS = 100;
+const MAX_LANDMARKS = 100;
 
 const INTERACTIVE_ROLE_KEYS = new Set(
   [
@@ -119,6 +120,14 @@ function renderTree(node, depth = 0) {
   if (state.focused || node?.focused) stateFlags.push('[focused]');
   if (state.disabled || node?.disabled) stateFlags.push('[disabled]');
 
+  // Add Shadow DOM indicator
+  if (node?.inShadowDOM) {
+    stateFlags.push('[shadow-dom]');
+    if (node?.shadowHost) {
+      stateFlags.push(`[host=${node.shadowHost}]`);
+    }
+  }
+
   const properties = node?.properties || {};
   const headerMeta = [];
   const level =
@@ -193,8 +202,46 @@ async function captureDomSnapshot(tabId, fullPage = true) {
   const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId },
     func: (fullPage) => {
-      const buildElementRef = (element) => {
+      const buildElementRef = (element, shadowPath = []) => {
         if (!element || element.nodeType !== Node.ELEMENT_NODE) return null;
+
+        // Check if element is in a shadow DOM
+        let currentRoot = element.getRootNode();
+        const inShadowDOM = currentRoot !== document;
+
+        if (inShadowDOM && currentRoot.host) {
+          // Build path within shadow DOM
+          const shadowSegments = [];
+          let current = element;
+
+          while (current && current !== currentRoot) {
+            const parent = current.parentElement;
+            if (!parent) break;
+
+            let selector = current.tagName.toLowerCase();
+            const siblings = Array.from(parent.children).filter((child) => child.tagName === current.tagName);
+            if (siblings.length > 1) {
+              const index = siblings.indexOf(current) + 1;
+              selector += `:nth-of-type(${index})`;
+            }
+
+            shadowSegments.unshift(selector);
+            current = parent;
+          }
+
+          // Recursively build path to shadow host
+          const hostPath = buildElementRef(currentRoot.host, [...shadowPath, shadowSegments.join(' > ')]);
+          if (!hostPath) return null;
+
+          // Format: shadow:host-selector##shadow-internal-selector##nested-shadow-selector
+          if (shadowPath.length > 0 || shadowSegments.length > 0) {
+            const shadowPart = shadowSegments.join(' > ');
+            return `${hostPath}##${shadowPart}`;
+          }
+          return hostPath;
+        }
+
+        // Regular DOM element (not in shadow DOM)
         if (element === document.body) return 'css:body';
 
         const segments = [];
@@ -265,16 +312,31 @@ async function captureDomSnapshot(tabId, fullPage = true) {
         return null;
       };
 
-      const buildAriaTree = (element, depth = 0, maxDepth = MAX_TREE_DEPTH) => {
+      const buildAriaTree = (element, depth = 0, maxDepth = MAX_TREE_DEPTH, inShadow = false) => {
         if (!element || depth > maxDepth) return null;
 
         const role = inferRole(element);
         if (!role) {
           const children = [];
+
+          // Collect regular children
           for (const child of element.children) {
-            const childNode = buildAriaTree(child, depth + 1, maxDepth);
+            const childNode = buildAriaTree(child, depth + 1, maxDepth, inShadow);
             if (childNode) children.push(childNode);
           }
+
+          // Collect Shadow DOM children if element has shadowRoot
+          if (element.shadowRoot && element.shadowRoot.children) {
+            for (const shadowChild of element.shadowRoot.children) {
+              const childNode = buildAriaTree(shadowChild, depth + 1, maxDepth, true);
+              if (childNode) {
+                childNode.inShadowDOM = true;
+                childNode.shadowHost = element.tagName.toLowerCase();
+                children.push(childNode);
+              }
+            }
+          }
+
           if (children.length) {
             return {
               role: 'group',
@@ -302,6 +364,11 @@ async function captureDomSnapshot(tabId, fullPage = true) {
         const ref = buildElementRef(element);
         if (ref) node.ref = ref;
 
+        // Mark if this element is in Shadow DOM
+        if (inShadow) {
+          node.inShadowDOM = true;
+        }
+
         const attr = (name) => element.getAttribute(name);
 
         if (attr('aria-expanded')) node.expanded = attr('aria-expanded') === 'true';
@@ -320,10 +387,25 @@ async function captureDomSnapshot(tabId, fullPage = true) {
         if (element.href) node.href = element.href;
 
         const children = [];
+
+        // Collect regular children
         for (const child of element.children) {
-          const childNode = buildAriaTree(child, depth + 1, maxDepth);
+          const childNode = buildAriaTree(child, depth + 1, maxDepth, inShadow);
           if (childNode) children.push(childNode);
         }
+
+        // Collect Shadow DOM children if element has shadowRoot
+        if (element.shadowRoot && element.shadowRoot.children) {
+          for (const shadowChild of element.shadowRoot.children) {
+            const childNode = buildAriaTree(shadowChild, depth + 1, maxDepth, true);
+            if (childNode) {
+              childNode.inShadowDOM = true;
+              childNode.shadowHost = element.tagName.toLowerCase();
+              children.push(childNode);
+            }
+          }
+        }
+
         if (children.length) node.children = children.slice(0, MAX_CHILDREN_PER_NODE);
 
         return node;
@@ -332,33 +414,63 @@ async function captureDomSnapshot(tabId, fullPage = true) {
       const collectInteractiveElements = () => {
         const results = [];
         const selectors = 'a[href], button, input, select, textarea, [role="button"], [role="link"], [tabindex]';
-        const elements = Array.from(document.querySelectorAll(selectors));
-        let index = 0;
-        for (const el of elements) {
-          if (!shouldIncludeElement(el)) continue;
-          if (index >= 50) break;
-          const role = inferRole(el) || el.getAttribute('role') || el.tagName.toLowerCase();
-          const label =
-            el.getAttribute('aria-label') ||
-            el.getAttribute('placeholder') ||
-            el.getAttribute('title') ||
-            el.textContent?.trim().slice(0, 80) || '';
-          results.push({
-            index,
-            role,
-            tag: el.tagName.toLowerCase(),
-            label,
-            id: el.id || undefined,
-            name: el.name || undefined,
-            type: el.type || undefined,
-            href: el.href || undefined,
-            disabled: el.disabled || undefined,
-            ariaExpanded: el.getAttribute('aria-expanded') || undefined,
-            ariaSelected: el.getAttribute('aria-selected') || undefined,
-            ref: buildElementRef(el) || undefined,
-          });
-          index += 1;
-        }
+        const visited = new WeakSet();
+
+        const collectFromRoot = (root, inShadow = false) => {
+          const elements = Array.from(root.querySelectorAll(selectors));
+          for (const el of elements) {
+            if (visited.has(el)) continue;
+            visited.add(el);
+
+            if (!shouldIncludeElement(el)) continue;
+            if (results.length >= 50) return;
+
+            const role = inferRole(el) || el.getAttribute('role') || el.tagName.toLowerCase();
+            const label =
+              el.getAttribute('aria-label') ||
+              el.getAttribute('placeholder') ||
+              el.getAttribute('title') ||
+              el.textContent?.trim().slice(0, 80) || '';
+
+            const item = {
+              index: results.length,
+              role,
+              tag: el.tagName.toLowerCase(),
+              label,
+              id: el.id || undefined,
+              name: el.name || undefined,
+              type: el.type || undefined,
+              href: el.href || undefined,
+              disabled: el.disabled || undefined,
+              ariaExpanded: el.getAttribute('aria-expanded') || undefined,
+              ariaSelected: el.getAttribute('aria-selected') || undefined,
+              ref: buildElementRef(el) || undefined,
+            };
+
+            if (inShadow) {
+              item.inShadowDOM = true;
+            }
+
+            results.push(item);
+          }
+        };
+
+        const traverseShadowRoots = (root) => {
+          const allElements = root.querySelectorAll('*');
+          for (const el of allElements) {
+            if (el.shadowRoot) {
+              collectFromRoot(el.shadowRoot, true);
+              traverseShadowRoots(el.shadowRoot);
+            }
+          }
+        };
+
+        // Collect from main document
+        collectFromRoot(document);
+
+        // Collect from all shadow DOMs
+        traverseShadowRoots(document);
+
         return results;
       };
 
@@ -502,6 +614,81 @@ function getRoleKey(node) {
   return role ? role.toLowerCase() : '';
 }
 
+function isUnhelpfulLabel(label, role) {
+  if (!label || typeof label !== 'string') return true;
+
+  const lowerLabel = label.toLowerCase();
+
+  // Filter out common third-party extension labels
+  const extensionPatterns = [
+    'grammarly',
+    'screen reader interactions',
+    'please activate',
+    'browser extension',
+    'add-on',
+  ];
+
+  for (const pattern of extensionPatterns) {
+    if (lowerLabel.includes(pattern)) return true;
+  }
+
+  // For textboxes, filter out very generic or empty labels
+  if (role === 'textbox' || role === 'searchbox' || role === 'combobox') {
+    if (label.length < 3) return true;
+    if (lowerLabel === 'text' || lowerLabel === 'input') return true;
+  }
+
+  return false;
+}
+
+function getImprovedAccessibleName(node) {
+  const role = normalizeAxRole(getRole(node));
+  const rawName = axValueToPrimitive(node?.name);
+  const name = typeof rawName === 'string' ? rawName : undefined;
+
+  // If we have a good name, use it
+  if (name && !isUnhelpfulLabel(name, role)) {
+    return name;
+  }
+
+  // For textboxes with unhelpful names, try to get better context
+  if (role === 'textbox' || role === 'searchbox' || role === 'combobox') {
+    // Try description field
+    const description = getAccessibleDescription(node);
+    if (description && !isUnhelpfulLabel(description, role)) {
+      return description;
+    }
+
+    // Try properties for placeholder or other hints
+    const properties = axEntriesToObject(node?.properties);
+    if (properties) {
+      // Check for placeholder
+      if (properties.placeholder && !isUnhelpfulLabel(properties.placeholder, role)) {
+        return properties.placeholder;
+      }
+
+      // Check for aria-placeholder
+      if (properties['aria-placeholder'] && !isUnhelpfulLabel(properties['aria-placeholder'], role)) {
+        return properties['aria-placeholder'];
+      }
+    }
+
+    // Try value (for inputs with placeholder-like values)
+    const value = axValueToPrimitive(node?.value);
+    if (value && typeof value === 'string' && !isUnhelpfulLabel(value, role)) {
+      return value;
+    }
+
+    // If still no good name, return empty string instead of unhelpful label
+    if (name && isUnhelpfulLabel(name, role)) {
+      return '';
+    }
+  }
+
+  // Fall back to original name
+  return name;
+}
+
 function getAccessibleName(node) {
   const value = axValueToPrimitive(node?.name);
   return typeof value === 'string' ? value : undefined;
@@ -533,14 +720,24 @@ function compactObject(source = {}) {
   return result;
 }
 
-function formatAccessibleRef(nodeId) {
+function formatAccessibleRef(nodeId, backendDOMNodeId = null) {
   if (nodeId === undefined || nodeId === null) {
     return undefined;
   }
 
   if (!currentAxRefMap.has(nodeId)) {
-    currentAxRefMap.set(nodeId, `s1e${currentAxRefCounter}`);
-    currentAxRefCounter += 1;
+    // Use backendDOMNodeId directly if available, otherwise use counter
+    // This makes refs like s1e14 directly map to backendDOMNodeId 14
+    const refId = backendDOMNodeId
+      ? `s1e${backendDOMNodeId}`
+      : `s1e${currentAxRefCounter}`;
+
+    currentAxRefMap.set(nodeId, refId);
+
+    // Only increment counter if we didn't use backendDOMNodeId
+    if (!backendDOMNodeId) {
+      currentAxRefCounter += 1;
+    }
   }
 
   return currentAxRefMap.get(nodeId);
@@ -593,7 +790,7 @@ function serializeAxNode(node, map, depth = 0) {
 
   const rawRole = getRole(node);
   const role = normalizeAxRole(rawRole) || rawRole;
-  const name = getAccessibleName(node);
+  const name = getImprovedAccessibleName(node);
   const description = getAccessibleDescription(node);
   const value = axValueToPrimitive(node?.value);
 
@@ -601,8 +798,8 @@ function serializeAxNode(node, map, depth = 0) {
 
   if (includeNode) {
     serialized = compactObject({
-      id: formatAccessibleRef(node.nodeId),
-      ref: formatAccessibleRef(node.nodeId),
+      id: formatAccessibleRef(node.nodeId, node.backendDOMNodeId),
+      ref: formatAccessibleRef(node.nodeId, node.backendDOMNodeId),
       axNodeId: node.nodeId,
       role,
       name,
@@ -901,6 +1098,105 @@ function sendDebuggerCommand(target, method, params) {
   });
 }
 
+/**
+ * Build a mapping from accessibility refs to CSS selectors using backendNodeId
+ * @param {Array} nodes - Accessibility tree nodes
+ * @param {Object} target - Debugger target { tabId }
+ * @returns {Promise<Object>} Map of ref IDs to CSS selectors
+ */
+async function buildRefToSelectorMap(nodes, target) {
+  const refMap = {};
+
+  console.log(`[RefMap] Building mapping for ${nodes.length} total accessibility nodes`);
+
+  // Debug: Log first few nodeIds to see their format
+  const sampleNodeIds = nodes.slice(0, 5).map(n => n.nodeId);
+  console.log(`[RefMap] Sample raw nodeIds from accessibility tree:`, sampleNodeIds);
+
+  let mappedCount = 0;
+  let skippedCount = 0;
+
+  // Process ALL nodes to ensure ref counter stays in sync
+  for (const node of nodes) {
+    try {
+      // Skip ignored nodes (these don't get refs in serializeAxNode either)
+      if (node.ignored) {
+        continue;
+      }
+
+      const backendNodeId = node.backendDOMNodeId || node.domNodeId;
+      if (!backendNodeId) {
+        skippedCount++;
+        continue;
+      }
+
+      // Stop after mapping enough nodes for performance
+      if (mappedCount >= 500) {
+        break;
+      }
+
+      // Use the same formatted ref that serializeAxNode produces
+      // This uses currentAxRefMap which was populated during tree serialization
+      const refId = formatAccessibleRef(node.nodeId, backendNodeId);
+      if (!refId) {
+        skippedCount++;
+        continue;
+      }
+
+      // Debug: Log ref mapping for first few nodes
+      if (mappedCount < 5) {
+        console.log(`[RefMap] Mapping node: raw=${node.nodeId} → formatted=${refId}, backendNodeId=${backendNodeId}`);
+      }
+
+      // Use DOM.describeNode to get selector information
+      const description = await sendDebuggerCommand(target, 'DOM.describeNode', {
+        backendNodeId,
+      });
+
+      if (description?.node) {
+        const domNode = description.node;
+
+        // Build CSS selector from node info
+        let selector = null;
+
+        if (domNode.nodeName) {
+          let parts = [domNode.nodeName.toLowerCase()];
+
+          // Add ID if available
+          if (domNode.attributes) {
+            const attrs = domNode.attributes;
+            for (let i = 0; i < attrs.length; i += 2) {
+              if (attrs[i] === 'id' && attrs[i + 1]) {
+                selector = `#${attrs[i + 1]}`;
+                break;
+              }
+            }
+          }
+
+          // If no ID, try to build a selector from class or nth-child
+          if (!selector) {
+            selector = parts.join('');
+          }
+        }
+
+        if (selector) {
+          refMap[refId] = `css:${selector}`;
+          mappedCount++;
+        }
+      }
+    } catch (err) {
+      // Silently skip nodes that can't be mapped
+      continue;
+    }
+  }
+
+  const refKeys = Object.keys(refMap);
+  console.log(`[RefMap] Successfully mapped ${mappedCount} refs to selectors (skipped ${skippedCount} nodes without backendNodeId)`);
+  console.log(`[RefMap] Sample stored refs:`, refKeys.slice(0, 10));
+  console.log(`[RefMap] Sample stored refs (last 10):`, refKeys.slice(-10));
+  return refMap;
+}
+
 async function captureAccessibilityTree(tabId) {
   if (!chrome?.debugger?.attach) {
     return null;
@@ -919,6 +1215,7 @@ async function captureAccessibilityTree(tabId) {
 
   try {
     await sendDebuggerCommand(target, 'Accessibility.enable');
+    await sendDebuggerCommand(target, 'DOM.enable');
 
     const response = await sendDebuggerCommand(target, 'Accessibility.getFullAXTree', {
       maxDepth: MAX_TREE_DEPTH + 2,
@@ -945,11 +1242,15 @@ async function captureAccessibilityTree(tabId) {
     const landmarks = extractLandmarksFromAxNodes(nodes);
     const headings = extractHeadingsFromAxNodes(nodes);
 
+    // Build reference mapping for automation
+    const refMap = await buildRefToSelectorMap(nodes, target);
+
     return {
       tree,
       interactive,
       landmarks,
       headings,
+      refMap, // Include the mapping
     };
   } catch (error) {
     console.warn('[snapshot] accessibility capture failed', error);
@@ -989,7 +1290,9 @@ async function captureRawSnapshot(tabId, fullPage = true) {
   const accessibility = await captureAccessibilityTree(tabId);
 
   if (accessibility) {
-    const tree = accessibility.tree || fallbackAria.tree || null;
+    // Prefer DOM tree over accessibility tree because DOM tree has usable CSS refs
+    // Accessibility tree has abstract refs like s1e199 which can't be used for automation
+    const tree = fallbackAria.tree || accessibility.tree || null;
     const interactive = mergeInteractiveLists(accessibility.interactive, fallbackAria.interactive);
     const landmarks = mergeLandmarks(accessibility.landmarks, fallbackAria.landmarks);
 
@@ -1000,6 +1303,18 @@ async function captureRawSnapshot(tabId, fullPage = true) {
     };
 
     domSnapshot.headings = mergeHeadings(domSnapshot.headings, accessibility.headings);
+
+    // Store the reference mapping for automation if available
+    if (accessibility.refMap && Object.keys(accessibility.refMap).length > 0) {
+      try {
+        setElementRefMap(tabId, accessibility.refMap, {
+          url: domSnapshot.url,
+          timestamp: Date.now(),
+        });
+      } catch (err) {
+        console.warn('[snapshot] Failed to store reference map:', err);
+      }
+    }
   } else if (!domSnapshot.aria) {
     domSnapshot.aria = fallbackAria;
   }
