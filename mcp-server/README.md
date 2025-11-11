@@ -1,11 +1,37 @@
-# Search MCP Server (TypeScript)
+# Search MCP Server
 
-A minimal MCP server that exposes a single `search` tool for LLM clients (Claude Desktop, VS Code MCP extensions). It acts as a bridge to the Chrome extension, which actually performs the Google search and SERP scraping in a real browser for higher-quality results.
+A Model Context Protocol (MCP) server that provides browser automation tools through the Jan Browser extension. Exposes tools for web navigation, interaction, search, and observation to LLM clients like Claude Desktop and Jan Desktop.
 
-- Transport to client: stdio via `@modelcontextprotocol/sdk`.
-- Transport to extension: WebSocket bridge (local) that the extension connects to.
+- **Transport to client**: stdio via `@modelcontextprotocol/sdk`
+- **Transport to extension**: WebSocket bridge (local) that the extension connects to
+- **Available on npm**: `search-mcp-server`
 
-## Install
+## Quick Start with npx (Recommended)
+
+The easiest way to use this MCP server with Jan Desktop app:
+
+1. **Install the Jan Browser Extension** (required):
+   - Download from the releases page or build from source
+   - Load the extension in Chrome: `chrome://extensions` → Enable "Developer mode" → "Load unpacked" → select `dist/` folder
+   - Verify the extension is running
+
+2. **Configure Jan Desktop**:
+   - Open Jan Desktop app → Settings → Extensions → Model Context Protocol
+   - Add new MCP server:
+     - **Name**: Jan Browser Extension
+     - **Command**: `npx`
+     - **Arguments**: `search-mcp-server@latest`
+   - Save and restart Jan Desktop
+
+3. **That's it!** The MCP server will be automatically installed and run via npx when needed.
+
+**Advantages of npx**:
+- No manual installation or building required
+- Always uses the latest published version
+- Automatically installs dependencies (including `ws`)
+- No NVM/Node path issues
+
+## Install from Source
 
 Using npm:
 
@@ -64,16 +90,30 @@ Below are common examples. Paths may vary.
 
 ### Claude Desktop
 
-Edit your Claude Desktop MCP config file (on macOS):
+Edit your Claude Desktop MCP config file:
 
-- `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
 Add an entry under `mcpServers`:
 
+**Option 1: Using npx (Recommended)**
 ```json
 {
   "mcpServers": {
-    "search": {
+    "jan-browser": {
+      "command": "npx",
+      "args": ["search-mcp-server@latest"]
+    }
+  }
+}
+```
+
+**Option 2: Using local installation**
+```json
+{
+  "mcpServers": {
+    "jan-browser": {
       "command": "node",
       "args": ["/absolute/path/to/jan-browser-extension/mcp-server/dist/src/index.js"],
       "env": {
@@ -85,37 +125,52 @@ Add an entry under `mcpServers`:
 }
 ```
 
-Restart Claude Desktop. In a chat, ask it to use the `search` tool (e.g., "search the web for ..."), and it will call this server.
+Restart Claude Desktop. Make sure the Jan Browser extension is running in Chrome. In a chat, you can use tools like `browser_navigate`, `snapshot`, `web_search`, etc.
 
 ### Jan Desktop App
 
-Jan Desktop supports MCP servers. To configure:
+Jan Desktop supports MCP servers via the Model Context Protocol extension.
+
+**Option 1: Using npx (Recommended)**
+
+1. Open Jan Desktop app → Settings → Extensions → Model Context Protocol
+
+2. Add a new MCP server:
+   - **Name**: Jan Browser Extension
+   - **Command**: `npx`
+   - **Arguments**: `search-mcp-server@latest`
+
+3. **Important**: Make sure the Jan Browser Chrome extension is installed and running:
+   - Download from releases or build from source
+   - Load the extension in Chrome: `chrome://extensions` → Enable "Developer mode" → "Load unpacked" → select `dist/` folder
+   - The extension must be active for the MCP server to work
+
+4. Save and restart Jan Desktop
+
+**Option 2: Using local installation**
 
 1. Build the MCP server first:
    ```bash
-   cd /path/to/jan-browser/mcp-server
+   cd /path/to/jan-browser-extension/mcp-server
    npm install
    npm run build
    ```
 
-2. Open Jan Desktop app and go to Settings → Extensions → Model Context Protocol
+2. Open Jan Desktop app → Settings → Extensions → Model Context Protocol
 
-3. Add a new MCP server with these settings:
-   - **Name**: Jan Browser Extension (or any name you prefer)
+3. Add a new MCP server:
+   - **Name**: Jan Browser Extension
    - **Command**: `node`
-   - **Arguments**: `/absolute/path/to/jan-browser/mcp-server/dist/src/index.js`
+   - **Arguments**: `/absolute/path/to/jan-browser-extension/mcp-server/dist/src/index.js`
    - **Environment variables** (optional):
      - `BRIDGE_HOST`: `127.0.0.1`
      - `BRIDGE_PORT`: `17389`
 
-4. **Important**: Make sure the Jan Browser Chrome extension is installed and running:
-   - Load the extension in Chrome from the `dist/` folder
-   - The extension must be active for the MCP server to work
-   - Verify connection in Chrome DevTools (see "Run extension and MCP together" section)
+4. Make sure the Chrome extension is installed and running (see above)
 
-5. Restart Jan Desktop or reload the MCP configuration
+5. Save and restart Jan Desktop
 
-6. The server will now expose browser automation tools like `snapshot`, `browser_navigate`, `click`, `type`, `screenshot`, `web_search`, and more.
+**Available Tools**: `snapshot`, `browser_navigate`, `click`, `type`, `screenshot`, `web_search`, and more.
 
 **Troubleshooting Jan Desktop:**
 - If you see "Failed to start MCP server", ensure the path to `index.js` is absolute and correct

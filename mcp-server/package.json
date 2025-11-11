@@ -1,15 +1,37 @@
 {
   "name": "search-mcp-server",
-  "version": "0.13.0",
-  "private": true,
+  "version": "0.13.1",
+  "description": "MCP server for browser automation via Jan Browser extension - provides tools for web navigation, interaction, and search",
   "type": "module",
   "license": "Apache-2.0",
+  "author": "Jan",
+  "homepage": "https://github.com/janhq/jan-browser-extension",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/janhq/jan-browser-extension.git",
+    "directory": "mcp-server"
+  },
+  "bugs": {
+    "url": "https://github.com/janhq/jan-browser-extension/issues"
+  },
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "browser-automation",
+    "web-automation",
+    "jan",
+    "ai-tools",
+    "model-context-protocol"
+  ],
   "main": "dist/src/index.js",
   "bin": {
     "search-mcp-server": "dist/src/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && chmod +x dist/src/index.js",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/src/index.js",
     "test": "vitest",
@@ -21,6 +43,7 @@
     "@modelcontextprotocol/sdk": "^1.4.2",
     "@types/uuid": "^10.0.0",
     "uuid": "^9.0.1",
+    "ws": "^8.18.3",
     "zod": "^3.24.1",
     "zod-to-json-schema": "^3.24.6"
   },
@@ -30,7 +53,6 @@
     "@vitest/ui": "^4.0.7",
     "tsx": "^4.19.1",
     "typescript": "^5.5.4",
-    "vitest": "^4.0.7",
-    "ws": "^8.18.3"
+    "vitest": "^4.0.7"
   }
 }
