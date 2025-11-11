@@ -4,7 +4,7 @@
 import { selectTab } from '../lib/tab-manager.js';
 import { TAB_REGISTRATION_DELAY } from '../constants.js';
 import { createErrorResult } from './snapshot-utils.js';
-import { getElementSelector, getRefMapMetadata, getStoredTabIds } from '../lib/element-ref-map.js';
+import { getElementSelector } from '../lib/element-ref-map.js';
 
 /**
  * Helper function to resolve accessibility refs to CSS selectors
@@ -17,28 +17,12 @@ function resolveAccessibilityRef(ref, tabId) {
     return ref; // Not an accessibility ref, return as-is
   }
 
-  console.log('[MCP Tools] Detected accessibility ref:', ref, 'for tabId:', tabId);
-
-  // Debug: Check what tabs have stored maps
-  const storedTabs = getStoredTabIds();
-  console.log('[MCP Tools] Tabs with stored ref maps:', storedTabs);
-
-  // Debug: Check metadata for this tab
-  const metadata = getRefMapMetadata(tabId);
-  console.log('[MCP Tools] RefMap metadata for tab', tabId, ':', metadata);
-
   const mappedSelector = getElementSelector(tabId, ref);
-  console.log('[MCP Tools] Lookup result for', ref, ':', mappedSelector);
 
   if (mappedSelector) {
-    console.log('[MCP Tools] ✓ Resolved', ref, '→', mappedSelector);
     return mappedSelector;
   } else {
-    console.warn('[MCP Tools] ✗ Could not resolve accessibility ref:', ref);
-    console.warn('[MCP Tools] This may mean:');
-    console.warn('[MCP Tools] 1. No snapshot was captured for this tab');
-    console.warn('[MCP Tools] 2. The ref is from an old/stale snapshot');
-    console.warn('[MCP Tools] 3. The element is not in the accessibility tree');
+    console.warn('[MCP Tools] Could not resolve accessibility ref:', ref);
     console.warn('[MCP Tools] Try capturing a fresh snapshot first');
     return ref; // Return original ref as fallback
   }
@@ -79,324 +63,153 @@ export async function handleClickElement(params) {
     const [{ result: clicked }] = await chrome.scripting.executeScript({
       target: { tabId },
       func: ({ sel, ref }) => {
-        debugger;
-        console.log('[ENTRY] Function called with params:', { sel, ref });
-        console.log('[ENTRY] Type checks:', {
-          selType: typeof sel,
-          refType: typeof ref,
-          selValue: sel,
-          refValue: ref
-        });
-
         const resolveElementFromRef = (reference) => {
-          console.log('[resolveElementFromRef] Called with:', { reference });
-
           if (typeof reference !== 'string' || reference.length === 0) {
-            console.log('[resolveElementFromRef] EXIT: Invalid reference (not string or empty)');
             return null;
           }
 
           // Handle Shadow DOM references (format: css:host##shadow-selector##nested)
           if (reference.includes('##')) {
-            console.log('[resolveElementFromRef] Shadow DOM reference detected');
             const parts = reference.split('##');
-            console.log('[resolveElementFromRef] Shadow parts:', parts);
-
-            // First part should be the host element (css:...)
             let current = null;
             if (parts[0].startsWith('css:')) {
               const hostSelector = parts[0].slice(4);
-              console.log('[resolveElementFromRef] Shadow host selector:', hostSelector);
               try {
                 current = document.querySelector(hostSelector);
-                console.log('[resolveElementFromRef] Shadow host element:', current);
               } catch (err) {
-                console.log('[resolveElementFromRef] EXIT: Shadow host query failed:', err);
                 return null;
               }
             }
+            if (!current) return null;
 
-            if (!current) {
-              console.log('[resolveElementFromRef] EXIT: Shadow host not found');
-              return null;
-            }
-
-            // Traverse through shadow DOMs
             for (let i = 1; i < parts.length; i++) {
-              if (!current.shadowRoot) {
-                console.log(`[resolveElementFromRef] EXIT: No shadowRoot at part ${i}`);
-                return null;
-              }
-
+              if (!current.shadowRoot) return null;
               try {
                 current = current.shadowRoot.querySelector(parts[i]);
-                console.log(`[resolveElementFromRef] Shadow part ${i} found:`, current);
               } catch (err) {
-                console.log(`[resolveElementFromRef] EXIT: Shadow query failed at part ${i}:`, err);
                 return null;
               }
-
-              if (!current) {
-                console.log(`[resolveElementFromRef] EXIT: Shadow element not found at part ${i}`);
-                return null;
-              }
+              if (!current) return null;
             }
-
-            console.log('[resolveElementFromRef] SUCCESS: Shadow element found:', current);
             return current;
           }
 
           // Regular CSS selector
           if (reference.startsWith('css:')) {
             const selectorText = reference.slice(4);
-            console.log('[resolveElementFromRef] Regular CSS selector:', selectorText);
-            if (!selectorText) {
-              console.log('[resolveElementFromRef] EXIT: Empty selector text');
-              return null;
-            }
+            if (!selectorText) return null;
             try {
-              const element = document.querySelector(selectorText);
-              console.log('[resolveElementFromRef] Regular CSS result:', element);
-              return element;
+              return document.querySelector(selectorText);
             } catch (err) {
-              console.log('[resolveElementFromRef] EXIT: Query failed:', err);
               return null;
             }
           }
 
-          // Fallback: Handle various reference formats
-          console.log('[resolveElementFromRef] Trying fallback strategies for:', reference);
-
-          // IMPORTANT: Chrome accessibility refs like "s1e14" cannot be resolved to DOM elements
-          // without using chrome.debugger API. These are internal identifiers.
-          // The best approach is to use CSS refs from DOM snapshot instead.
-
-          // Warn if this looks like an accessibility ref
-          if (/^s\d+e\d+$/i.test(reference)) {
-            console.warn(
-              '[resolveElementFromRef] WARNING: Reference looks like a Chrome accessibility ID (e.g., s1e14).',
-              'These cannot be resolved to DOM elements.',
-              'Please use CSS selector refs from the DOM snapshot instead (format: css:selector).'
-            );
-            // Still try the fallbacks below in case it's been mapped somehow
-          }
-
+          // Fallback: Try various reference formats
           try {
-            // Try data-aria-id attribute (custom attribute if added by snapshot)
             let element = document.querySelector(`[data-aria-id="${reference}"]`);
-            if (element) {
-              console.log('[resolveElementFromRef] SUCCESS: Found element by data-aria-id:', element);
-              return element;
-            }
+            if (element) return element;
 
-            // Try as regular ID (without # prefix)
-            console.log('[resolveElementFromRef] Trying as element ID:', reference);
             element = document.getElementById(reference);
-            if (element) {
-              console.log('[resolveElementFromRef] SUCCESS: Found element by ID:', element);
-              return element;
-            }
+            if (element) return element;
 
-            // Try as direct CSS selector
-            console.log('[resolveElementFromRef] Trying as direct CSS selector:', reference);
             element = document.querySelector(reference);
-            if (element) {
-              console.log('[resolveElementFromRef] SUCCESS: Found element by direct selector:', element);
-              return element;
-            }
+            if (element) return element;
           } catch (err) {
-            console.log('[resolveElementFromRef] Fallback queries failed:', err);
+            // Ignore
           }
 
-          console.log('[resolveElementFromRef] EXIT: No matching reference format or element not found');
-          console.log('[resolveElementFromRef] TIP: Use refs from DOM snapshot with format css:selector');
           return null;
         };
 
         // Smart Element Detection: Find the actual clickable element
         const findClickableElement = (element) => {
-          console.log('[findClickableElement] Called with element:', element);
-          console.log('[findClickableElement] Element details:', {
-            tagName: element?.tagName,
-            id: element?.id,
-            className: element?.className,
-            role: element?.getAttribute?.('role')
-          });
-
-          if (!element) {
-            console.log('[findClickableElement] EXIT: Element is null/undefined');
-            return null;
-          }
+          if (!element) return null;
 
           // If element is already a known clickable type, return it
           const clickableTags = ['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'LABEL'];
-          if (clickableTags.includes(element.tagName)) {
-            console.log('[findClickableElement] SUCCESS: Element is known clickable tag:', element.tagName);
-            return element;
-          }
+          if (clickableTags.includes(element.tagName)) return element;
 
           // Check if element has click-related attributes/roles
           const role = element.getAttribute('role');
-          const hasClickRole = role === 'button' ||
-                               role === 'link' ||
-                               role === 'menuitem' ||
-                               role === 'tab' ||
-                               role === 'checkbox' ||
-                               role === 'radio' ||
-                               role === 'href';
+          const hasClickRole = role === 'button' || role === 'link' || role === 'menuitem' ||
+                               role === 'tab' || role === 'checkbox' || role === 'radio' || role === 'href';
 
-          console.log('[findClickableElement] Role check:', { role, hasClickRole });
+          const hasClickable = element.hasAttribute('onclick') || element.style.cursor === 'pointer' ||
+                              element.hasAttribute('data-action') || element.hasAttribute('data-click');
 
-          const hasClickable = element.hasAttribute('onclick') ||
-                              element.style.cursor === 'pointer' ||
-                              element.hasAttribute('data-action') ||
-                              element.hasAttribute('data-click');
-
-          console.log('[findClickableElement] Clickable attributes:', {
-            onclick: element.hasAttribute('onclick'),
-            pointer: element.style.cursor === 'pointer',
-            dataAction: element.hasAttribute('data-action'),
-            dataClick: element.hasAttribute('data-click'),
-            hasClickable
-          });
-
-          if (hasClickRole || hasClickable) {
-            console.log('[findClickableElement] SUCCESS: Element has click role/attributes');
-            return element;
-          }
+          if (hasClickRole || hasClickable) return element;
 
           // Check for framework-specific event handlers
           const elementKeys = Object.keys(element);
           const hasReactProps = elementKeys.some(key =>
-            key.startsWith('__reactProps') ||
-            key.startsWith('__reactFiber') ||
-            key.startsWith('__reactInternalInstance')
+            key.startsWith('__reactProps') || key.startsWith('__reactFiber') || key.startsWith('__reactInternalInstance')
           );
-
           const hasVueProps = element.__vue__ || element.__vueParentComponent;
           const hasAngular = element.hasAttribute('ng-click') || element.hasAttribute('(click)');
 
-          console.log('[findClickableElement] Framework checks:', {
-            react: hasReactProps,
-            vue: hasVueProps,
-            angular: hasAngular,
-            elementKeys: elementKeys.filter(k => k.startsWith('__')).slice(0, 5)
-          });
+          if (hasReactProps || hasVueProps || hasAngular) return element;
 
-          if (hasReactProps || hasVueProps || hasAngular) {
-            console.log('[findClickableElement] SUCCESS: Element has framework event handler');
-            return element;
-          }
-
-          // Search for clickable child elements (framework components often wrap actual buttons)
+          // Search for clickable child elements
           const clickableChild = element.querySelector('button, a, [role="button"], [role="link"], input[type="button"], input[type="submit"]');
-          console.log('[findClickableElement] Clickable child search:', clickableChild);
-          if (clickableChild) {
-            console.log('[findClickableElement] SUCCESS: Found clickable child:', clickableChild.tagName);
-            return clickableChild;
-          }
+          if (clickableChild) return clickableChild;
 
           // Search within shadow DOM if present
           if (element.shadowRoot) {
-            console.log('[findClickableElement] Shadow DOM detected, searching...');
             const shadowClickable = element.shadowRoot.querySelector('button, a, [role="button"], [role="link"], input[type="button"], input[type="submit"]');
-            console.log('[findClickableElement] Shadow clickable search:', shadowClickable);
-            if (shadowClickable) {
-              console.log('[findClickableElement] SUCCESS: Found shadow clickable:', shadowClickable.tagName);
-              return shadowClickable;
-            }
+            if (shadowClickable) return shadowClickable;
           }
 
           // Check iframes (limited support - same-origin only)
           if (element.tagName === 'IFRAME') {
-            console.log('[findClickableElement] IFRAME detected, attempting to access...');
             try {
               const iframeDoc = element.contentDocument || element.contentWindow?.document;
-              if (iframeDoc) {
-                console.log('[findClickableElement] SUCCESS: Returning iframe body');
-                return iframeDoc.body;
-              }
+              if (iframeDoc) return iframeDoc.body;
             } catch (err) {
-              console.log('[findClickableElement] IFRAME access failed (likely cross-origin):', err);
+              // Ignore cross-origin errors
             }
           }
 
-          // If element has children and no direct click handler,
-          // check if it's a wrapper around a single clickable element
+          // If element has a single child, check if it's clickable
           const children = Array.from(element.children);
-          console.log('[findClickableElement] Children count:', children.length);
           if (children.length === 1) {
-            console.log('[findClickableElement] Single child detected, recursing...');
             const childResult = findClickableElement(children[0]);
-            console.log('[findClickableElement] Recursive result:', childResult);
-            if (childResult && childResult !== children[0]) {
-              console.log('[findClickableElement] SUCCESS: Found clickable in single child');
-              return childResult;
-            }
+            if (childResult && childResult !== children[0]) return childResult;
           }
 
           // Return original element as fallback (might have delegated event listeners)
-          console.log('[findClickableElement] FALLBACK: Returning original element');
           return element;
         };
 
-        console.log('[MAIN] Starting element resolution with:', { ref, sel });
-
         // Try resolving from ref first
-        let el = null;
-        if (ref) {
-          console.log('[MAIN] Attempting to resolve from ref:', ref);
-          el = resolveElementFromRef(ref);
-          console.log('[MAIN] Result from resolveElementFromRef:', el);
-        } else {
-          console.log('[MAIN] No ref provided, skipping resolveElementFromRef');
-        }
+        let el = ref ? resolveElementFromRef(ref) : null;
 
         // Fallback to selector if ref didn't work
         if (!el && sel) {
-          console.log('[MAIN] Element not found via ref, trying selector:', sel);
           try {
             el = document.querySelector(sel);
-            console.log('[MAIN] Result from querySelector:', el);
           } catch (err) {
-            console.log('[MAIN] querySelector failed with error:', err);
+            // Ignore query errors
           }
-        } else if (!el && !sel) {
-          console.log('[MAIN] No selector provided for fallback');
         }
 
-        console.log('[MAIN] Initial element resolved:', el);
-
         if (!el) {
-          console.log('[MAIN] EXIT: Element not found');
           return { success: false, error: 'Element not found' };
         }
 
         // Apply smart element detection
         const originalEl = el;
-        console.log('[MAIN] Original element before smart detection:', {
-          tagName: originalEl.tagName,
-          id: originalEl.id,
-          className: originalEl.className
-        });
-
         el = findClickableElement(el);
-        console.log('[MAIN] Element after smart detection:', el);
-        console.log('[MAIN] Smart detection changed element:', originalEl !== el);
 
         if (!el) {
-          console.log('[MAIN] EXIT: Could not find clickable element (smart detection returned null)');
           return { success: false, error: 'Could not find clickable element' };
         }
 
-        console.log('[MAIN] Scrolling element into view...');
         el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
 
         const rect = el.getBoundingClientRect();
         const x = rect.left + rect.width / 2;
         const y = rect.top + rect.height / 2;
-
-        console.log('[MAIN] Element position:', { x, y, rect });
 
         const mouseEventOptions = {
           bubbles: true,
@@ -411,41 +224,33 @@ export async function handleClickElement(params) {
           composed: true,
         };
 
-        console.log('[MAIN] Dispatching mouse events...');
         el.dispatchEvent(new MouseEvent('mouseover', mouseEventOptions));
         el.dispatchEvent(new MouseEvent('mouseenter', { ...mouseEventOptions, bubbles: false }));
         el.dispatchEvent(new MouseEvent('mousemove', mouseEventOptions));
         el.dispatchEvent(new MouseEvent('mousedown', mouseEventOptions));
 
-        if (el.focus) {
-          console.log('[MAIN] Focusing element...');
-          el.focus();
-        }
+        if (el.focus) el.focus();
 
         el.dispatchEvent(new MouseEvent('mouseup', mouseEventOptions));
         el.dispatchEvent(new MouseEvent('click', { ...mouseEventOptions, detail: 1 }));
 
-        console.log('[MAIN] Calling native click()...');
         try {
           el.click();
         } catch (e) {
-          console.log('[MAIN] Native click() threw error:', e);
+          // Ignore click errors
         }
 
         el.dispatchEvent(new PointerEvent('pointerdown', mouseEventOptions));
         el.dispatchEvent(new PointerEvent('pointerup', mouseEventOptions));
 
         const smartDetectionUsed = originalEl !== el;
-        const result = {
+        return {
           success: true,
           element: el.tagName,
           focused: document.activeElement === el,
           smartDetection: smartDetectionUsed,
           detectedElement: smartDetectionUsed ? `${el.tagName}${el.id ? '#' + el.id : ''}${el.className ? '.' + el.className.split(' ')[0] : ''}` : null
         };
-
-        console.log('[MAIN] SUCCESS: Click complete, returning result:', result);
-        return result;
       },
       args: [{ sel: selector, ref: resolvedRef }],
     });
@@ -523,6 +328,12 @@ export async function handleBrowserFillForm(params) {
 
     const { tabId, tab } = selection;
 
+    // Resolve accessibility refs to CSS selectors for each field
+    const resolvedFields = fields.map(field => ({
+      ...field,
+      ref: field.ref ? resolveAccessibilityRef(field.ref, tabId) : field.ref,
+    }));
+
     const [{ result: fillResult }] = await chrome.scripting.executeScript({
       target: { tabId },
       func: (fieldsToFill) => {
@@ -591,7 +402,7 @@ export async function handleBrowserFillForm(params) {
         }
         return results;
       },
-      args: [fields],
+      args: [resolvedFields],
     });
 
     const failedFields = fillResult.filter((r) => !r.success);

@@ -57,17 +57,9 @@ export function getElementSelector(tabId, refId) {
     }
   }
 
-  // Debug: Log what we're looking for and what's available
-  const allKeys = Array.from(map.keys());
-  console.log(`[RefMap] Looking for refId: "${refId}" (type: ${typeof refId})`);
-  console.log(`[RefMap] Map has ${allKeys.length} keys, first 10:`, allKeys.slice(0, 10));
-  console.log(`[RefMap] Does map have exact key? ${map.has(refId)}`);
-
   const selector = map.get(refId);
-  if (selector) {
-    console.log(`[RefMap] ✓ Resolved ${refId} → ${selector}`);
-  } else {
-    console.log(`[RefMap] ✗ Reference ${refId} not found in map for tab ${tabId}`);
+  if (!selector) {
+    console.warn(`[RefMap] Reference ${refId} not found in map for tab ${tabId}`);
   }
 
   return selector || null;
