@@ -13,9 +13,9 @@ function extractText(response: any, fallback: string = ""): string {
   return fallback;
 }
 
-export async function captureAriaSnapshot(targetUrl?: string, status: string = ""): Promise<ToolResult> {
+export async function captureAriaSnapshot(targetUrl?: string, status: string = "", fullPage: boolean = true): Promise<ToolResult> {
   try {
-    const params = targetUrl ? { url: targetUrl } : {};
+    const params = targetUrl ? { url: targetUrl, fullPage } : { fullPage };
 
     const urlResponse = await callExtension("getUrl", params);
     const titleResponse = await callExtension("getTitle", params);

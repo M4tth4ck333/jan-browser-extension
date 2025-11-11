@@ -111,9 +111,9 @@ const FillFormSchema = z.object({
   fields: z.array(FillFormFieldSchema).min(1).describe("Array of fields to fill"),
 });
 
-export const fillForm: Tool = {
+export const browserFillForm: Tool = {
   schema: {
-    name: "fill_form",
+    name: "browser_fill_form",
     description: "Fill multiple form fields (inputs, selects, checkboxes, radios) by selector/value.",
     inputSchema: zodToJsonSchema(FillFormSchema) as any,
   },
@@ -122,7 +122,7 @@ export const fillForm: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    const data = await callExtension("fill_form", params);
+    const data = await callExtension("browser_fill_form", params);
     const fieldCount = data?.data?.successfulFields || params.fields.length;
     const snapshot = await captureAriaSnapshot();
     return withActionText(`Filled ${fieldCount} form fields`, snapshot);

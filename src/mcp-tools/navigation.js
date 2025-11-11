@@ -310,7 +310,7 @@ export async function handleScroll(params) {
   const amount = Number(params?.amount) || 500;
 
   try {
-    const selection = await selectTab({ toolName: 'scroll_page' });
+    const selection = await selectTab({ toolName: 'browser_scroll' });
     if (!selection.ok) {
       return createErrorResult('Scroll failed', selection.error);
     }

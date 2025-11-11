@@ -141,6 +141,9 @@ export async function handleSnapshot(params = {}) {
       ? params.status.trim()
       : 'Snapshot captured';
 
+    // Default to full page capture if not specified
+    const fullPage = params?.fullPage !== false;
+
     await waitForLoadCompletion(tabId);
 
     const snapshotResult = await captureSnapshotResponse({
@@ -148,6 +151,7 @@ export async function handleSnapshot(params = {}) {
       status,
       details: Array.isArray(params?.details) ? params.details : [],
       fallbackUrl: params?.url || tab?.url,
+      fullPage,
     });
 
     if (!snapshotResult.ok) {

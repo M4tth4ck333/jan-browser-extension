@@ -12,12 +12,14 @@ import type { Tool, ToolResult } from "./tool.js";
  * Capture a comprehensive snapshot of the CURRENTLY ACTIVE TAB
  * Operates on whatever tab was opened with browser_navigate
  */
-const SnapshotSchema = z.object({});
+const SnapshotSchema = z.object({
+  fullPage: z.boolean().optional().describe("Capture full page (true) or only viewport-visible content (false). Default: true"),
+});
 
 export const browserSnapshot: Tool = {
   schema: {
     name: "browser_snapshot",
-    description: "Capture accessibility snapshot of the current page. Use this for getting references to elements to interact with.",
+    description: "Capture accessibility snapshot of the current page. Use this for getting references to elements to interact with. By default captures the entire page, but you can set fullPage=false to capture only viewport-visible content.",
     inputSchema: zodToJsonSchema(SnapshotSchema) as any,
   },
   handle: async (params) => {
@@ -26,7 +28,8 @@ export const browserSnapshot: Tool = {
     }
 
     try {
-      return await captureAriaSnapshot();
+      const fullPage = params?.fullPage !== false; // Default to true
+      return await captureAriaSnapshot(undefined, "", fullPage);
     } catch (err: any) {
       return {
         content: [

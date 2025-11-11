@@ -3,7 +3,7 @@
 
 import {
   handleClickElement,
-  handleFillForm,
+  handleBrowserFillForm,
   handleTypeText,
   handleHoverElement,
   handleSelectOption,
@@ -35,7 +35,7 @@ import { handleSearch } from './search.js';
 export const mcpToolHandlers = {
   // Automation tools
   click_element: handleClickElement,
-  fill_form: handleFillForm,
+  browser_fill_form: handleBrowserFillForm,
   type_text: handleTypeText,
   hover_element: handleHoverElement,
   select_option: handleSelectOption,
@@ -46,7 +46,7 @@ export const mcpToolHandlers = {
   visit: handleVisit,
   go_back: handleGoBack,
   go_forward: handleGoForward,
-  scroll_page: handleScroll,
+  browser_scroll: handleScroll,
 
   // Observation tools
   screenshot: handleScreenshot,
