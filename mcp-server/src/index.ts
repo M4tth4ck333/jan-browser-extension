@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * Jan Browser MCP Server
  * Modular architecture inspired by browsermcp
@@ -30,7 +31,7 @@ import type { Tool } from "./tools/tool.js";
 let bridgeHost = process.env.BRIDGE_HOST || "127.0.0.1";
 let bridgePort = Number(process.env.BRIDGE_PORT || 17389);
 let bridgeToken = process.env.BRIDGE_TOKEN || undefined;
-const SERVER_VERSION = "0.12.2";
+const SERVER_VERSION = "0.13.0";
 const SERVER_NAME = "jan-browser-mcp";
 
 // CLI arguments
