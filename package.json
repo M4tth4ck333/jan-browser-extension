@@ -1,6 +1,6 @@
 {
   "name": "jan-browser",
-  "version": "0.12.17",
+  "version": "0.13.0",
   "description": "Minimal browser extension that connects Jan's MCP tools to the active browser.",
   "type": "module",
   "main": "index.js",
