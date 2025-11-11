@@ -17,7 +17,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/menloresearch/jan-browser-extension.git
+git clone https://github.com/janhq/jan-browser-extension.git
 cd jan-browser-extension
 
 # Install (npm is sufficient for the minimal build script)
@@ -38,12 +38,33 @@ npm run build:firefox
 
 1. Open `chrome://extensions`
 2. Enable **Developer mode**
-3. Click **Load unpacked** → select the `dist` folder
+3. Click **Load unpacked** → select the `dist` folder 
 4. Pin the extension if you want quick visibility
 
 ✅ You're ready to use Jan Browser MCP!
 
 ---
+
+### 4. Use with Jan Desktop
+
+If you have [Jan Desktop](https://jan.ai) installed, you can connect it seamlessly with the browser extension:
+
+1. **Open Jan Desktop** → Navigate to **Settings** → **MCP Servers**
+2. **Enable** the **Jan Browser MCP (official)** server
+3. **Verify the port** matches between Jan and the extension:
+   - Default port: `17389`
+   - In Jan: Set `BRIDGE_PORT` environment variable if using a custom port
+   - In Extension: Click the extension icon → Check **Settings** → Ensure port matches
+4. **Connect the bridge**:
+   - Click the extension icon in Chrome
+   - Click **Connect** to establish the WebSocket connection
+   - You should see a "Connected" status indicator
+
+**Tab Selection**:
+- **Use current tab**: Click "Set current tab for browser use" to let Jan control your active tab
+- **New tab**: Jan will automatically open and focus a new tab for automation
+
+✅ Once connected, Jan can use browser automation tools through MCP!
 
 ## Project Structure
 
