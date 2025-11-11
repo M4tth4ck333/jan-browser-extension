@@ -49,8 +49,49 @@ export function clearMcpRegisteredTab() {
  * @param {string} options.toolName - Name of tool for error messages
  * @returns {Promise<{ok: boolean, tab?: object, tabId?: number, error?: string}>}
  */
+function normalizeUrlForMatching(url) {
+  if (!url) return '';
+  try {
+    const parsed = new URL(url);
+    parsed.hash = '';
+
+    // Remove default ports to avoid mismatches (e.g. https://example.com:443)
+    if ((parsed.protocol === 'http:' && parsed.port === '80') ||
+        (parsed.protocol === 'https:' && parsed.port === '443')) {
+      parsed.port = '';
+    }
+
+    // Remove trailing slashes for consistency
+    let normalized = parsed.toString();
+    if (normalized.endsWith('/')) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized;
+  } catch (_) {
+    return String(url || '');
+  }
+}
+
+function urlsMatch(a, b) {
+  if (!a || !b) return false;
+  return normalizeUrlForMatching(a) === normalizeUrlForMatching(b);
+}
+
+async function findTabMatchingUrl(preferredUrl) {
+  const normalizedPreferred = normalizeUrlForMatching(preferredUrl);
+  if (!normalizedPreferred) return null;
+
+  try {
+    const tabs = await chrome.tabs.query({});
+    return tabs.find((candidate) => urlsMatch(candidate.url, normalizedPreferred)) || null;
+  } catch (error) {
+    console.warn('[Tab Manager] Failed to query tabs while matching URL:', error);
+    return null;
+  }
+}
+
 export async function selectTab(options = {}) {
-  const { requireUrl = false, toolName = 'tool' } = options;
+  const { requireUrl = false, toolName = 'tool', preferredUrl = null } = options;
 
   let targetTabId = null;
   let tab = null;
@@ -93,6 +134,26 @@ export async function selectTab(options = {}) {
           ok: false,
           error: 'Unable to create a browser tab for MCP operations. Please open a tab manually and try again.'
         };
+      }
+    }
+  }
+
+  // Strategy 3: If a preferred URL was provided, try to match it
+  if (preferredUrl) {
+    const normalizedPreferred = normalizeUrlForMatching(preferredUrl);
+    if (normalizedPreferred) {
+      const currentUrl = tab?.url ? normalizeUrlForMatching(tab.url) : '';
+      if (!tab || !urlsMatch(currentUrl, normalizedPreferred)) {
+        const matchingTab = await findTabMatchingUrl(preferredUrl);
+        if (matchingTab) {
+          tab = matchingTab;
+          targetTabId = matchingTab.id;
+          createdNewTab = false;
+          if (typeof targetTabId === 'number') {
+            setMcpRegisteredTab(targetTabId);
+          }
+          console.log(`[Tab Manager] ${toolName} - matched preferred URL to tab:`, targetTabId);
+        }
       }
     }
   }

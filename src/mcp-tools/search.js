@@ -2,6 +2,7 @@
 // MCP Bridge search tool (delegates to actual search implementations)
 
 import { DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS } from '../constants.js';
+import { createErrorResult } from './snapshot-utils.js';
 
 /**
  * Performs web search (delegates to search modules)
@@ -15,10 +16,11 @@ import { DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS } from '../constants.js';
 export async function handleSearch(params, searchFunctions) {
   const query = String(params?.query || '').trim();
   if (!query) {
-    return { ok: false, error: 'Missing query' };
+    return createErrorResult('Search failed', 'Missing query');
   }
 
   const numResults = Math.max(1, Math.min(Number(params?.numResults || DEFAULT_SEARCH_RESULTS), MAX_SEARCH_RESULTS));
+  const format = params?.format || 'serper';
 
   console.log('[MCP Tools] search', { query, numResults });
 
@@ -47,19 +49,19 @@ export async function handleSearch(params, searchFunctions) {
         const summarizeResult = (r) => ({
           title: r?.title,
           url: r?.url,
-          snippetLen: r?.snippet ? r.snippet.length : 0
+          snippetLen: r?.snippet ? r.snippet.length : 0,
         });
 
         console.log('[MCP Tools] DuckDuckGo scrape preview', {
           query: d.query,
           count: d.results?.length || 0,
-          sample: d.results?.slice(0, 3).map(summarizeResult) || []
+          sample: d.results?.slice(0, 3).map(summarizeResult) || [],
         });
       } catch (e) {
         console.warn('[MCP Tools] Failed to log DDG preview:', e);
       }
 
-      return { ok: true, data: ddgRes.data };
+      return buildSearchResponse({ query, data: ddgRes.data, format });
     }
 
     // Fallback to Google if DuckDuckGo fails
@@ -72,15 +74,95 @@ export async function handleSearch(params, searchFunctions) {
     });
 
     if (!googleRes?.ok || !googleRes?.data) {
-      return {
-        ok: false,
-        error: 'Both DuckDuckGo and Google search failed'
-      };
+      return createErrorResult('Search failed', 'Both DuckDuckGo and Google search failed');
     }
 
-    return { ok: true, data: googleRes.data };
+    return buildSearchResponse({ query, data: googleRes.data, format });
   } catch (e) {
     console.error('[MCP Tools] search error:', e);
-    return { ok: false, error: String(e?.message || e) };
+    return createErrorResult('Search failed', e);
   }
+}
+
+function buildSearchResponse({ query, data, format }) {
+  const urls = deriveUrls(data);
+
+  if (format === 'text') {
+    const text = formatSearchResultsAsText(query, data);
+    return {
+      ok: true,
+      content: [
+        {
+          type: 'text',
+          text,
+        },
+      ],
+      _meta: urls.length ? { urls } : undefined,
+      data,
+    };
+  }
+
+  return {
+    ok: true,
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify(data, null, 2),
+      },
+    ],
+    _meta: urls.length ? { urls } : undefined,
+    data,
+  };
+}
+
+function deriveUrls(data) {
+  const urls = new Set();
+  if (Array.isArray(data?.urls)) {
+    for (const url of data.urls) {
+      if (url) urls.add(url);
+    }
+  }
+
+  const collect = (items) => {
+    if (!Array.isArray(items)) return;
+    for (const item of items) {
+      if (item?.url) urls.add(item.url);
+    }
+  };
+
+  collect(data?.results);
+  collect(data?.organic);
+
+  return Array.from(urls);
+}
+
+function formatSearchResultsAsText(query, data) {
+  let text = `Search results for: ${query}\n\n`;
+
+  if (data?.knowledgeGraph) {
+    const kg = data.knowledgeGraph;
+    text += `Knowledge Graph: ${kg.title || ''}\n${kg.description || ''}\n\n`;
+  }
+
+  const results = Array.isArray(data?.results) ? data.results : Array.isArray(data?.organic) ? data.organic : [];
+  if (results.length > 0) {
+    text += 'Results:\n';
+    for (const item of results) {
+      text += `\n${item.position || ''} ${item.title || ''}\n`;
+      if (item.url) text += `   ${item.url}\n`;
+      if (item.snippet) text += `   ${item.snippet}\n`;
+    }
+  } else {
+    text += 'No results returned.\n';
+  }
+
+  if (Array.isArray(data?.peopleAlsoAsk) && data.peopleAlsoAsk.length > 0) {
+    text += '\nPeople Also Ask:\n';
+    for (const paa of data.peopleAlsoAsk) {
+      text += `\nQ: ${paa.question}\n`;
+      text += `A: ${paa.snippet || ''}\n`;
+    }
+  }
+
+  return text.trimEnd();
 }

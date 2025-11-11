@@ -2,8 +2,49 @@
 // MCP Bridge navigation tools: visit, go_back, go_forward, scroll
 
 import { selectTab, setMcpRegisteredTab, getMcpRegisteredTab } from '../lib/tab-manager.js';
-import { sendMessageWithRetry } from '../lib/fetch-utils.js';
 import { CONTENT_LOAD_TIMEOUT, TAB_REGISTRATION_DELAY, VisitOutputModes } from '../constants.js';
+import { createErrorResult } from './snapshot-utils.js';
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const waitForPageReady = async (tabId, timeoutMs = 10000) => {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const ready = document.readyState;
+          const hasMain = !!document.querySelector('main, [role="main"], #contents');
+          const feedEl = document.querySelector(
+            'ytd-rich-grid-renderer, ytd-rich-item-renderer, ytd-video-renderer, [data-testid="feed"]'
+          );
+          const pendingRequests =
+            window.performance?.getEntriesByType('resource')?.some(
+              (entry) => entry.initiatorType === 'xmlhttprequest' && entry.responseEnd === 0,
+            ) || false;
+
+          return { ready, hasMain, hasFeed: !!feedEl, pendingRequests };
+        },
+      });
+
+      if (
+        result &&
+        (result.ready === 'complete' || result.ready === 'interactive') &&
+        (result.hasMain || result.hasFeed) &&
+        result.pendingRequests === false
+      ) {
+        return true;
+      }
+    } catch (error) {
+      console.warn('[MCP Tools] waitForPageReady check failed', error);
+    }
+
+    await wait(250);
+  }
+
+  return false;
+};
 
 /**
  * Visits a URL and extracts page content
@@ -13,14 +54,14 @@ import { CONTENT_LOAD_TIMEOUT, TAB_REGISTRATION_DELAY, VisitOutputModes } from '
 export async function handleVisit(params) {
   const url = String(params?.url || '').trim();
   if (!url) {
-    return { ok: false, error: 'Missing url parameter' };
+    return createErrorResult('Visit failed', 'Missing url parameter');
   }
 
   // Validate URL
   try {
     new URL(url);
   } catch (e) {
-    return { ok: false, error: `Invalid URL: ${url}` };
+    return createErrorResult('Visit failed', `Invalid URL: ${url}`);
   }
 
   const mode = params?.mode || VisitOutputModes.MARKDOWN;
@@ -37,30 +78,24 @@ export async function handleVisit(params) {
     const registeredTabId = getMcpRegisteredTab();
 
     if (registeredTabId) {
-      // Try to use the existing registered tab
       try {
         await chrome.tabs.get(registeredTabId);
         console.log('[MCP Tools] Using existing registered tab:', registeredTabId);
-
-        // Navigate the existing tab to the new URL
         await chrome.tabs.update(registeredTabId, { url, active: false });
         tabId = registeredTabId;
       } catch (e) {
-        // Registered tab no longer exists, create a new one
         console.log('[MCP Tools] Registered tab no longer exists, creating new tab');
         const tab = await chrome.tabs.create({ url, active: false });
         tabId = tab.id;
         isNewTab = true;
       }
     } else {
-      // No registered tab, create a new one
       console.log('[MCP Tools] No registered tab, creating new tab');
       const tab = await chrome.tabs.create({ url, active: false });
       tabId = tab.id;
       isNewTab = true;
     }
 
-    // Wait for the page to load
     await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error('Page load timeout'));
@@ -76,12 +111,14 @@ export async function handleVisit(params) {
       chrome.tabs.onUpdated.addListener(listener);
     });
 
+    await waitForPageReady(tabId);
+
     // Extract page content
     const response = await chrome.tabs.sendMessage(tabId, { type: 'GET_PAGE_CONTENT' });
 
     if (!response || !response.ok) {
       await chrome.tabs.remove(tabId);
-      return { ok: false, error: 'Failed to extract page content' };
+      return createErrorResult('Visit failed', 'Failed to extract page content');
     }
 
     // Build response based on requested mode
@@ -140,10 +177,44 @@ export async function handleVisit(params) {
       tabId: tabId
     });
 
-    return { ok: true, data: result };
+    const body = (() => {
+      if (mode === VisitOutputModes.HTML && result.html) {
+        return `\`\`\`html\n${result.html}\n\`\`\``;
+      }
+      if (mode === VisitOutputModes.TEXT && result.text) {
+        return result.text;
+      }
+      if (result.markdown) {
+        return result.markdown;
+      }
+      return result.text || result.html || '';
+    })();
+
+    const keepTabNote = closeTab ? '' : '\n\n[Tab kept open for subsequent operations]';
+    const textContent = `Navigated to ${result.url}\n\nTitle: ${result.title}\n\n${body}${keepTabNote}`;
+
+    const meta = {};
+    if (result.url) meta.urls = [result.url];
+    if (!closeTab && result.tabId) meta.tabId = result.tabId;
+
+    if (closeTab) {
+      result.tabId = null;
+    }
+
+    return {
+      ok: true,
+      content: [
+        {
+          type: 'text',
+          text: textContent,
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
+      data: result,
+    };
   } catch (e) {
     console.error('[MCP Tools] visit error:', e);
-    return { ok: false, error: String(e?.message || e) };
+    return createErrorResult('Visit failed', e);
   }
 }
 
@@ -153,18 +224,39 @@ export async function handleVisit(params) {
 export async function handleGoBack(params) {
   try {
     const selection = await selectTab({ toolName: 'go_back' });
-    if (!selection.ok) return selection;
+    if (!selection.ok) {
+      return createErrorResult('Go back failed', selection.error);
+    }
 
     const { tabId } = selection;
 
     await chrome.tabs.goBack(tabId);
-    await new Promise(resolve => setTimeout(resolve, TAB_REGISTRATION_DELAY));
+    await new Promise((resolve) => setTimeout(resolve, TAB_REGISTRATION_DELAY));
 
     const finalTab = await chrome.tabs.get(tabId);
 
-    return { ok: true, data: { url: finalTab.url } };
+    const meta = {};
+    if (finalTab.url) meta.urls = [finalTab.url];
+    if (typeof tabId === 'number') meta.tabId = tabId;
+
+    return {
+      ok: true,
+      content: [
+        {
+          type: 'text',
+          text: 'Navigated back',
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
+      data: {
+        url: finalTab.url,
+        timestamp: new Date().toISOString(),
+        tabId,
+      },
+    };
   } catch (e) {
-    return { ok: false, error: String(e?.message || e) };
+    console.error('[MCP Tools] go_back error:', e);
+    return createErrorResult('Go back failed', e);
   }
 }
 
@@ -174,18 +266,39 @@ export async function handleGoBack(params) {
 export async function handleGoForward(params) {
   try {
     const selection = await selectTab({ toolName: 'go_forward' });
-    if (!selection.ok) return selection;
+    if (!selection.ok) {
+      return createErrorResult('Go forward failed', selection.error);
+    }
 
     const { tabId } = selection;
 
     await chrome.tabs.goForward(tabId);
-    await new Promise(resolve => setTimeout(resolve, TAB_REGISTRATION_DELAY));
+    await new Promise((resolve) => setTimeout(resolve, TAB_REGISTRATION_DELAY));
 
     const finalTab = await chrome.tabs.get(tabId);
 
-    return { ok: true, data: { url: finalTab.url } };
+    const meta = {};
+    if (finalTab.url) meta.urls = [finalTab.url];
+    if (typeof tabId === 'number') meta.tabId = tabId;
+
+    return {
+      ok: true,
+      content: [
+        {
+          type: 'text',
+          text: 'Navigated forward',
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
+      data: {
+        url: finalTab.url,
+        timestamp: new Date().toISOString(),
+        tabId,
+      },
+    };
   } catch (e) {
-    return { ok: false, error: String(e?.message || e) };
+    console.error('[MCP Tools] go_forward error:', e);
+    return createErrorResult('Go forward failed', e);
   }
 }
 
@@ -197,8 +310,10 @@ export async function handleScroll(params) {
   const amount = Number(params?.amount) || 500;
 
   try {
-    const selection = await selectTab({ toolName: 'scroll_page' });
-    if (!selection.ok) return selection;
+    const selection = await selectTab({ toolName: 'browser_scroll' });
+    if (!selection.ok) {
+      return createErrorResult('Scroll failed', selection.error);
+    }
 
     const { tabId, tab } = selection;
 
@@ -210,13 +325,34 @@ export async function handleScroll(params) {
         else if (dir === 'up') window.scrollBy(0, -amt);
         else window.scrollBy(0, amt);
       },
-      args: [direction, amount]
+      args: [direction, amount],
     });
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
-    return { ok: true, data: { url: tab.url, direction, amount } };
+    const meta = {};
+    if (tab?.url) meta.urls = [tab.url];
+    if (typeof tabId === 'number') meta.tabId = tabId;
+
+    return {
+      ok: true,
+      content: [
+        {
+          type: 'text',
+          text: `Scrolled ${direction} (${amount}px)`,
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
+      data: {
+        url: tab.url,
+        direction,
+        amount,
+        timestamp: new Date().toISOString(),
+        tabId,
+      },
+    };
   } catch (e) {
-    return { ok: false, error: String(e?.message || e) };
+    console.error('[MCP Tools] scroll_page error:', e);
+    return createErrorResult('Scroll failed', e);
   }
 }

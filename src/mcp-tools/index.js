@@ -2,12 +2,13 @@
 // MCP Tools registry and dispatcher
 
 import {
-  handleExecuteScript,
   handleClickElement,
-  handleFillForm,
+  handleBrowserFillForm,
   handleTypeText,
   handleHoverElement,
-  handleSelectOption
+  handleSelectOption,
+  handlePressKey,
+  handleDragElement
 } from './automation.js';
 
 import {
@@ -19,7 +20,10 @@ import {
 
 import {
   handleScreenshot,
-  handleSnapshot
+  handleSnapshot,
+  handleBrowserSnapshotYaml,
+  handleGetUrl,
+  handleGetTitle,
 } from './observation.js';
 
 import { handleSearch } from './search.js';
@@ -30,25 +34,30 @@ import { handleSearch } from './search.js';
  */
 export const mcpToolHandlers = {
   // Automation tools
-  execute_script: handleExecuteScript,
   click_element: handleClickElement,
-  fill_form: handleFillForm,
+  browser_fill_form: handleBrowserFillForm,
   type_text: handleTypeText,
   hover_element: handleHoverElement,
   select_option: handleSelectOption,
+  press_key: handlePressKey,
+  drag_element: handleDragElement,
 
   // Navigation tools
   visit: handleVisit,
   go_back: handleGoBack,
   go_forward: handleGoForward,
-  scroll_page: handleScroll,
+  browser_scroll: handleScroll,
 
   // Observation tools
   screenshot: handleScreenshot,
   snapshot: handleSnapshot,
+  browser_snapshot: handleBrowserSnapshotYaml,
+  getUrl: handleGetUrl,
+  getTitle: handleGetTitle,
 
   // Search tool (requires external dependencies)
   search: handleSearch,
+
 };
 
 /**

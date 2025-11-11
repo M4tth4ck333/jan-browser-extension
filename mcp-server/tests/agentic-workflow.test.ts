@@ -91,7 +91,7 @@ describe.skip('Agentic Workflow Tests', () => {
   describe('Full Agentic Workflow', () => {
     it('should complete a multi-step workflow: navigate → snapshot → screenshot', async () => {
       // Step 1: Navigate with keepTabOpen=true
-      const navigateResult = await callTool('visit', {
+      const navigateResult = await callTool('browser_navigate', {
         url: 'https://example.com',
         keepTabOpen: true,
         mode: 'markdown'
@@ -107,7 +107,7 @@ describe.skip('Agentic Workflow Tests', () => {
       console.log(`[Test] Tab ID: ${navigateResult.tabId}`);
 
       // Step 2: Take snapshot of the active tab (NO URL parameter)
-      const snapshotResult = await callTool('snapshot', {});
+      const snapshotResult = await callTool('browser_snapshot', {});
 
       expect(snapshotResult).toBeDefined();
       expect(snapshotResult.url).toBe('https://example.com/');
@@ -123,7 +123,7 @@ describe.skip('Agentic Workflow Tests', () => {
       console.log(`[Test] Found ${snapshotResult.aria?.interactive?.length || 0} interactive elements`);
 
       // Step 3: Take screenshot of the active tab (NO URL parameter)
-      const screenshotResult = await callTool('screenshot', {});
+      const screenshotResult = await callTool('browser_screenshot', {});
 
       expect(screenshotResult).toBeDefined();
       expect(screenshotResult.url).toBe('https://example.com/');
@@ -143,7 +143,7 @@ describe.skip('Agentic Workflow Tests', () => {
     it('should fail snapshot when no active tab', async () => {
       // Don't navigate first - should fail
       try {
-        await callTool('snapshot', {});
+        await callTool('browser_snapshot', {});
         expect.fail('Should have thrown an error');
       } catch (err: any) {
         expect(err.message).toContain('No active tab');
@@ -154,7 +154,7 @@ describe.skip('Agentic Workflow Tests', () => {
     it('should fail screenshot when no active tab', async () => {
       // Don't navigate first - should fail
       try {
-        await callTool('screenshot', {});
+        await callTool('browser_screenshot', {});
         expect.fail('Should have thrown an error');
       } catch (err: any) {
         expect(err.message).toContain('No active tab');
@@ -165,7 +165,7 @@ describe.skip('Agentic Workflow Tests', () => {
 
   describe('Navigation Tool', () => {
     it('should navigate with default markdown mode', async () => {
-      const result = await callTool('visit', {
+      const result = await callTool('browser_navigate', {
         url: 'https://example.com',
         keepTabOpen: false
       });
@@ -177,7 +177,7 @@ describe.skip('Agentic Workflow Tests', () => {
     }, TIMEOUT);
 
     it('should navigate with html mode', async () => {
-      const result = await callTool('visit', {
+      const result = await callTool('browser_navigate', {
         url: 'https://example.com',
         mode: 'html',
         keepTabOpen: false
@@ -189,7 +189,7 @@ describe.skip('Agentic Workflow Tests', () => {
     }, TIMEOUT);
 
     it('should navigate with text mode', async () => {
-      const result = await callTool('visit', {
+      const result = await callTool('browser_navigate', {
         url: 'https://example.com',
         mode: 'text',
         keepTabOpen: false
@@ -203,13 +203,13 @@ describe.skip('Agentic Workflow Tests', () => {
   describe('Observation Tools', () => {
     it('should capture comprehensive snapshot', async () => {
       // First navigate
-      await callTool('visit', {
+      await callTool('browser_navigate', {
         url: 'https://example.com',
         keepTabOpen: true
       });
 
       // Then snapshot
-      const result = await callTool('snapshot', {});
+      const result = await callTool('browser_snapshot', {});
 
       expect(result).toBeDefined();
       expect(result.title).toBeTruthy();
@@ -239,13 +239,13 @@ describe.skip('Agentic Workflow Tests', () => {
 
     it('should capture screenshot as PNG', async () => {
       // First navigate
-      await callTool('visit', {
+      await callTool('browser_navigate', {
         url: 'https://example.com',
         keepTabOpen: true
       });
 
       // Then screenshot
-      const result = await callTool('screenshot', {});
+      const result = await callTool('browser_screenshot', {});
 
       expect(result).toBeDefined();
       expect(result.url).toBe('https://example.com/');
@@ -257,7 +257,7 @@ describe.skip('Agentic Workflow Tests', () => {
 
   describe('Search Tool', () => {
     it('should perform web search', async () => {
-      const result = await callTool('search', {
+      const result = await callTool('web_search', {
         query: 'test query',
         numResults: 3,
         format: 'serper'
@@ -277,7 +277,7 @@ describe.skip('Agentic Workflow Tests', () => {
   describe('Utility Tools', () => {
     it('should wait for specified duration', async () => {
       const start = Date.now();
-      await callTool('wait', { seconds: 1 });
+      await callTool('browser_wait', { time: 1 });
       const elapsed = Date.now() - start;
 
       expect(elapsed).toBeGreaterThanOrEqual(1000);
