@@ -189,10 +189,10 @@ function buildSnapshotText(snapshot, status, details = []) {
   );
 }
 
-async function captureDomSnapshot(tabId) {
+async function captureDomSnapshot(tabId, fullPage = true) {
   const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId },
-    func: () => {
+    func: (fullPage) => {
       const buildElementRef = (element) => {
         if (!element || element.nodeType !== Node.ELEMENT_NODE) return null;
         if (element === document.body) return 'css:body';
@@ -231,6 +231,12 @@ async function captureDomSnapshot(tabId) {
           rect.width > 0 &&
           rect.height > 0
         );
+      };
+
+      // Helper to check if element should be included based on fullPage flag
+      const shouldIncludeElement = (element) => {
+        if (fullPage) return true;
+        return isInViewport(element);
       };
 
       const inferRole = (element) => {
@@ -329,7 +335,7 @@ async function captureDomSnapshot(tabId) {
         const elements = Array.from(document.querySelectorAll(selectors));
         let index = 0;
         for (const el of elements) {
-          if (!isInViewport(el)) continue;
+          if (!shouldIncludeElement(el)) continue;
           if (index >= 50) break;
           const role = inferRole(el) || el.getAttribute('role') || el.tagName.toLowerCase();
           const label =
@@ -361,7 +367,7 @@ async function captureDomSnapshot(tabId) {
         const selectors =
           'main, nav, header, footer, aside, [role="main"], [role="navigation"], [role="banner"], [role="contentinfo"], [role="complementary"], [role="search"]';
         for (const el of Array.from(document.querySelectorAll(selectors))) {
-          if (!isInViewport(el)) continue;
+          if (!shouldIncludeElement(el)) continue;
           const role = inferRole(el) || el.getAttribute('role') || el.tagName.toLowerCase();
           results.push({
             role,
@@ -377,7 +383,7 @@ async function captureDomSnapshot(tabId) {
 
       const collectLinks = () =>
         Array.from(document.querySelectorAll('a[href]'))
-          .filter(isInViewport)
+          .filter(shouldIncludeElement)
           .slice(0, 30)
           .map((a) => ({
             text: a.textContent?.trim().slice(0, 120) || '',
@@ -388,7 +394,7 @@ async function captureDomSnapshot(tabId) {
 
       const collectImages = () =>
         Array.from(document.querySelectorAll('img[src]'))
-          .filter(isInViewport)
+          .filter(shouldIncludeElement)
           .slice(0, 20)
           .map((img) => ({
             src: img.src,
@@ -399,7 +405,7 @@ async function captureDomSnapshot(tabId) {
 
       const collectForms = () => {
         const forms = Array.from(document.querySelectorAll('form'))
-          .filter(isInViewport)
+          .filter(shouldIncludeElement)
           .slice(0, 5);
         return forms.map((form) => ({
           action: form.action || '',
@@ -407,7 +413,7 @@ async function captureDomSnapshot(tabId) {
           ariaLabel: form.getAttribute('aria-label') || undefined,
           ref: buildElementRef(form) || undefined,
           fields: Array.from(form.querySelectorAll('input, select, textarea'))
-            .filter(isInViewport)
+            .filter(shouldIncludeElement)
             .slice(0, 15)
             .map((field) => ({
               type: field.type || field.tagName.toLowerCase(),
@@ -423,7 +429,7 @@ async function captureDomSnapshot(tabId) {
 
       const collectHeadings = () =>
         Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6'))
-          .filter(isInViewport)
+          .filter(shouldIncludeElement)
           .slice(0, 20)
           .map((heading) => ({
             level: heading.tagName,
@@ -459,6 +465,7 @@ async function captureDomSnapshot(tabId) {
 
       return snapshot;
     },
+    args: [fullPage],
   });
 
   return result || null;
@@ -956,10 +963,10 @@ async function captureAccessibilityTree(tabId) {
   }
 }
 
-async function captureRawSnapshot(tabId) {
+async function captureRawSnapshot(tabId, fullPage = true) {
   let domSnapshot = null;
   try {
-    domSnapshot = await captureDomSnapshot(tabId);
+    domSnapshot = await captureDomSnapshot(tabId, fullPage);
   } catch (error) {
     console.warn('[snapshot] DOM snapshot failed', error);
   }
@@ -1000,9 +1007,9 @@ async function captureRawSnapshot(tabId) {
   return domSnapshot;
 }
 
-export async function captureSnapshotForTab(tabId) {
+export async function captureSnapshotForTab(tabId, fullPage = true) {
   try {
-    return await captureRawSnapshot(tabId);
+    return await captureRawSnapshot(tabId, fullPage);
   } catch (error) {
     throw createErrorResult('Snapshot capture failed', error);
   }
@@ -1013,9 +1020,10 @@ export async function captureSnapshotResponse({
   status,
   details = [],
   fallbackUrl,
+  fullPage = true,
 }) {
   try {
-    const snapshot = await captureRawSnapshot(tabId);
+    const snapshot = await captureRawSnapshot(tabId, fullPage);
     if (!snapshot) {
       throw new Error('Snapshot returned empty result');
     }
