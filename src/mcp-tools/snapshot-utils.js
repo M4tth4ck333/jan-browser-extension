@@ -5,10 +5,10 @@ import { selectTab } from '../lib/tab-manager.js';
 import { setElementRefMap } from '../lib/element-ref-map.js';
 
 const DEBUGGER_PROTOCOL_VERSION = '1.3';
-const MAX_TREE_DEPTH = 100;
-const MAX_CHILDREN_PER_NODE = 100;
-const MAX_INTERACTIVE_ELEMENTS = 100;
-const MAX_LANDMARKS = 100;
+const MAX_TREE_DEPTH = 8;
+const MAX_CHILDREN_PER_NODE = 16;
+const MAX_INTERACTIVE_ELEMENTS = 60;
+const MAX_LANDMARKS = 20;
 
 const INTERACTIVE_ROLE_KEYS = new Set(
   [
@@ -720,24 +720,18 @@ function compactObject(source = {}) {
   return result;
 }
 
-function formatAccessibleRef(nodeId, backendDOMNodeId = null) {
+function formatAccessibleRef(nodeId) {
   if (nodeId === undefined || nodeId === null) {
     return undefined;
   }
 
   if (!currentAxRefMap.has(nodeId)) {
-    // Use backendDOMNodeId directly if available, otherwise use counter
-    // This makes refs like s1e14 directly map to backendDOMNodeId 14
-    const refId = backendDOMNodeId
-      ? `s1e${backendDOMNodeId}`
-      : `s1e${currentAxRefCounter}`;
-
+    // Always use counter for stable refs across page reloads
+    // s1e0, s1e1, s1e2, etc. - s1 = snapshot 1, e{counter} = element counter
+    // This ensures the same element gets the same ref after page reload
+    const refId = `s1e${currentAxRefCounter}`;
     currentAxRefMap.set(nodeId, refId);
-
-    // Only increment counter if we didn't use backendDOMNodeId
-    if (!backendDOMNodeId) {
-      currentAxRefCounter += 1;
-    }
+    currentAxRefCounter += 1;
   }
 
   return currentAxRefMap.get(nodeId);
@@ -798,8 +792,8 @@ function serializeAxNode(node, map, depth = 0) {
 
   if (includeNode) {
     serialized = compactObject({
-      id: formatAccessibleRef(node.nodeId, node.backendDOMNodeId),
-      ref: formatAccessibleRef(node.nodeId, node.backendDOMNodeId),
+      id: formatAccessibleRef(node.nodeId),
+      ref: formatAccessibleRef(node.nodeId),
       axNodeId: node.nodeId,
       role,
       name,
@@ -1131,13 +1125,13 @@ async function buildRefToSelectorMap(nodes, target) {
       }
 
       // Stop after mapping enough nodes for performance
-      if (mappedCount >= 500) {
+      if (mappedCount >= 2000) {
         break;
       }
 
       // Use the same formatted ref that serializeAxNode produces
       // This uses currentAxRefMap which was populated during tree serialization
-      const refId = formatAccessibleRef(node.nodeId, backendNodeId);
+      const refId = formatAccessibleRef(node.nodeId);
       if (!refId) {
         skippedCount++;
         continue;
@@ -1160,22 +1154,48 @@ async function buildRefToSelectorMap(nodes, target) {
         let selector = null;
 
         if (domNode.nodeName) {
-          let parts = [domNode.nodeName.toLowerCase()];
+          const tagName = domNode.nodeName.toLowerCase();
 
-          // Add ID if available
+          // Parse attributes
+          const attrs = {};
           if (domNode.attributes) {
-            const attrs = domNode.attributes;
-            for (let i = 0; i < attrs.length; i += 2) {
-              if (attrs[i] === 'id' && attrs[i + 1]) {
-                selector = `#${attrs[i + 1]}`;
-                break;
-              }
+            for (let i = 0; i < domNode.attributes.length; i += 2) {
+              const key = domNode.attributes[i];
+              const value = domNode.attributes[i + 1];
+              attrs[key] = value;
             }
           }
 
-          // If no ID, try to build a selector from class or nth-child
+          // Priority 1: Use ID if available (most specific)
+          if (attrs.id) {
+            selector = `#${attrs.id}`;
+          }
+          // Priority 2: For links, use href attribute (very specific for navigation)
+          else if (tagName === 'a' && attrs.href) {
+            selector = `a[href="${attrs.href}"]`;
+          }
+          // Priority 3: Use unique attributes like data-* or name
+          else if (attrs['data-testid']) {
+            selector = `${tagName}[data-testid="${attrs['data-testid']}"]`;
+          }
+          else if (attrs.name) {
+            selector = `${tagName}[name="${attrs.name}"]`;
+          }
+          // Priority 4: Use aria-label for buttons/interactive elements
+          else if (attrs['aria-label']) {
+            selector = `${tagName}[aria-label="${attrs['aria-label']}"]`;
+          }
+          // Priority 5: Use class if available
+          else if (attrs.class) {
+            const classes = attrs.class.split(/\s+/).filter(c => c && !c.match(/^(active|hover|focus|selected)$/));
+            if (classes.length > 0) {
+              selector = `${tagName}.${classes[0]}`;
+            }
+          }
+
+          // Fallback: just use tag name (not very specific but better than nothing)
           if (!selector) {
-            selector = parts.join('');
+            selector = tagName;
           }
         }
 
