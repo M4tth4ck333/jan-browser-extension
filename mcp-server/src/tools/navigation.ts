@@ -28,7 +28,7 @@ export const browserNavigate: Tool = {
       url = `https://${url}`;
     }
 
-    const data = await callExtension("visit", { url, closeTab: false });
+    const data = await callExtension("browser_navigate", { url, closeTab: false });
     return captureAriaSnapshot(data?.data?.url || url);
   },
 };
@@ -46,7 +46,7 @@ export const browserGoBack: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    const data = await callExtension("go_back", {});
+    const data = await callExtension("browser_go_back", {});
     const snapshot = await captureAriaSnapshot(data?.data?.url);
     return withActionText("Navigated back", snapshot);
   },
@@ -65,7 +65,7 @@ export const browserGoForward: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    const data = await callExtension("go_forward", {});
+    const data = await callExtension("browser_go_forward", {});
     const snapshot = await captureAriaSnapshot(data?.data?.url);
     return withActionText("Navigated forward", snapshot);
   },
@@ -76,9 +76,9 @@ const ScrollSchema = z.object({
   amount: z.number().optional().describe("Scroll amount in pixels (for 'up' and 'down' directions, default: 500)"),
 });
 
-export const scroll: Tool = {
+export const browserScroll: Tool = {
   schema: {
-    name: "scroll",
+    name: "browser_scroll",
     description: "Scroll the page",
     inputSchema: zodToJsonSchema(ScrollSchema) as any,
   },
@@ -87,7 +87,7 @@ export const scroll: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    await callExtension("scroll_page", params);
+    await callExtension("browser_scroll", params);
     const snapshot = await captureAriaSnapshot();
     return withActionText(`Scrolled ${params.direction}`, snapshot);
   },

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jan Browser MCP",
-  "version": "0.13.0",
+  "version": "0.13.2",
   "description": "Minimal browser extension that exposes tab automation to the Jan MCP bridge.",
   "browser_specific_settings": {
     "gecko": {

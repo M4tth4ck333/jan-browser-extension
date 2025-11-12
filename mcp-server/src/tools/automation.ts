@@ -29,7 +29,7 @@ export const browserClick: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    await callExtension("click_element", params);
+    await callExtension("browser_click", params);
     const snapshot = await captureAriaSnapshot();
     return withActionText(`Clicked "${params.element}"`, snapshot);
   },
@@ -51,7 +51,7 @@ export const browserType: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    await callExtension("type_text", { ...params, pressEnter: params.submit === true });
+    await callExtension("browser_type", { ...params, pressEnter: params.submit === true });
     const action = params.submit ? `Typed "${params.text}" and pressed Enter` : `Typed "${params.text}"`;
     const snapshot = await captureAriaSnapshot();
     return withActionText(`${action} into "${params.element}"`, snapshot);
@@ -71,7 +71,7 @@ export const browserHover: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    await callExtension("hover_element", params);
+    await callExtension("browser_hover", params);
     const snapshot = await captureAriaSnapshot();
     return withActionText(`Hovered over "${params.element}"`, snapshot);
   },
@@ -92,7 +92,7 @@ export const browserSelectOption: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    await callExtension("select_option", params);
+    await callExtension("browser_select_option", params);
     const snapshot = await captureAriaSnapshot();
     return withActionText(`Selected option in "${params.element}"`, snapshot);
   },
@@ -144,7 +144,7 @@ export const browserPressKey: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    await callExtension("press_key", params);
+    await callExtension("browser_press_key", params);
     const snapshot = await captureAriaSnapshot();
     return withActionText(`Pressed key ${params.key}`, snapshot);
   },
@@ -170,7 +170,7 @@ export const browserDrag: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    await callExtension("drag_element", params);
+    await callExtension("browser_drag", params);
     const snapshot = await captureAriaSnapshot();
     return withActionText(`Dragged "${params.startElement}" to "${params.endElement}"`, snapshot);
   },

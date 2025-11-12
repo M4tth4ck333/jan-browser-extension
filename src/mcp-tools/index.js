@@ -20,7 +20,6 @@ import {
 
 import {
   handleScreenshot,
-  handleSnapshot,
   handleBrowserSnapshotYaml,
   handleGetUrl,
   handleGetTitle,
@@ -34,29 +33,28 @@ import { handleSearch } from './search.js';
  */
 export const mcpToolHandlers = {
   // Automation tools
-  click_element: handleClickElement,
+  browser_click: handleClickElement,
   browser_fill_form: handleBrowserFillForm,
-  type_text: handleTypeText,
-  hover_element: handleHoverElement,
-  select_option: handleSelectOption,
-  press_key: handlePressKey,
-  drag_element: handleDragElement,
+  browser_type: handleTypeText,
+  browser_hover: handleHoverElement,
+  browser_select_option: handleSelectOption,
+  browser_press_key: handlePressKey,
+  browser_drag: handleDragElement,
 
   // Navigation tools
-  visit: handleVisit,
-  go_back: handleGoBack,
-  go_forward: handleGoForward,
+  browser_navigate: handleVisit,
+  browser_go_back: handleGoBack,
+  browser_go_forward: handleGoForward,
   browser_scroll: handleScroll,
 
   // Observation tools
-  screenshot: handleScreenshot,
-  snapshot: handleSnapshot,
+  browser_screenshot: handleScreenshot,
   browser_snapshot: handleBrowserSnapshotYaml,
-  getUrl: handleGetUrl,
-  getTitle: handleGetTitle,
+  browser_get_url: handleGetUrl,
+  browser_get_title: handleGetTitle,
 
   // Search tool (requires external dependencies)
-  search: handleSearch,
+  web_search: handleSearch,
 
 };
 
@@ -80,7 +78,7 @@ export async function dispatchToolCall(toolName, params = {}, context = {}) {
 
   try {
     // For search tool, pass search functions from context
-    if (toolName === 'search' && context.searchFunctions) {
+    if (toolName === 'web_search' && context.searchFunctions) {
       return await handler(params, context.searchFunctions);
     }
 

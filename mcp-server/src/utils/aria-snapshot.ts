@@ -17,8 +17,8 @@ export async function captureAriaSnapshot(targetUrl?: string, status: string = "
   try {
     const params = targetUrl ? { url: targetUrl, fullPage } : { fullPage };
 
-    const urlResponse = await callExtension("getUrl", params);
-    const titleResponse = await callExtension("getTitle", params);
+    const urlResponse = await callExtension("browser_get_url", params);
+    const titleResponse = await callExtension("browser_get_title", params);
     const snapshotResponse = await callExtension("browser_snapshot", params);
 
     const pageUrl =
