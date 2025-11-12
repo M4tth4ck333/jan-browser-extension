@@ -62,7 +62,7 @@ export const browserScreenshot: Tool = {
     }
 
     try {
-      const data = await callExtension("screenshot", {});
+      const data = await callExtension("browser_screenshot", {});
 
       const direct = useExtensionResult(data);
       if (direct) {
@@ -146,7 +146,7 @@ export const webSearch: Tool = {
     }
 
     try {
-      const data = await callExtension("search", params);
+      const data = await callExtension("web_search", params);
 
       const direct = useExtensionResult(data);
       if (direct) {
