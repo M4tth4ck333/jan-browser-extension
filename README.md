@@ -13,7 +13,14 @@
 
 ## Quick Start (5 minutes)
 
-### 1. Install dependencies
+### 1. Download compressed distribution
+
+1. Go to [Jan's GitHub releases page](https://github.com/janhq/jan-browser-extension/releases/) → click "dist.zip" under the latest version
+2. Unzip the downloaded file then load it to Chrome (instruction below)
+
+### 2. Install manually from code 
+
+#### Install dependencies
 
 ```bash
 # Clone the repository
@@ -24,7 +31,7 @@ cd jan-browser-extension
 npm install
 ```
 
-### 2. Build the extension
+#### Build the extension
 
 ```bash
 # Build for Chromium-based browsers
@@ -36,8 +43,8 @@ npm run build:firefox
 
 ### 3. Load in Chrome
 
-1. Open `chrome://extensions`
-2. Enable **Developer mode**
+1. Open `chrome://extensions` or **Open Chrome Settings → Extensions**
+2. Enable **Developer mode** (toggle ON)
 3. Click **Load unpacked** → select the `dist` folder 
 4. Pin the extension if you want quick visibility
 
