@@ -9,8 +9,6 @@ import { clickPointWithDebugger, typeTextWithDebugger, waitMs } from './debugger
 
 function formatElementLabel(detectedElement = {}, fallbackRef = '') {
   const tag = detectedElement.tagName ? detectedElement.tagName.toLowerCase() : '';
-  const id = detectedElement.id ? `#${detectedElement.id}` : '';
-  const name = !id && detectedElement.name ? `[name="${detectedElement.name}"]` : '';
   const role = detectedElement.role ? `role="${detectedElement.role}"` : '';
   const type = detectedElement.type ? `type="${detectedElement.type}"` : '';
 
@@ -29,11 +27,16 @@ function formatElementLabel(detectedElement = {}, fallbackRef = '') {
       ? `${descriptorSource.slice(0, 117)}...`
       : descriptorSource;
 
-  const base = `${tag}${id || name}`.trim() || fallbackRef || 'target element';
-  const meta = [role, type].filter(Boolean).join(' ').trim();
-  const identity = meta ? `${base} (${meta})` : base;
+  const descriptorSegment = descriptor ? ` "${descriptor}"` : '';
+  const metaParts = [role, type].filter(Boolean);
+  const metaSegment = metaParts.length ? ` (${metaParts.join(' ')})` : '';
+  const baseLabel = `${tag || 'element'}${descriptorSegment}${metaSegment}`.trim();
 
-  return descriptor ? `${descriptor} – ${identity}` : identity;
+  const trimmedRef = typeof fallbackRef === 'string' ? fallbackRef.trim() : '';
+  const isRefLike = /^s\d+e\d+$/i.test(trimmedRef) || trimmedRef.startsWith('css:');
+  const prefix = trimmedRef ? (isRefLike ? `ref: ${trimmedRef}` : trimmedRef) : '';
+
+  return prefix ? `${prefix} - ${baseLabel}` : baseLabel;
 }
 
 /**
