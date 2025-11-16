@@ -63,10 +63,26 @@ let currentAxRefCounter = 2;
 let currentSnapshotPrefix = 's1';
 let snapshotSequence = 1;
 const snapshotCache = new Map();
+const snapshotIdsByTab = new Map();
 
 function resetAccessibleRefMap() {
   currentAxRefMap = new Map();
   currentAxRefCounter = 2;
+}
+
+export function clearSnapshotsForTab(tabId) {
+  if (typeof tabId !== 'number') return;
+
+  const cachedIds = snapshotIdsByTab.get(tabId);
+  if (cachedIds && cachedIds.size) {
+    for (const id of cachedIds) {
+      snapshotCache.delete(id);
+    }
+  }
+
+  snapshotIdsByTab.delete(tabId);
+  clearElementRefMap(tabId);
+  console.log(`[snapshot] Cleared cached snapshots and ref map for tab ${tabId}`);
 }
 
 function createErrorResult(message, error) {
@@ -1220,30 +1236,6 @@ async function buildRefToSelectorMap(nodes, target) {
   return refMap;
 }
 
-function stabilizeRefMap(tabId, refMap) {
-  const existing = getElementRefMap(tabId);
-  if (!existing || existing.size === 0) {
-    return refMap;
-  }
-
-  const selectorToRef = new Map();
-  for (const [ref, selector] of existing.entries()) {
-    selectorToRef.set(selector, ref);
-  }
-
-  const stableRefMap = {};
-  for (const [ref, selector] of Object.entries(refMap)) {
-    const previousRef = selectorToRef.get(selector);
-    if (previousRef && !stableRefMap[previousRef]) {
-      stableRefMap[previousRef] = selector;
-    } else if (!stableRefMap[ref]) {
-      stableRefMap[ref] = selector;
-    }
-  }
-
-  return stableRefMap;
-}
-
 async function captureAccessibilityTree(tabId) {
   if (!chrome?.debugger?.attach) {
     return null;
@@ -1291,7 +1283,7 @@ async function captureAccessibilityTree(tabId) {
 
     // Build reference mapping for automation
     const rawRefMap = await buildRefToSelectorMap(nodes, target);
-    const refMap = stabilizeRefMap(tabId, rawRefMap);
+    const refMap = rawRefMap;
 
     return {
       tree,
@@ -1380,6 +1372,12 @@ export async function captureSnapshotForTab(tabId, fullPage = true) {
     }
 
     snapshot.snapshotId = currentSnapshotPrefix;
+    snapshot.tabId = tabId;
+
+    const existing = snapshotIdsByTab.get(tabId) || new Set();
+    existing.add(snapshot.snapshotId);
+    snapshotIdsByTab.set(tabId, existing);
+
     snapshotCache.set(snapshot.snapshotId, snapshot);
     snapshotSequence += 1;
     return snapshot;

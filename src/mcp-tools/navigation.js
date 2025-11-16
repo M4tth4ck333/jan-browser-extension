@@ -3,7 +3,7 @@
 
 import { selectTab, setMcpRegisteredTab, getMcpRegisteredTab } from '../lib/tab-manager.js';
 import { CONTENT_LOAD_TIMEOUT, TAB_REGISTRATION_DELAY, VisitOutputModes } from '../constants.js';
-import { createErrorResult } from './snapshot-utils.js';
+import { createErrorResult, clearSnapshotsForTab } from './snapshot-utils.js';
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -95,6 +95,8 @@ export async function handleVisit(params) {
       tabId = tab.id;
       isNewTab = true;
     }
+
+    clearSnapshotsForTab(tabId);
 
     await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -234,6 +236,7 @@ export async function handleGoBack(params) {
     await new Promise((resolve) => setTimeout(resolve, TAB_REGISTRATION_DELAY));
 
     const finalTab = await chrome.tabs.get(tabId);
+    clearSnapshotsForTab(tabId);
 
     const meta = {};
     if (finalTab.url) meta.urls = [finalTab.url];
@@ -276,6 +279,7 @@ export async function handleGoForward(params) {
     await new Promise((resolve) => setTimeout(resolve, TAB_REGISTRATION_DELAY));
 
     const finalTab = await chrome.tabs.get(tabId);
+    clearSnapshotsForTab(tabId);
 
     const meta = {};
     if (finalTab.url) meta.urls = [finalTab.url];
