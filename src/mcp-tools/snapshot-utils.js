@@ -2,7 +2,7 @@
 // Shared helpers for building ARIA snapshot responses that match the MCP server
 
 import { selectTab } from '../lib/tab-manager.js';
-import { getElementRefMap, setElementRefMap } from '../lib/element-ref-map.js';
+import { clearElementRefMap, getElementRefMap, setElementRefMap } from '../lib/element-ref-map.js';
 
 const DEBUGGER_PROTOCOL_VERSION = '1.3';
 const MAX_TREE_DEPTH = 8;
@@ -61,9 +61,29 @@ const LANDMARK_ROLE_KEYS = new Set(
 let currentAxRefMap = new Map();
 let currentAxRefCounter = 2;
 let currentSnapshotPrefix = 's1';
-let snapshotSequence = 1;
 const snapshotCache = new Map();
 const snapshotIdsByTab = new Map();
+const snapshotSequenceByTab = new Map();
+let navigationListenersRegistered = false;
+
+function ensureNavigationCacheResets() {
+  if (navigationListenersRegistered) return;
+  if (!chrome?.tabs?.onUpdated) return;
+
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (changeInfo?.status === 'loading') {
+      clearSnapshotsForTab(tabId);
+    }
+  });
+
+  chrome.tabs.onRemoved?.addListener((tabId) => {
+    clearSnapshotsForTab(tabId);
+  });
+
+  navigationListenersRegistered = true;
+}
+
+ensureNavigationCacheResets();
 
 function resetAccessibleRefMap() {
   currentAxRefMap = new Map();
@@ -81,6 +101,9 @@ export function clearSnapshotsForTab(tabId) {
   }
 
   snapshotIdsByTab.delete(tabId);
+  snapshotSequenceByTab.delete(tabId);
+  currentSnapshotPrefix = 's1';
+  resetAccessibleRefMap();
   clearElementRefMap(tabId);
   console.log(`[snapshot] Cleared cached snapshots and ref map for tab ${tabId}`);
 }
@@ -1365,7 +1388,8 @@ async function captureRawSnapshot(tabId, fullPage = true) {
 
 export async function captureSnapshotForTab(tabId, fullPage = true) {
   try {
-    currentSnapshotPrefix = `s${snapshotSequence}`;
+    const nextSequence = snapshotSequenceByTab.get(tabId) ?? 1;
+    currentSnapshotPrefix = `s${nextSequence}`;
     const snapshot = await captureRawSnapshot(tabId, fullPage);
     if (!snapshot) {
       throw new Error('Snapshot capture returned empty result');
@@ -1379,7 +1403,7 @@ export async function captureSnapshotForTab(tabId, fullPage = true) {
     snapshotIdsByTab.set(tabId, existing);
 
     snapshotCache.set(snapshot.snapshotId, snapshot);
-    snapshotSequence += 1;
+    snapshotSequenceByTab.set(tabId, nextSequence + 1);
     return snapshot;
   } catch (error) {
     throw createErrorResult('Snapshot capture failed', error);
