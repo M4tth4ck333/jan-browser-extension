@@ -356,8 +356,14 @@ export async function handleClickElement(params = {}) {
       mode: 'click',
     });
 
+    const elementLabel = formatElementLabel(preparedTarget?.detectedElement, ref);
+
     if (!preparedTarget?.success || !preparedTarget.clickPoint) {
-      return createErrorResult('Click failed', preparedTarget?.error || 'Element not found');
+      const actionDescription = preparedTarget?.actionDescription || 'clicking';
+      const errorMessage = preparedTarget?.unsupported
+        ? `Element reference ${elementLabel} does not support ${actionDescription} actions`
+        : preparedTarget?.error || 'Element not found';
+      return createErrorResult('Click failed', errorMessage);
     }
 
     try {
@@ -367,7 +373,6 @@ export async function handleClickElement(params = {}) {
       return createErrorResult('Click failed', err);
     }
 
-    const elementLabel = formatElementLabel(preparedTarget.detectedElement, ref);
     const meta = {};
     if (tab?.url) meta.urls = [tab.url];
     if (typeof tabId === 'number') meta.tabId = tabId;
@@ -430,8 +435,14 @@ export async function handleTypeText(params) {
       mode: 'type',
     });
 
+    const elementLabel = formatElementLabel(preparedTarget?.detectedElement, ref);
+
     if (!preparedTarget?.success || !preparedTarget.clickPoint) {
-      return createErrorResult('Type text failed', preparedTarget?.error || 'Element not found');
+      const actionDescription = preparedTarget?.actionDescription || 'typing';
+      const errorMessage = preparedTarget?.unsupported
+        ? `Element reference ${elementLabel} does not support ${actionDescription} actions`
+        : preparedTarget?.error || 'Element not found';
+      return createErrorResult('Type text failed', errorMessage);
     }
 
     try {
@@ -449,7 +460,6 @@ export async function handleTypeText(params) {
     }
 
     const truncated = text.length > 80 ? `${text.slice(0, 77)}...` : text;
-    const elementLabel = formatElementLabel(preparedTarget.detectedElement, ref);
     const status = pressEnter
       ? `Typed "${truncated}" and pressed Enter in ${elementLabel} (ref ${ref})`
       : `Typed "${truncated}" in ${elementLabel} (ref ${ref})`;

@@ -234,8 +234,9 @@ export async function prepareElementForAction(tabId, { ref, mode }) {
       };
 
       let el = ref ? resolveElementFromRef(ref) : null;
+      const sourceElement = el;
       if (!el) {
-        return { success: false, error: 'Element not found' };
+        return { success: false, error: 'Element not found', detectedElement: null, actionDescription: mode };
       }
 
       if (mode === 'click') {
@@ -244,12 +245,32 @@ export async function prepareElementForAction(tabId, { ref, mode }) {
         el = findTypeableElement(el);
       }
 
+      const buildDetectedElement = (element) => {
+        if (!element) return null;
+        const textContent = (element.innerText || element.textContent || '').trim();
+        return {
+          tagName: element.tagName || 'unknown',
+          role: element.getAttribute?.('role') || null,
+          id: element.id || null,
+          className: element.className || null,
+          name: element.getAttribute?.('name') || null,
+          type: element.getAttribute?.('type') || null,
+          ariaLabel: element.getAttribute?.('aria-label') || null,
+          ariaDescription: element.getAttribute?.('aria-description') || null,
+          placeholder: element.getAttribute?.('placeholder') || null,
+          text: textContent ? textContent.slice(0, 500) : null,
+          value: element.value !== undefined ? String(element.value).slice(0, 200) : null,
+        };
+      };
+
       if (!el) {
         const actionDescription = mode === 'type' ? 'typing' : 'clicking';
-        const refLabel = typeof ref === 'string' && ref.trim().length ? ref.trim() : 'unknown';
         return {
           success: false,
-          error: `Element reference ${refLabel} does not support ${actionDescription} actions`,
+          error: `Element reference does not support ${actionDescription} actions`,
+          unsupported: true,
+          actionDescription,
+          detectedElement: buildDetectedElement(sourceElement),
         };
       }
 
@@ -268,20 +289,7 @@ export async function prepareElementForAction(tabId, { ref, mode }) {
         y: targetRect.top + viewportY + targetRect.height / 2,
       };
 
-      const textContent = (el.innerText || el.textContent || '').trim();
-      const detectedElement = {
-        tagName: el.tagName || 'unknown',
-        role: el.getAttribute?.('role') || null,
-        id: el.id || null,
-        className: el.className || null,
-        name: el.getAttribute?.('name') || null,
-        type: el.getAttribute?.('type') || null,
-        ariaLabel: el.getAttribute?.('aria-label') || null,
-        ariaDescription: el.getAttribute?.('aria-description') || null,
-        placeholder: el.getAttribute?.('placeholder') || null,
-        text: textContent ? textContent.slice(0, 500) : null,
-        value: el.value !== undefined ? String(el.value).slice(0, 200) : null,
-      };
+      const detectedElement = buildDetectedElement(el);
 
       const smartDetection = hasFrameworkBindings(el) || Boolean(el.getAttribute?.('role'));
 
