@@ -246,9 +246,10 @@ export async function prepareElementForAction(tabId, { ref, mode }) {
 
       if (!el) {
         const actionDescription = mode === 'type' ? 'typing' : 'clicking';
+        const refLabel = typeof ref === 'string' && ref.trim().length ? ref.trim() : 'unknown';
         return {
           success: false,
-          error: `Element reference does not support ${actionDescription} actions`,
+          error: `Element reference ${refLabel} does not support ${actionDescription} actions`,
         };
       }
 
