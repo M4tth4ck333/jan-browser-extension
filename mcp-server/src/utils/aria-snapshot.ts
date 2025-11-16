@@ -13,7 +13,11 @@ function extractText(response: any, fallback: string = ""): string {
   return fallback;
 }
 
-export async function captureAriaSnapshot(targetUrl?: string, status: string = "", fullPage: boolean = true): Promise<ToolResult> {
+export async function captureAriaSnapshot(
+  targetUrl?: string,
+  status: string = "",
+  fullPage: boolean = true,
+): Promise<ToolResult> {
   try {
     const params = targetUrl ? { url: targetUrl, fullPage } : { fullPage };
 
@@ -24,13 +28,13 @@ export async function captureAriaSnapshot(targetUrl?: string, status: string = "
     const pageUrl =
       urlResponse?.data?.url ||
       extractText(urlResponse) ||
-      snapshotResponse?.data?.url ||
+      snapshotResponse?.data?.snapshot?.url ||
       targetUrl ||
       "unknown";
     const pageTitle =
       titleResponse?.data?.title ||
       extractText(titleResponse) ||
-      snapshotResponse?.data?.title ||
+      snapshotResponse?.data?.snapshot?.title ||
       "Untitled";
 
     const yamlEntry = Array.isArray(snapshotResponse?.content)
@@ -38,11 +42,14 @@ export async function captureAriaSnapshot(targetUrl?: string, status: string = "
       : null;
     const yaml =
       (yamlEntry?.text && String(yamlEntry.text)) ||
-      (snapshotResponse?.data ? formatSnapshotAsYAML(snapshotResponse.data) : 'error: No snapshot data available');
+      (snapshotResponse?.data?.snapshot
+        ? formatSnapshotAsYAML(snapshotResponse.data.snapshot)
+        : 'error: No snapshot data available');
 
     const tabId =
       (snapshotResponse?._meta?.tabId ??
         snapshotResponse?.data?.tabId ??
+        snapshotResponse?.data?.snapshot?.tabId ??
         urlResponse?._meta?.tabId ??
         titleResponse?._meta?.tabId) as number | undefined;
     if (typeof tabId === "number") {

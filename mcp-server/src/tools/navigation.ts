@@ -5,7 +5,6 @@
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { callExtension, waitForBridgeConnection, hasExtensionConnection } from "../utils/bridge.js";
-import { captureAriaSnapshot } from "../utils/aria-snapshot.js";
 import type { Tool, ToolResult } from "./tool.js";
 
 const NavigateSchema = z.object({
@@ -29,7 +28,8 @@ export const browserNavigate: Tool = {
     }
 
     const data = await callExtension("browser_navigate", { url, closeTab: false });
-    return captureAriaSnapshot(data?.data?.url || url);
+    const targetUrl = data?.data?.url || url;
+    return toTextResult(`Navigated to ${targetUrl}`);
   },
 };
 
@@ -47,8 +47,8 @@ export const browserGoBack: Tool = {
     }
 
     const data = await callExtension("browser_go_back", {});
-    const snapshot = await captureAriaSnapshot(data?.data?.url);
-    return withActionText("Navigated back", snapshot);
+    const targetUrl = data?.data?.url;
+    return toTextResult(targetUrl ? `Navigated back to ${targetUrl}` : "Navigated back");
   },
 };
 
@@ -66,8 +66,8 @@ export const browserGoForward: Tool = {
     }
 
     const data = await callExtension("browser_go_forward", {});
-    const snapshot = await captureAriaSnapshot(data?.data?.url);
-    return withActionText("Navigated forward", snapshot);
+    const targetUrl = data?.data?.url;
+    return toTextResult(targetUrl ? `Navigated forward to ${targetUrl}` : "Navigated forward");
   },
 };
 
@@ -88,8 +88,7 @@ export const browserScroll: Tool = {
     }
 
     await callExtension("browser_scroll", params);
-    const snapshot = await captureAriaSnapshot();
-    return withActionText(`Scrolled ${params.direction}`, snapshot);
+    return toTextResult(`Scrolled ${params.direction}`);
   },
 };
 
@@ -118,16 +117,13 @@ export const browserWait: Tool = {
   },
 };
 
-function withActionText(action: string, snapshot: ToolResult): ToolResult {
-  const existing = Array.isArray(snapshot.content) ? snapshot.content : [];
+function toTextResult(text: string): ToolResult {
   return {
-    ...snapshot,
     content: [
       {
         type: "text",
-        text: action,
+        text,
       },
-      ...existing,
     ],
   };
 }

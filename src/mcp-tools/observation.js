@@ -163,7 +163,7 @@ export async function handleSnapshot(params = {}) {
       content: snapshotResult.content,
       _meta: snapshotResult._meta,
       data: {
-        ...snapshotResult.snapshot,
+        snapshot: snapshotResult.snapshot,
         tabId,
       },
     };
@@ -184,7 +184,7 @@ export async function handleBrowserSnapshotYaml(params = {}) {
     }
 
     const { tabId, tab } = selection;
-    const snapshot = await captureSnapshotForTab(tabId);
+    const snapshot = await captureSnapshotForTab(tabId, params?.fullPage !== false);
     if (!snapshot) {
       return createErrorResult('Snapshot failed', 'Snapshot capture returned empty result');
     }
@@ -205,7 +205,7 @@ export async function handleBrowserSnapshotYaml(params = {}) {
       ],
       _meta: Object.keys(meta).length ? meta : undefined,
       data: {
-        ...snapshot,
+        snapshot,
         tabId,
       },
     };

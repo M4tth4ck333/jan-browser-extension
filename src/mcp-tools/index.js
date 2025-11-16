@@ -8,7 +8,8 @@ import {
   handleHoverElement,
   handleSelectOption,
   handlePressKey,
-  handleDragElement
+  handleDragElement,
+  handleBrowserRef,
 } from './automation.js';
 
 import {
@@ -40,6 +41,7 @@ export const mcpToolHandlers = {
   browser_select_option: handleSelectOption,
   browser_press_key: handlePressKey,
   browser_drag: handleDragElement,
+  browser_ref: handleBrowserRef,
 
   // Navigation tools
   browser_navigate: handleVisit,
