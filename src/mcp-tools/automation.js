@@ -382,7 +382,7 @@ export async function handleClickElement(params = {}) {
       content: [
         {
           type: 'text',
-          text: `Clicked ${elementLabel} (ref ${ref})`,
+          text: `Clicked ${elementLabel}`,
         },
       ],
       _meta: Object.keys(meta).length ? meta : undefined,
@@ -461,8 +461,8 @@ export async function handleTypeText(params) {
 
     const truncated = text.length > 80 ? `${text.slice(0, 77)}...` : text;
     const status = pressEnter
-      ? `Typed "${truncated}" and pressed Enter in ${elementLabel} (ref ${ref})`
-      : `Typed "${truncated}" in ${elementLabel} (ref ${ref})`;
+      ? `Typed "${truncated}" and pressed Enter in ${elementLabel}`
+      : `Typed "${truncated}" in ${elementLabel}`;
 
     const meta = {};
     if (tab?.url) meta.urls = [tab.url];
@@ -599,7 +599,7 @@ export async function handleHoverElement(params) {
       content: [
         {
           type: 'text',
-          text: `Hovered ${elementLabel} (ref ${ref})`,
+          text: `Hovered ${elementLabel}`,
         },
       ],
       _meta: Object.keys(meta).length ? meta : undefined,
@@ -727,7 +727,7 @@ export async function handleSelectOption(params) {
       content: [
         {
           type: 'text',
-          text: `Selected option via ${elementLabel} (ref ${ref})`,
+          text: `Selected option via ${elementLabel}`,
         },
       ],
       _meta: Object.keys(meta).length ? meta : undefined,
