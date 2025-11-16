@@ -11,11 +11,29 @@ function formatElementLabel(detectedElement = {}, fallbackRef = '') {
   const tag = detectedElement.tagName ? detectedElement.tagName.toLowerCase() : '';
   const id = detectedElement.id ? `#${detectedElement.id}` : '';
   const name = !id && detectedElement.name ? `[name="${detectedElement.name}"]` : '';
-  const role = detectedElement.role ? ` role="${detectedElement.role}"` : '';
-  const type = detectedElement.type ? ` type="${detectedElement.type}"` : '';
+  const role = detectedElement.role ? `role="${detectedElement.role}"` : '';
+  const type = detectedElement.type ? `type="${detectedElement.type}"` : '';
+
+  const descriptorSource = [
+    detectedElement.ariaLabel,
+    detectedElement.ariaDescription,
+    detectedElement.text,
+    detectedElement.placeholder,
+    detectedElement.value,
+  ]
+    .map((val) => (typeof val === 'string' ? val.trim() : ''))
+    .find(Boolean);
+
+  const descriptor =
+    descriptorSource && descriptorSource.length > 120
+      ? `${descriptorSource.slice(0, 117)}...`
+      : descriptorSource;
 
   const base = `${tag}${id || name}`.trim() || fallbackRef || 'target element';
-  return `${base}${role || type ? ` (${role || type.trim()})` : ''}`.trim();
+  const meta = [role, type].filter(Boolean).join(' ').trim();
+  const identity = meta ? `${base} (${meta})` : base;
+
+  return descriptor ? `${descriptor} – ${identity}` : identity;
 }
 
 /**
@@ -779,6 +797,10 @@ export async function handlePressKey(params = {}) {
             type: target.getAttribute?.('type') || null,
             className: target.className || null,
             ariaLabel: target.getAttribute?.('aria-label') || null,
+            ariaDescription: target.getAttribute?.('aria-description') || null,
+            placeholder: target.getAttribute?.('placeholder') || null,
+            text: (target.textContent || '').trim().slice(0, 500) || null,
+            value: target.value !== undefined ? String(target.value).slice(0, 200) : null,
             boundingRect: rect ? { ...rect.toJSON?.(), x: rect.x, y: rect.y } : null,
           },
         };

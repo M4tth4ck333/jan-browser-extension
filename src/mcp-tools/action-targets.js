@@ -267,6 +267,7 @@ export async function prepareElementForAction(tabId, { ref, mode }) {
         y: targetRect.top + viewportY + targetRect.height / 2,
       };
 
+      const textContent = (el.innerText || el.textContent || '').trim();
       const detectedElement = {
         tagName: el.tagName || 'unknown',
         role: el.getAttribute?.('role') || null,
@@ -274,6 +275,11 @@ export async function prepareElementForAction(tabId, { ref, mode }) {
         className: el.className || null,
         name: el.getAttribute?.('name') || null,
         type: el.getAttribute?.('type') || null,
+        ariaLabel: el.getAttribute?.('aria-label') || null,
+        ariaDescription: el.getAttribute?.('aria-description') || null,
+        placeholder: el.getAttribute?.('placeholder') || null,
+        text: textContent ? textContent.slice(0, 500) : null,
+        value: el.value !== undefined ? String(el.value).slice(0, 200) : null,
       };
 
       const smartDetection = hasFrameworkBindings(el) || Boolean(el.getAttribute?.('role'));
@@ -366,7 +372,10 @@ export async function getElementDetails(tabId, ref) {
         name: el.getAttribute?.('name') || null,
         type: el.getAttribute?.('type') || null,
         ariaLabel: el.getAttribute?.('aria-label') || null,
+        ariaDescription: el.getAttribute?.('aria-description') || null,
+        placeholder: el.getAttribute?.('placeholder') || null,
         text: (el.textContent || '').trim().slice(0, 500) || null,
+        value: el.value !== undefined ? String(el.value).slice(0, 200) : null,
       };
 
       const boundingRect = rect ? { ...rect.toJSON?.(), x: rect.x, y: rect.y } : null;

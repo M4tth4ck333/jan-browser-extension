@@ -17,7 +17,7 @@ const RefSchema = ElementSchema;
 export const browserClick: Tool = {
   schema: {
     name: "browser_click",
-    description: "Perform click on a web page",
+    description: "Click an element using its browser_snapshot ref with debugger-driven mouse events and return element metadata",
     inputSchema: zodToJsonSchema(ClickSchema) as any,
   },
   handle: async (params) => {
@@ -52,7 +52,7 @@ const TypeSchema = ElementSchema.extend({
 export const browserType: Tool = {
   schema: {
     name: "browser_type",
-    description: "Type text into editable element",
+    description: "Click then type text into an editable element found by snapshot ref using debugger keystrokes",
     inputSchema: zodToJsonSchema(TypeSchema) as any,
   },
   handle: async (params) => {
@@ -69,7 +69,7 @@ const HoverSchema = ElementSchema;
 export const browserHover: Tool = {
   schema: {
     name: "browser_hover",
-    description: "Hover over element on page",
+    description: "Hover over an element identified by snapshot ref and return element metadata",
     inputSchema: zodToJsonSchema(HoverSchema) as any,
   },
   handle: async (params) => {
@@ -88,7 +88,7 @@ const SelectOptionSchema = ElementSchema.extend({
 export const browserSelectOption: Tool = {
   schema: {
     name: "browser_select_option",
-    description: "Select an option in a dropdown",
+    description: "Select one or more options in a dropdown identified by snapshot ref",
     inputSchema: zodToJsonSchema(SelectOptionSchema) as any,
   },
   handle: async (params) => {
@@ -112,7 +112,7 @@ const FillFormSchema = z.object({
 export const browserFillForm: Tool = {
   schema: {
     name: "browser_fill_form",
-    description: "Fill multiple form fields (inputs, selects, checkboxes, radios) by selector/value.",
+    description: "Fill multiple form fields (inputs, selects, checkboxes, radios) using snapshot refs and values",
     inputSchema: zodToJsonSchema(FillFormSchema) as any,
   },
   handle: async (params) => {
@@ -131,7 +131,7 @@ const PressKeySchema = z.object({
 export const browserPressKey: Tool = {
   schema: {
     name: "browser_press_key",
-    description: "Press a key on the keyboard",
+    description: "Press a key on the active element (or page) and report the target element metadata",
     inputSchema: zodToJsonSchema(PressKeySchema) as any,
   },
   handle: async (params) => {
@@ -151,7 +151,7 @@ const DragSchema = z.object({
 export const browserDrag: Tool = {
   schema: {
     name: "browser_drag",
-    description: "Perform drag and drop between two elements",
+    description: "Perform drag and drop between two elements using start/end snapshot refs",
     inputSchema: zodToJsonSchema(DragSchema) as any,
   },
   handle: async (params) => {
