@@ -66,6 +66,26 @@ export function getElementSelector(tabId, refId) {
 }
 
 /**
+ * Check if a reference map exists for a tab
+ * @param {number} tabId - Tab ID
+ * @returns {boolean}
+ */
+export function hasElementRefMap(tabId) {
+  return refMaps.has(tabId);
+}
+
+/**
+ * Get a shallow copy of the reference map for a tab
+ * @param {number} tabId - Tab ID
+ * @returns {Map<string, string>|null}
+ */
+export function getElementRefMap(tabId) {
+  const map = refMaps.get(tabId);
+  if (!map) return null;
+  return new Map(map);
+}
+
+/**
  * Clear reference map for a specific tab
  * @param {number} tabId - Tab ID
  */

@@ -4,308 +4,39 @@
 import { selectTab } from '../lib/tab-manager.js';
 import { TAB_REGISTRATION_DELAY } from '../constants.js';
 import { createErrorResult } from './snapshot-utils.js';
-import { getElementSelector } from '../lib/element-ref-map.js';
+import { getElementDetails, prepareElementForAction, resolveAccessibilityRef } from './action-targets.js';
+import { clickPointWithDebugger, typeTextWithDebugger, waitMs } from './debugger-input.js';
 
-/**
- * Helper function to resolve accessibility refs to CSS selectors
- * @param {string} ref - The reference ID (e.g., "s1e14")
- * @param {number} tabId - The tab ID
- * @returns {string} The resolved reference (CSS selector if found, original ref otherwise)
- */
-function resolveAccessibilityRef(ref, tabId) {
-  if (!ref || !/^s\d+e\d+$/i.test(ref)) {
-    return ref; // Not an accessibility ref, return as-is
-  }
+function formatElementLabel(detectedElement = {}, fallbackRef = '') {
+  const tag = detectedElement.tagName ? detectedElement.tagName.toLowerCase() : '';
+  const role = detectedElement.role ? `role="${detectedElement.role}"` : '';
+  const type = detectedElement.type ? `type="${detectedElement.type}"` : '';
 
-  const mappedSelector = getElementSelector(tabId, ref);
+  const descriptorSource = [
+    detectedElement.ariaLabel,
+    detectedElement.ariaDescription,
+    detectedElement.text,
+    detectedElement.placeholder,
+    detectedElement.value,
+  ]
+    .map((val) => (typeof val === 'string' ? val.trim() : ''))
+    .find(Boolean);
 
-  if (mappedSelector) {
-    return mappedSelector;
-  } else {
-    console.warn('[MCP Tools] Could not resolve accessibility ref:', ref);
-    console.warn('[MCP Tools] Try capturing a fresh snapshot first');
-    return ref; // Return original ref as fallback
-  }
-}
+  const descriptor =
+    descriptorSource && descriptorSource.length > 120
+      ? `${descriptorSource.slice(0, 117)}...`
+      : descriptorSource;
 
-/**
- * Executes arbitrary JavaScript in the selected tab
- */
-/**
- * Clicks an element with comprehensive mouse event simulation
- */
-export async function handleClickElement(params) {
-  const ref = typeof params?.ref === 'string' ? params.ref.trim() : '';
-  let selector = String(params?.selector || '').trim();
+  const descriptorSegment = descriptor ? ` "${descriptor}"` : '';
+  const metaParts = [role, type].filter(Boolean);
+  const metaSegment = metaParts.length ? ` (${metaParts.join(' ')})` : '';
+  const baseLabel = `${tag || 'element'}${descriptorSegment}${metaSegment}`.trim();
 
-  if (!ref && !selector) {
-    return createErrorResult('Click failed', 'Missing element ref or selector parameter');
-  }
+  const trimmedRef = typeof fallbackRef === 'string' ? fallbackRef.trim() : '';
+  const isRefLike = /^s\d+e\d+$/i.test(trimmedRef) || trimmedRef.startsWith('css:');
+  const prefix = trimmedRef ? (isRefLike ? `ref: ${trimmedRef}` : trimmedRef) : '';
 
-  const waitForNavigation = params?.waitForNavigation !== false; // default true
-
-  console.log('[MCP Tools] click_element', { ref, selector, waitForNavigation });
-
-  try {
-    const selection = await selectTab({ toolName: 'click_element' });
-    if (!selection.ok) {
-      return createErrorResult('Click failed', selection.error);
-    }
-
-    const { tabId } = selection;
-
-    // Resolve accessibility refs to CSS selectors
-    const resolvedRef = resolveAccessibilityRef(ref, tabId);
-
-    const beforeTab = await chrome.tabs.get(tabId);
-    const originalUrl = beforeTab.url;
-
-    const [{ result: clicked }] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: ({ sel, ref }) => {
-        const resolveElementFromRef = (reference) => {
-          if (typeof reference !== 'string' || reference.length === 0) {
-            return null;
-          }
-
-          // Handle Shadow DOM references (format: css:host##shadow-selector##nested)
-          if (reference.includes('##')) {
-            const parts = reference.split('##');
-            let current = null;
-            if (parts[0].startsWith('css:')) {
-              const hostSelector = parts[0].slice(4);
-              try {
-                current = document.querySelector(hostSelector);
-              } catch (err) {
-                return null;
-              }
-            }
-            if (!current) return null;
-
-            for (let i = 1; i < parts.length; i++) {
-              if (!current.shadowRoot) return null;
-              try {
-                current = current.shadowRoot.querySelector(parts[i]);
-              } catch (err) {
-                return null;
-              }
-              if (!current) return null;
-            }
-            return current;
-          }
-
-          // Regular CSS selector
-          if (reference.startsWith('css:')) {
-            const selectorText = reference.slice(4);
-            if (!selectorText) return null;
-            try {
-              return document.querySelector(selectorText);
-            } catch (err) {
-              return null;
-            }
-          }
-
-          // Fallback: Try various reference formats
-          try {
-            let element = document.querySelector(`[data-aria-id="${reference}"]`);
-            if (element) return element;
-
-            element = document.getElementById(reference);
-            if (element) return element;
-
-            element = document.querySelector(reference);
-            if (element) return element;
-          } catch (err) {
-            // Ignore
-          }
-
-          return null;
-        };
-
-        // Smart Element Detection: Find the actual clickable element
-        const findClickableElement = (element) => {
-          if (!element) return null;
-
-          // If element is already a known clickable type, return it
-          const clickableTags = ['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'LABEL'];
-          if (clickableTags.includes(element.tagName)) return element;
-
-          // Check if element has click-related attributes/roles
-          const role = element.getAttribute('role');
-          const hasClickRole = role === 'button' || role === 'link' || role === 'menuitem' ||
-                               role === 'tab' || role === 'checkbox' || role === 'radio' || role === 'href';
-
-          const hasClickable = element.hasAttribute('onclick') || element.style.cursor === 'pointer' ||
-                              element.hasAttribute('data-action') || element.hasAttribute('data-click');
-
-          if (hasClickRole || hasClickable) return element;
-
-          // Check for framework-specific event handlers
-          const elementKeys = Object.keys(element);
-          const hasReactProps = elementKeys.some(key =>
-            key.startsWith('__reactProps') || key.startsWith('__reactFiber') || key.startsWith('__reactInternalInstance')
-          );
-          const hasVueProps = element.__vue__ || element.__vueParentComponent;
-          const hasAngular = element.hasAttribute('ng-click') || element.hasAttribute('(click)');
-
-          if (hasReactProps || hasVueProps || hasAngular) return element;
-
-          // Search for clickable child elements
-          const clickableChild = element.querySelector('button, a, [role="button"], [role="link"], input[type="button"], input[type="submit"]');
-          if (clickableChild) return clickableChild;
-
-          // Search within shadow DOM if present
-          if (element.shadowRoot) {
-            const shadowClickable = element.shadowRoot.querySelector('button, a, [role="button"], [role="link"], input[type="button"], input[type="submit"]');
-            if (shadowClickable) return shadowClickable;
-          }
-
-          // Check iframes (limited support - same-origin only)
-          if (element.tagName === 'IFRAME') {
-            try {
-              const iframeDoc = element.contentDocument || element.contentWindow?.document;
-              if (iframeDoc) return iframeDoc.body;
-            } catch (err) {
-              // Ignore cross-origin errors
-            }
-          }
-
-          // If element has a single child, check if it's clickable
-          const children = Array.from(element.children);
-          if (children.length === 1) {
-            const childResult = findClickableElement(children[0]);
-            if (childResult && childResult !== children[0]) return childResult;
-          }
-
-          // Return original element as fallback (might have delegated event listeners)
-          return element;
-        };
-
-        // Try resolving from ref first
-        let el = ref ? resolveElementFromRef(ref) : null;
-
-        // Fallback to selector if ref didn't work
-        if (!el && sel) {
-          try {
-            el = document.querySelector(sel);
-          } catch (err) {
-            // Ignore query errors
-          }
-        }
-
-        if (!el) {
-          return { success: false, error: 'Element not found' };
-        }
-
-        // Apply smart element detection
-        const originalEl = el;
-        el = findClickableElement(el);
-
-        if (!el) {
-          return { success: false, error: 'Could not find clickable element' };
-        }
-
-        el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
-
-        const rect = el.getBoundingClientRect();
-        const x = rect.left + rect.width / 2;
-        const y = rect.top + rect.height / 2;
-
-        const mouseEventOptions = {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: x,
-          clientY: y,
-          screenX: x,
-          screenY: y,
-          button: 0,
-          buttons: 1,
-          composed: true,
-        };
-
-        el.dispatchEvent(new MouseEvent('mouseover', mouseEventOptions));
-        el.dispatchEvent(new MouseEvent('mouseenter', { ...mouseEventOptions, bubbles: false }));
-        el.dispatchEvent(new MouseEvent('mousemove', mouseEventOptions));
-        el.dispatchEvent(new MouseEvent('mousedown', mouseEventOptions));
-
-        if (el.focus) el.focus();
-
-        el.dispatchEvent(new MouseEvent('mouseup', mouseEventOptions));
-        el.dispatchEvent(new MouseEvent('click', { ...mouseEventOptions, detail: 1 }));
-
-        try {
-          el.click();
-        } catch (e) {
-          // Ignore click errors
-        }
-
-        el.dispatchEvent(new PointerEvent('pointerdown', mouseEventOptions));
-        el.dispatchEvent(new PointerEvent('pointerup', mouseEventOptions));
-
-        const smartDetectionUsed = originalEl !== el;
-        return {
-          success: true,
-          element: el.tagName,
-          focused: document.activeElement === el,
-          smartDetection: smartDetectionUsed,
-          detectedElement: smartDetectionUsed ? `${el.tagName}${el.id ? '#' + el.id : ''}${el.className ? '.' + el.className.split(' ')[0] : ''}` : null
-        };
-      },
-      args: [{ sel: selector, ref: resolvedRef }],
-    });
-
-    if (!clicked.success) {
-      return createErrorResult('Click failed', clicked.error || 'Click failed');
-    }
-
-    if (waitForNavigation) {
-      await new Promise((resolve) => setTimeout(resolve, TAB_REGISTRATION_DELAY));
-    }
-
-    const afterTab = await chrome.tabs.get(tabId);
-    const finalUrl = afterTab.url;
-
-    if (clicked.smartDetection) {
-      console.log('[MCP Tools] element clicked (smart detection used)', {
-        originalUrl,
-        finalUrl,
-        selector,
-        detectedElement: clicked.detectedElement
-      });
-    } else {
-      console.log('[MCP Tools] element clicked', { originalUrl, finalUrl, selector });
-    }
-
-    const meta = {};
-    if (finalUrl) meta.urls = [finalUrl];
-    if (typeof tabId === 'number') meta.tabId = tabId;
-
-    return {
-      ok: true,
-      content: [
-        {
-          type: 'text',
-          text: `Clicked "${params?.element || selector || ref || 'target element'}"`,
-        },
-      ],
-      _meta: Object.keys(meta).length ? meta : undefined,
-      data: {
-        originalUrl,
-        finalUrl,
-        selector,
-        ref,
-        clicked: true,
-        smartDetection: clicked.smartDetection || false,
-        detectedElement: clicked.detectedElement || null,
-        timestamp: new Date().toISOString(),
-        tabId,
-      },
-    };
-  } catch (e) {
-    console.error('[MCP Tools] click_element error:', e);
-    return createErrorResult('Click failed', e);
-  }
+  return prefix ? `${prefix} - ${baseLabel}` : baseLabel;
 }
 
 /**
@@ -329,10 +60,18 @@ export async function handleBrowserFillForm(params) {
     const { tabId, tab } = selection;
 
     // Resolve accessibility refs to CSS selectors for each field
-    const resolvedFields = fields.map(field => ({
-      ...field,
-      ref: field.ref ? resolveAccessibilityRef(field.ref, tabId) : field.ref,
-    }));
+    const resolvedFields = [];
+    for (const field of fields) {
+      if (field.ref) {
+        const resolvedRef = resolveAccessibilityRef(field.ref, tabId);
+        if (!resolvedRef.ok) {
+          return createErrorResult('Fill form failed', resolvedRef.error);
+        }
+        resolvedFields.push({ ...field, ref: resolvedRef.value, originalRef: field.ref });
+      } else {
+        resolvedFields.push(field);
+      }
+    }
 
     const [{ result: fillResult }] = await chrome.scripting.executeScript({
       target: { tabId },
@@ -456,18 +195,225 @@ export async function handleBrowserFillForm(params) {
   }
 }
 
+export async function handleBrowserRef(params = {}) {
+  const ref = typeof params?.ref === 'string' ? params.ref.trim() : '';
+
+  if (!ref) {
+    return createErrorResult('Resolve ref failed', 'Missing element ref parameter');
+  }
+
+  try {
+    const selection = await selectTab({ toolName: 'browser_ref' });
+    if (!selection.ok) {
+      return createErrorResult('Resolve ref failed', selection.error);
+    }
+
+    const { tabId, tab } = selection;
+    const resolvedRef = resolveAccessibilityRef(ref, tabId);
+    if (!resolvedRef.ok) {
+      return createErrorResult('Resolve ref failed', resolvedRef.error);
+    }
+
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (reference) => {
+        const resolveElementFromRef = (refValue) => {
+          if (typeof refValue !== 'string' || refValue.length === 0) return null;
+          if (refValue.includes('##')) {
+            const parts = refValue.split('##');
+            let current = null;
+            if (parts[0].startsWith('css:')) {
+              const hostSelector = parts[0].slice(4);
+              try {
+                current = document.querySelector(hostSelector);
+              } catch (err) {
+                return null;
+              }
+            }
+            if (!current) return null;
+            for (let i = 1; i < parts.length; i++) {
+              if (!current.shadowRoot) return null;
+              try {
+                current = current.shadowRoot.querySelector(parts[i]);
+              } catch (err) {
+                return null;
+              }
+              if (!current) return null;
+            }
+            return current;
+          }
+
+          if (refValue.startsWith('css:')) {
+            const selectorText = refValue.slice(4);
+            if (!selectorText) return null;
+            try {
+              return document.querySelector(selectorText);
+            } catch (err) {
+              return null;
+            }
+          }
+
+          try {
+            return (
+              document.querySelector(`[data-aria-id="${refValue}"]`) ||
+              document.getElementById(refValue) ||
+              document.querySelector(refValue)
+            );
+          } catch (err) {
+            return null;
+          }
+        };
+
+        const el = resolveElementFromRef(reference);
+        if (!el) {
+          return { success: false, error: 'Element not found' };
+        }
+
+        const rect = el.getBoundingClientRect();
+        const textContent = (el.innerText || el.textContent || '').trim();
+        return {
+          success: true,
+          detectedElement: {
+            tagName: el.tagName || null,
+            role: el.getAttribute?.('role') || null,
+            id: el.id || null,
+            className: el.className || null,
+            name: el.getAttribute?.('name') || null,
+            type: el.getAttribute?.('type') || null,
+            ariaLabel: el.getAttribute?.('aria-label') || null,
+            ariaDescription: el.getAttribute?.('aria-description') || null,
+            href: el.getAttribute?.('href') || null,
+          },
+          boundingRect: rect ? { ...rect.toJSON?.(), x: rect.x, y: rect.y } : null,
+          text: textContent.slice(0, 500),
+          value: el.value !== undefined ? String(el.value).slice(0, 200) : null,
+          isContentEditable:
+            el.isContentEditable || el.contentEditable === 'true' || el.getAttribute?.('contenteditable') === 'true',
+        };
+      },
+      args: [resolvedRef.value],
+    });
+
+    if (!result?.success) {
+      return createErrorResult('Resolve ref failed', result?.error || 'Element lookup failed');
+    }
+
+    const elementLabel = formatElementLabel(result.detectedElement, ref);
+    const meta = {};
+    if (tab?.url) meta.urls = [tab.url];
+    if (typeof tabId === 'number') meta.tabId = tabId;
+
+    return {
+      ok: true,
+      content: [
+        {
+          type: 'text',
+          text: `Reference ${ref} resolves to ${elementLabel}`,
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
+      data: {
+        url: tab?.url,
+        ref,
+        resolvedRef: resolvedRef.value,
+        element: result.detectedElement,
+        boundingRect: result.boundingRect,
+        text: result.text,
+        value: result.value,
+        isContentEditable: result.isContentEditable,
+        elementLabel,
+        timestamp: new Date().toISOString(),
+        tabId,
+      },
+    };
+  } catch (e) {
+    console.error('[MCP Tools] browser_ref error:', e);
+    return createErrorResult('Resolve ref failed', e);
+  }
+}
+
+export async function handleClickElement(params = {}) {
+  const ref = typeof params?.ref === 'string' ? params.ref.trim() : '';
+
+  if (!ref) {
+    return createErrorResult('Click failed', 'Missing element ref parameter');
+  }
+
+  try {
+    const selection = await selectTab({ toolName: 'browser_click' });
+    if (!selection.ok) {
+      return createErrorResult('Click failed', selection.error);
+    }
+
+    const { tabId, tab } = selection;
+    const resolvedRef = resolveAccessibilityRef(ref, tabId);
+    if (!resolvedRef.ok) {
+      return createErrorResult('Click failed', resolvedRef.error);
+    }
+
+    const preparedTarget = await prepareElementForAction(tabId, {
+      ref: resolvedRef.value,
+      mode: 'click',
+    });
+
+    const elementLabel = formatElementLabel(preparedTarget?.detectedElement, ref);
+
+    if (!preparedTarget?.success || !preparedTarget.clickPoint) {
+      const actionDescription = preparedTarget?.actionDescription || 'clicking';
+      const errorMessage = preparedTarget?.unsupported
+        ? `Element reference ${elementLabel} does not support ${actionDescription} actions`
+        : preparedTarget?.error || 'Element not found';
+      return createErrorResult('Click failed', errorMessage);
+    }
+
+    try {
+      await clickPointWithDebugger(tabId, preparedTarget.clickPoint);
+    } catch (err) {
+      console.error('[MCP Tools] debugger click failed', err);
+      return createErrorResult('Click failed', err);
+    }
+
+    const meta = {};
+    if (tab?.url) meta.urls = [tab.url];
+    if (typeof tabId === 'number') meta.tabId = tabId;
+
+    return {
+      ok: true,
+      content: [
+        {
+          type: 'text',
+          text: `Clicked ${elementLabel}`,
+        },
+      ],
+      _meta: Object.keys(meta).length ? meta : undefined,
+      data: {
+        url: tab?.url,
+        ref,
+        resolvedRef: resolvedRef.value,
+        clickPoint: preparedTarget.clickPoint,
+        detectedElement: preparedTarget.detectedElement,
+        boundingRect: preparedTarget.boundingRect || null,
+        timestamp: new Date().toISOString(),
+        tabId,
+      },
+    };
+  } catch (e) {
+    console.error('[MCP Tools] browser_click error:', e);
+    return createErrorResult('Click failed', e);
+  }
+}
+
 /**
  * Types text into an element (supports input, textarea, and contenteditable)
  */
 export async function handleTypeText(params) {
   const ref = typeof params?.ref === 'string' ? params.ref.trim() : '';
-  const selector = String(params?.selector || '').trim();
   const text = String(params?.text || '');
   const clear = params?.clear !== false;
   const pressEnter = params?.pressEnter === true;
 
-  if (!ref && !selector) {
-    return createErrorResult('Type text failed', 'Missing element ref or selector parameter');
+  if (!ref) {
+    return createErrorResult('Type text failed', 'Missing element ref parameter');
   }
 
   try {
@@ -480,396 +426,43 @@ export async function handleTypeText(params) {
 
     // Resolve accessibility refs to CSS selectors
     const resolvedRef = resolveAccessibilityRef(ref, tabId);
+    if (!resolvedRef.ok) {
+      return createErrorResult('Type text failed', resolvedRef.error);
+    }
 
-    const [{ result: typed }] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: ({ sel, ref, txt, clr, pressEnter }) => {
-        const resolveElementFromRef = (reference) => {
-          if (typeof reference !== 'string' || reference.length === 0) return null;
-
-          // Handle Shadow DOM references (format: css:host##shadow-selector##nested)
-          if (reference.includes('##')) {
-            const parts = reference.split('##');
-
-            // First part should be the host element (css:...)
-            let current = null;
-            if (parts[0].startsWith('css:')) {
-              const hostSelector = parts[0].slice(4);
-              try {
-                current = document.querySelector(hostSelector);
-              } catch (_) {
-                return null;
-              }
-            }
-
-            if (!current) return null;
-
-            // Traverse through shadow DOMs
-            for (let i = 1; i < parts.length; i++) {
-              if (!current.shadowRoot) return null;
-
-              try {
-                current = current.shadowRoot.querySelector(parts[i]);
-              } catch (_) {
-                return null;
-              }
-
-              if (!current) return null;
-            }
-
-            return current;
-          }
-
-          // Regular CSS selector
-          if (reference.startsWith('css:')) {
-            const selectorText = reference.slice(4);
-            if (!selectorText) return null;
-            try {
-              return document.querySelector(selectorText);
-            } catch (_) {
-              return null;
-            }
-          }
-
-          return null;
-        };
-
-        let el = resolveElementFromRef(ref) || (sel ? document.querySelector(sel) : null);
-        if (!el) return { success: false, error: 'Element not found' };
-
-        // Smart element detection - find the actual typeable element
-        // Some divs with role="textbox" contain an actual input inside
-        const actualInput = el.querySelector('input, textarea, [contenteditable="true"]');
-        if (actualInput && (actualInput.tagName === 'INPUT' || actualInput.tagName === 'TEXTAREA' || actualInput.contentEditable === 'true')) {
-          el = actualInput;
-        }
-
-        el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
-
-        const rect = el.getBoundingClientRect();
-        const x = rect.left + rect.width / 2;
-        const y = rect.top + rect.height / 2;
-
-        // Simulate realistic mouse interaction
-        el.dispatchEvent(new MouseEvent('mousedown', {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: x,
-          clientY: y,
-        }));
-
-        // Focus with multiple strategies
-        el.focus();
-
-        // For contenteditable, also try clicking
-        if (el.contentEditable === 'true' || el.getAttribute('contenteditable') === 'true') {
-          el.click();
-        }
-
-        el.dispatchEvent(new MouseEvent('mouseup', {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: x,
-          clientY: y,
-        }));
-
-        function dispatchKey(element, type, char) {
-          const keyCode = char.charCodeAt(0);
-          const code = char.length === 1 && char.match(/[a-zA-Z]/) ? `Key${char.toUpperCase()}` : char;
-
-          element.dispatchEvent(new KeyboardEvent(type, {
-            key: char,
-            code,
-            keyCode,
-            which: keyCode,
-            charCode: type === 'keypress' ? keyCode : 0,
-            bubbles: true,
-            cancelable: true,
-            composed: true,
-            view: window,
-          }));
-        }
-
-        // Smart input detection
-        const isContentEditable = el.contentEditable === 'true' || el.getAttribute('contenteditable') === 'true';
-        const isQuillEditor = el.classList.contains('ql-editor') || el.closest('.ql-container') !== null;
-        const isTinyMCE = el.classList.contains('tox-edit-area') || el.id?.includes('tinymce');
-        const hasRoleTextbox = el.getAttribute('role') === 'textbox';
-        const isRichEditor = isQuillEditor || isTinyMCE || (isContentEditable && hasRoleTextbox);
-
-        // Handle rich text editors (Quill, TinyMCE, etc.) or contenteditable with special care
-        if (isContentEditable || isRichEditor) {
-          // Clear existing content if requested
-          if (clr) {
-            el.textContent = '';
-            el.innerHTML = '';
-
-            // For Quill editors, also clear the internal structure
-            if (isQuillEditor) {
-              el.innerHTML = '<p><br></p>';
-            }
-          }
-
-          // Focus the element first
-          el.focus();
-
-          // Set up selection at the end of content
-          const selection = window.getSelection();
-          const range = document.createRange();
-
-          if (el.childNodes.length > 0) {
-            const lastNode = el.childNodes[el.childNodes.length - 1];
-            range.setStartAfter(lastNode);
-            range.setEndAfter(lastNode);
-          } else {
-            range.selectNodeContents(el);
-            range.collapse(false);
-          }
-
-          selection.removeAllRanges();
-          selection.addRange(range);
-
-          // Type character by character with proper events
-          for (let i = 0; i < txt.length; i++) {
-            const char = txt[i];
-
-            // Dispatch beforeinput event (cancellable)
-            const beforeInputEvent = new InputEvent('beforeinput', {
-              bubbles: true,
-              cancelable: true,
-              inputType: 'insertText',
-              data: char,
-              composed: true,
-            });
-            el.dispatchEvent(beforeInputEvent);
-
-            if (!beforeInputEvent.defaultPrevented) {
-              // Keyboard events before text insertion
-              dispatchKey(el, 'keydown', char);
-              dispatchKey(el, 'keypress', char);
-
-              // Try execCommand first (works with most rich editors)
-              let inserted = false;
-              if (document.execCommand) {
-                try {
-                  inserted = document.execCommand('insertText', false, char);
-                } catch (e) {
-                  inserted = false;
-                }
-              }
-
-              // Fallback to manual DOM manipulation
-              if (!inserted) {
-                const textNode = document.createTextNode(char);
-                const sel = window.getSelection();
-                if (sel && sel.rangeCount > 0) {
-                  const currentRange = sel.getRangeAt(0);
-                  currentRange.deleteContents();
-                  currentRange.insertNode(textNode);
-                  currentRange.setStartAfter(textNode);
-                  currentRange.setEndAfter(textNode);
-                  sel.removeAllRanges();
-                  sel.addRange(currentRange);
-                } else {
-                  // Last resort: append to element
-                  if (el.lastChild && el.lastChild.nodeName === 'P') {
-                    el.lastChild.appendChild(textNode);
-                  } else {
-                    el.appendChild(textNode);
-                  }
-                }
-              }
-
-              // Dispatch input event (non-cancellable)
-              el.dispatchEvent(new InputEvent('input', {
-                bubbles: true,
-                cancelable: false,
-                inputType: 'insertText',
-                data: char,
-                composed: true,
-              }));
-
-              // Keyboard up event
-              dispatchKey(el, 'keyup', char);
-            }
-          }
-
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-
-          if (pressEnter) {
-            dispatchKey(el, 'keydown', 'Enter');
-            if (document.execCommand) {
-              document.execCommand('insertLineBreak', false, null);
-            }
-            dispatchKey(el, 'keypress', 'Enter');
-            el.dispatchEvent(new InputEvent('input', {
-              bubbles: true,
-              inputType: 'insertLineBreak',
-              composed: true,
-            }));
-            dispatchKey(el, 'keyup', 'Enter');
-          }
-
-          return {
-            success: true,
-            type: 'contenteditable',
-            pressedEnter: pressEnter,
-            finalContent: el.textContent.slice(0, 100),
-          };
-        }
-
-        if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-          // Detect React/framework
-          const isReact = Object.keys(el).some(key =>
-            key.startsWith('__reactFiber') ||
-            key.startsWith('__reactProps') ||
-            key.startsWith('__reactInternalInstance')
-          );
-          const isVue = el.__vue__ || el.__vueParentComponent || el._value !== undefined;
-
-          if (clr) {
-            el.value = '';
-          }
-
-          // Get native setter to bypass framework getters/setters
-          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-            el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype,
-            'value',
-          )?.set;
-
-          if (!nativeInputValueSetter) {
-            return { success: false, error: 'Could not find native value setter' };
-          }
-
-          // Type character by character
-          for (let i = 0; i < txt.length; i++) {
-            const char = txt[i];
-            const currentValue = el.value;
-
-            // Set value using native setter (bypasses React/Vue)
-            nativeInputValueSetter.call(el, currentValue + char);
-
-            // Dispatch keyboard events
-            dispatchKey(el, 'keydown', char);
-            dispatchKey(el, 'keypress', char);
-
-            // Dispatch input event - critical for React/Vue
-            const inputEvent = new InputEvent('input', {
-              bubbles: true,
-              cancelable: false,
-              inputType: 'insertText',
-              data: char,
-              composed: true,
-            });
-
-            // For React, ensure the event has a proper target
-            if (isReact) {
-              Object.defineProperty(inputEvent, 'target', {
-                writable: false,
-                value: el
-              });
-              Object.defineProperty(inputEvent, 'currentTarget', {
-                writable: false,
-                value: el
-              });
-            }
-
-            el.dispatchEvent(inputEvent);
-
-            dispatchKey(el, 'keyup', char);
-          }
-
-          // Final change event
-          const changeEvent = new Event('change', { bubbles: true });
-          if (isReact) {
-            Object.defineProperty(changeEvent, 'target', {
-              writable: false,
-              value: el
-            });
-          }
-          el.dispatchEvent(changeEvent);
-
-          if (pressEnter) {
-            dispatchKey(el, 'keydown', 'Enter');
-            dispatchKey(el, 'keypress', 'Enter');
-            if (el.form && el.tagName === 'INPUT') {
-              el.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-            }
-            dispatchKey(el, 'keyup', 'Enter');
-          }
-
-          return {
-            success: true,
-            type: el.tagName.toLowerCase(),
-            pressedEnter: pressEnter,
-            finalValue: el.value.slice(0, 100),
-          };
-        }
-
-        // Last resort: check if element has any text input characteristics
-        const hasTextboxRole = el.getAttribute('role') === 'textbox';
-        const hasTabIndex = el.hasAttribute('tabindex');
-        const looksLikeInput = hasTextboxRole || hasTabIndex;
-
-        if (looksLikeInput) {
-          // Try to set textContent directly for non-standard elements
-          if (clr) {
-            el.textContent = '';
-            el.innerHTML = '';
-          }
-
-          el.focus();
-
-          // Dispatch events as if it's contenteditable
-          for (let i = 0; i < txt.length; i++) {
-            const char = txt[i];
-
-            dispatchKey(el, 'keydown', char);
-            dispatchKey(el, 'keypress', char);
-
-            // Try to insert text
-            const textNode = document.createTextNode(char);
-            if (el.lastChild && el.lastChild.nodeType === Node.TEXT_NODE) {
-              el.lastChild.textContent += char;
-            } else {
-              el.appendChild(textNode);
-            }
-
-            el.dispatchEvent(new InputEvent('input', {
-              bubbles: true,
-              inputType: 'insertText',
-              data: char,
-            }));
-
-            dispatchKey(el, 'keyup', char);
-          }
-
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-
-          return {
-            success: true,
-            type: 'custom-input',
-            pressedEnter: pressEnter,
-            finalContent: el.textContent.slice(0, 100),
-          };
-        }
-
-        return { success: false, error: 'Element is not a valid input, textarea, or contenteditable element' };
-      },
-      args: [{ sel: selector, ref: resolvedRef, txt: text, clr: clear, pressEnter }],
+    const preparedTarget = await prepareElementForAction(tabId, {
+      ref: resolvedRef.value,
+      mode: 'type',
     });
 
-    if (!typed.success) {
-      return createErrorResult('Type text failed', typed.error || 'Typing failed');
+    const elementLabel = formatElementLabel(preparedTarget?.detectedElement, ref);
+
+    if (!preparedTarget?.success || !preparedTarget.clickPoint) {
+      const actionDescription = preparedTarget?.actionDescription || 'typing';
+      const errorMessage = preparedTarget?.unsupported
+        ? `Element reference ${elementLabel} does not support ${actionDescription} actions`
+        : preparedTarget?.error || 'Element not found';
+      return createErrorResult('Type text failed', errorMessage);
+    }
+
+    try {
+      await clickPointWithDebugger(tabId, preparedTarget.clickPoint);
+    } catch (err) {
+      console.error('[MCP Tools] debugger click failed', err);
+      return createErrorResult('Type text failed', err);
+    }
+
+    await waitMs(120);
+
+    const typed = await typeTextWithDebugger(tabId, text, { clear, pressEnter });
+    if (!typed?.success) {
+      return createErrorResult('Type text failed', typed?.error || 'Typing failed');
     }
 
     const truncated = text.length > 80 ? `${text.slice(0, 77)}...` : text;
-    const targetLabel = params?.element || selector || ref || 'target element';
     const status = pressEnter
-      ? `Typed "${truncated}" and pressed Enter into "${targetLabel}"`
-      : `Typed "${truncated}" into "${targetLabel}"`;
+      ? `Typed "${truncated}" and pressed Enter in ${elementLabel}`
+      : `Typed "${truncated}" in ${elementLabel}`;
 
     const meta = {};
     if (tab?.url) meta.urls = [tab.url];
@@ -886,12 +479,17 @@ export async function handleTypeText(params) {
       _meta: Object.keys(meta).length ? meta : undefined,
       data: {
         url: tab.url,
-        selector,
         ref,
+        resolvedRef: resolvedRef.value,
         text: text.slice(0, 200),
         clear,
         pressEnter,
         result: typed,
+        smartDetection: preparedTarget.smartDetection || false,
+        detectedElement: preparedTarget.detectedElement || null,
+        clickPoint: preparedTarget.clickPoint,
+        boundingRect: preparedTarget.boundingRect || null,
+        elementLabel,
         timestamp: new Date().toISOString(),
         tabId,
       },
@@ -907,10 +505,9 @@ export async function handleTypeText(params) {
  */
 export async function handleHoverElement(params) {
   const ref = typeof params?.ref === 'string' ? params.ref.trim() : '';
-  const selector = String(params?.selector || '').trim();
 
-  if (!ref && !selector) {
-    return createErrorResult('Hover failed', 'Missing element ref or selector parameter');
+  if (!ref) {
+    return createErrorResult('Hover failed', 'Missing element ref parameter');
   }
 
   try {
@@ -923,10 +520,20 @@ export async function handleHoverElement(params) {
 
     // Resolve accessibility refs to CSS selectors
     const resolvedRef = resolveAccessibilityRef(ref, tabId);
+    if (!resolvedRef.ok) {
+      return createErrorResult('Hover failed', resolvedRef.error);
+    }
+
+    const elementDetails = await getElementDetails(tabId, resolvedRef.value);
+    if (!elementDetails?.success) {
+      return createErrorResult('Hover failed', elementDetails?.error || 'Element not found');
+    }
+
+    const elementLabel = formatElementLabel(elementDetails.detectedElement, ref);
 
     const [{ result: hovered }] = await chrome.scripting.executeScript({
       target: { tabId },
-      func: ({ sel, ref }) => {
+      func: ({ ref }) => {
         const resolveElementFromRef = (reference) => {
           if (typeof reference !== 'string' || reference.length === 0) return null;
 
@@ -968,13 +575,13 @@ export async function handleHoverElement(params) {
           return null;
         };
 
-        const el = resolveElementFromRef(ref) || (sel ? document.querySelector(sel) : null);
+        const el = resolveElementFromRef(ref);
         if (!el) return { success: false, error: 'Element not found' };
         const event = new MouseEvent('mouseover', { bubbles: true, cancelable: true });
         el.dispatchEvent(event);
         return { success: true };
       },
-      args: [{ sel: selector, ref: resolvedRef }],
+      args: [{ ref: resolvedRef.value }],
     });
 
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -992,14 +599,17 @@ export async function handleHoverElement(params) {
       content: [
         {
           type: 'text',
-      text: `Hovered over "${params?.element || selector || ref || 'target element'}"`,
+          text: `Hovered ${elementLabel}`,
         },
       ],
       _meta: Object.keys(meta).length ? meta : undefined,
       data: {
         url: tab.url,
-        selector,
         ref,
+        resolvedRef: resolvedRef.value,
+        detectedElement: elementDetails.detectedElement,
+        boundingRect: elementDetails.boundingRect,
+        elementLabel,
         timestamp: new Date().toISOString(),
         tabId,
       },
@@ -1015,13 +625,12 @@ export async function handleHoverElement(params) {
  */
 export async function handleSelectOption(params) {
   const ref = typeof params?.ref === 'string' ? params.ref.trim() : '';
-  const selector = String(params?.selector || '').trim();
   const values = Array.isArray(params?.values) && params.values.length > 0
     ? params.values.map((val) => String(val))
     : (params?.value ? [String(params.value)] : []);
 
-  if ((!ref && !selector) || values.length === 0) {
-    return createErrorResult('Select option failed', 'Missing element ref/selector or values parameter');
+  if (!ref || values.length === 0) {
+    return createErrorResult('Select option failed', 'Missing element ref or values parameter');
   }
 
   try {
@@ -1035,9 +644,16 @@ export async function handleSelectOption(params) {
     // Resolve accessibility refs to CSS selectors
     const resolvedRef = resolveAccessibilityRef(ref, tabId);
 
+    const elementDetails = await getElementDetails(tabId, resolvedRef.value);
+    if (!elementDetails?.success) {
+      return createErrorResult('Select option failed', elementDetails?.error || 'Element not found');
+    }
+
+    const elementLabel = formatElementLabel(elementDetails.detectedElement, ref);
+
     const [{ result: selected }] = await chrome.scripting.executeScript({
       target: { tabId },
-      func: ({ sel, ref, vals }) => {
+      func: ({ ref, vals }) => {
         const resolveElementFromRef = (reference) => {
           if (typeof reference !== 'string' || reference.length === 0) return null;
 
@@ -1079,7 +695,7 @@ export async function handleSelectOption(params) {
           return null;
         };
 
-        const el = resolveElementFromRef(ref) || (sel ? document.querySelector(sel) : null);
+        const el = resolveElementFromRef(ref);
         if (!el || el.tagName !== 'SELECT') return { success: false, error: 'Select element not found' };
 
         const normalizedValues = Array.isArray(vals) && vals.length ? vals : [];
@@ -1095,7 +711,7 @@ export async function handleSelectOption(params) {
         el.dispatchEvent(new Event('change', { bubbles: true }));
         return { success: true, selectedValues: normalizedValues, finalValue: el.value };
       },
-      args: [{ sel: selector, ref, vals: values }],
+      args: [{ ref: resolvedRef.value, vals: values }],
     });
 
     if (!selected.success) {
@@ -1111,16 +727,19 @@ export async function handleSelectOption(params) {
       content: [
         {
           type: 'text',
-          text: `Selected option in "${params?.element || selector || ref || 'target element'}"`,
+          text: `Selected option via ${elementLabel}`,
         },
       ],
       _meta: Object.keys(meta).length ? meta : undefined,
       data: {
         url: tab.url,
-        selector,
         ref,
+        resolvedRef: resolvedRef.value,
         values,
         result: selected,
+        detectedElement: elementDetails.detectedElement,
+        boundingRect: elementDetails.boundingRect,
+        elementLabel,
         timestamp: new Date().toISOString(),
         tabId,
       },
@@ -1180,7 +799,24 @@ export async function handlePressKey(params = {}) {
         const keyup = new KeyboardEvent('keyup', eventInit);
         target.dispatchEvent(keyup);
 
-        return { success: true, tagName: target.tagName || 'BODY' };
+        const rect = target.getBoundingClientRect ? target.getBoundingClientRect() : null;
+        return {
+          success: true,
+          target: {
+            tagName: target.tagName || 'BODY',
+            id: target.id || null,
+            role: target.getAttribute?.('role') || null,
+            name: target.getAttribute?.('name') || null,
+            type: target.getAttribute?.('type') || null,
+            className: target.className || null,
+            ariaLabel: target.getAttribute?.('aria-label') || null,
+            ariaDescription: target.getAttribute?.('aria-description') || null,
+            placeholder: target.getAttribute?.('placeholder') || null,
+            text: (target.textContent || '').trim().slice(0, 500) || null,
+            value: target.value !== undefined ? String(target.value).slice(0, 200) : null,
+            boundingRect: rect ? { ...rect.toJSON?.(), x: rect.x, y: rect.y } : null,
+          },
+        };
       },
       args: [key],
     });
@@ -1193,19 +829,22 @@ export async function handlePressKey(params = {}) {
     if (tab?.url) meta.urls = [tab.url];
     if (typeof tabId === 'number') meta.tabId = tabId;
 
+    const elementLabel = formatElementLabel(result.target, 'active element');
+
     return {
       ok: true,
       content: [
         {
           type: 'text',
-          text: `Pressed key ${key}`,
+          text: `Pressed key ${key} on ${elementLabel}`,
         },
       ],
       _meta: Object.keys(meta).length ? meta : undefined,
       data: {
         url: tab?.url,
         key,
-        target: result.tagName,
+        target: result.target,
+        elementLabel,
         timestamp: new Date().toISOString(),
         tabId,
       },
@@ -1238,8 +877,30 @@ export async function handleDragElement(params = {}) {
     const { tabId, tab } = selection;
 
     // Resolve accessibility refs to CSS selectors
-    const resolvedStartRef = resolveAccessibilityRef(startRef, tabId);
-    const resolvedEndRef = resolveAccessibilityRef(endRef, tabId);
+    const resolvedStartRef = startRef ? resolveAccessibilityRef(startRef, tabId) : { ok: true, value: '' };
+    if (startRef && !resolvedStartRef.ok) {
+      return createErrorResult('Drag failed', resolvedStartRef.error);
+    }
+    const resolvedEndRef = endRef ? resolveAccessibilityRef(endRef, tabId) : { ok: true, value: '' };
+    if (endRef && !resolvedEndRef.ok) {
+      return createErrorResult('Drag failed', resolvedEndRef.error);
+    }
+
+    const startTargetRef = resolvedStartRef.value || fromSelector;
+    const endTargetRef = resolvedEndRef.value || toSelector;
+
+    const startDetails = startTargetRef ? await getElementDetails(tabId, startTargetRef) : null;
+    if (startTargetRef && !startDetails?.success) {
+      return createErrorResult('Drag failed', startDetails?.error || 'Start element not found');
+    }
+
+    const endDetails = endTargetRef ? await getElementDetails(tabId, endTargetRef) : null;
+    if (endTargetRef && !endDetails?.success) {
+      return createErrorResult('Drag failed', endDetails?.error || 'End element not found');
+    }
+
+    const startLabel = formatElementLabel(startDetails?.detectedElement, startRef || fromSelector || 'start element');
+    const endLabel = formatElementLabel(endDetails?.detectedElement, endRef || toSelector || 'end element');
 
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId },
@@ -1344,7 +1005,7 @@ export async function handleDragElement(params = {}) {
           endTag: end.tagName,
         };
       },
-      args: [{ startParams: { ref: resolvedStartRef, selector: fromSelector }, endParams: { ref: resolvedEndRef, selector: toSelector } }],
+      args: [{ startParams: { ref: resolvedStartRef.value, selector: fromSelector }, endParams: { ref: resolvedEndRef.value, selector: toSelector } }],
     });
 
     if (!result?.success) {
@@ -1360,7 +1021,7 @@ export async function handleDragElement(params = {}) {
       content: [
         {
           type: 'text',
-          text: `Dragged "${params?.startElement || fromSelector || startRef || 'start element'}" to "${params?.endElement || toSelector || endRef || 'end element'}"`,
+          text: `Dragged ${startLabel} to ${endLabel}`,
         },
       ],
       _meta: Object.keys(meta).length ? meta : undefined,
@@ -1370,8 +1031,18 @@ export async function handleDragElement(params = {}) {
         toSelector,
         startRef,
         endRef,
+        resolvedStartRef: startRef ? resolvedStartRef.value : null,
+        resolvedEndRef: endRef ? resolvedEndRef.value : null,
         startTag: result.startTag,
         endTag: result.endTag,
+        startElement: startDetails?.detectedElement || null,
+        endElement: endDetails?.detectedElement || null,
+        startBoundingRect: startDetails?.boundingRect || null,
+        endBoundingRect: endDetails?.boundingRect || null,
+        startClickPoint: startDetails?.clickPoint || null,
+        endClickPoint: endDetails?.clickPoint || null,
+        startLabel,
+        endLabel,
         timestamp: new Date().toISOString(),
         tabId,
       },

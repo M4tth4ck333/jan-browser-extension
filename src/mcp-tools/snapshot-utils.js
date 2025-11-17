@@ -2,7 +2,7 @@
 // Shared helpers for building ARIA snapshot responses that match the MCP server
 
 import { selectTab } from '../lib/tab-manager.js';
-import { setElementRefMap } from '../lib/element-ref-map.js';
+import { clearElementRefMap, getElementRefMap, setElementRefMap } from '../lib/element-ref-map.js';
 
 const DEBUGGER_PROTOCOL_VERSION = '1.3';
 const MAX_TREE_DEPTH = 8;
@@ -60,10 +60,52 @@ const LANDMARK_ROLE_KEYS = new Set(
 
 let currentAxRefMap = new Map();
 let currentAxRefCounter = 2;
+let currentSnapshotPrefix = 's1';
+const snapshotCache = new Map();
+const snapshotIdsByTab = new Map();
+const snapshotSequenceByTab = new Map();
+let navigationListenersRegistered = false;
+
+function ensureNavigationCacheResets() {
+  if (navigationListenersRegistered) return;
+  if (!chrome?.tabs?.onUpdated) return;
+
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (changeInfo?.status === 'loading') {
+      clearSnapshotsForTab(tabId);
+    }
+  });
+
+  chrome.tabs.onRemoved?.addListener((tabId) => {
+    clearSnapshotsForTab(tabId);
+  });
+
+  navigationListenersRegistered = true;
+}
+
+ensureNavigationCacheResets();
 
 function resetAccessibleRefMap() {
   currentAxRefMap = new Map();
   currentAxRefCounter = 2;
+}
+
+export function clearSnapshotsForTab(tabId) {
+  if (typeof tabId !== 'number') return;
+
+  const cachedIds = snapshotIdsByTab.get(tabId);
+  if (cachedIds && cachedIds.size) {
+    for (const id of cachedIds) {
+      snapshotCache.delete(id);
+    }
+  }
+
+  snapshotIdsByTab.delete(tabId);
+  snapshotSequenceByTab.delete(tabId);
+  currentSnapshotPrefix = 's1';
+  resetAccessibleRefMap();
+  clearElementRefMap(tabId);
+  console.log(`[snapshot] Cleared cached snapshots and ref map for tab ${tabId}`);
 }
 
 function createErrorResult(message, error) {
@@ -729,7 +771,7 @@ function formatAccessibleRef(nodeId) {
     // Always use counter for stable refs across page reloads
     // s1e0, s1e1, s1e2, etc. - s1 = snapshot 1, e{counter} = element counter
     // This ensures the same element gets the same ref after page reload
-    const refId = `s1e${currentAxRefCounter}`;
+    const refId = `${currentSnapshotPrefix}e${currentAxRefCounter}`;
     currentAxRefMap.set(nodeId, refId);
     currentAxRefCounter += 1;
   }
@@ -1053,7 +1095,7 @@ function mergeHeadings(domHeadings = [], axHeadings = []) {
   return merged;
 }
 
-function attachDebugger(target) {
+export function attachDebugger(target) {
   return new Promise((resolve, reject) => {
     chrome.debugger.attach(target, DEBUGGER_PROTOCOL_VERSION, () => {
       const error = chrome.runtime?.lastError;
@@ -1066,7 +1108,7 @@ function attachDebugger(target) {
   });
 }
 
-function detachDebugger(target) {
+export function detachDebugger(target) {
   return new Promise((resolve, reject) => {
     chrome.debugger.detach(target, () => {
       const error = chrome.runtime?.lastError;
@@ -1079,7 +1121,7 @@ function detachDebugger(target) {
   });
 }
 
-function sendDebuggerCommand(target, method, params) {
+export function sendDebuggerCommand(target, method, params) {
   return new Promise((resolve, reject) => {
     chrome.debugger.sendCommand(target, method, params, (result) => {
       const error = chrome.runtime?.lastError;
@@ -1263,7 +1305,8 @@ async function captureAccessibilityTree(tabId) {
     const headings = extractHeadingsFromAxNodes(nodes);
 
     // Build reference mapping for automation
-    const refMap = await buildRefToSelectorMap(nodes, target);
+    const rawRefMap = await buildRefToSelectorMap(nodes, target);
+    const refMap = rawRefMap;
 
     return {
       tree,
@@ -1326,6 +1369,7 @@ async function captureRawSnapshot(tabId, fullPage = true) {
 
     // Store the reference mapping for automation if available
     if (accessibility.refMap && Object.keys(accessibility.refMap).length > 0) {
+      domSnapshot.refMap = accessibility.refMap;
       try {
         setElementRefMap(tabId, accessibility.refMap, {
           url: domSnapshot.url,
@@ -1344,26 +1388,41 @@ async function captureRawSnapshot(tabId, fullPage = true) {
 
 export async function captureSnapshotForTab(tabId, fullPage = true) {
   try {
-    return await captureRawSnapshot(tabId, fullPage);
+    const nextSequence = snapshotSequenceByTab.get(tabId) ?? 1;
+    currentSnapshotPrefix = `s${nextSequence}`;
+    const snapshot = await captureRawSnapshot(tabId, fullPage);
+    if (!snapshot) {
+      throw new Error('Snapshot capture returned empty result');
+    }
+
+    snapshot.snapshotId = currentSnapshotPrefix;
+    snapshot.tabId = tabId;
+
+    const existing = snapshotIdsByTab.get(tabId) || new Set();
+    existing.add(snapshot.snapshotId);
+    snapshotIdsByTab.set(tabId, existing);
+
+    snapshotCache.set(snapshot.snapshotId, snapshot);
+    snapshotSequenceByTab.set(tabId, nextSequence + 1);
+    return snapshot;
   } catch (error) {
     throw createErrorResult('Snapshot capture failed', error);
   }
 }
 
-export async function captureSnapshotResponse({
-  tabId,
-  status,
-  details = [],
-  fallbackUrl,
-  fullPage = true,
-}) {
+export async function captureSnapshotResponse({ tabId, status, details = [], fallbackUrl, fullPage = true }) {
   try {
-    const snapshot = await captureRawSnapshot(tabId, fullPage);
+    const snapshot = await captureSnapshotForTab(tabId, fullPage);
     if (!snapshot) {
       throw new Error('Snapshot returned empty result');
     }
 
-    const text = buildSnapshotText(snapshot, status, details);
+    const extraDetails = [...details];
+    if (snapshot.snapshotId) {
+      extraDetails.unshift(`Snapshot ID: ${snapshot.snapshotId}`);
+    }
+
+    const text = buildSnapshotText(snapshot, status, extraDetails);
     const urls = [];
     if (snapshot.url) urls.push(snapshot.url);
     else if (fallbackUrl) urls.push(fallbackUrl);

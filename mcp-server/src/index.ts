@@ -144,6 +144,7 @@ const allTools: Tool[] = [
   automation.browserPressKey,
   automation.browserDrag,
   automation.browserFillForm,
+  automation.browserRef,
 
   // Navigation tools
   navigation.browserNavigate,

@@ -4,24 +4,20 @@
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { callExtension, waitForBridgeConnection, hasExtensionConnection } from "../utils/bridge.js";
-import { captureAriaSnapshot } from "../utils/aria-snapshot.js";
-import type { Tool, ToolResult } from "./tool.js";
+import type { Tool } from "./tool.js";
 
 const ElementSchema = z.object({
-  element: z.string().describe("Human-readable element description from the browser snapshot"),
   ref: z.string().describe("Exact target element reference from the browser snapshot"),
-  selector: z
-    .string()
-    .optional()
-    .describe("Optional CSS selector fallback (legacy). Use ref from browser_snapshot whenever possible."),
 });
 
 const ClickSchema = ElementSchema;
 
+const RefSchema = ElementSchema;
+
 export const browserClick: Tool = {
   schema: {
     name: "browser_click",
-    description: "Perform click on a web page",
+    description: "Click an element using its browser_snapshot ref with debugger-driven mouse events and return element metadata",
     inputSchema: zodToJsonSchema(ClickSchema) as any,
   },
   handle: async (params) => {
@@ -29,9 +25,22 @@ export const browserClick: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    await callExtension("browser_click", params);
-    const snapshot = await captureAriaSnapshot();
-    return withActionText(`Clicked "${params.element}"`, snapshot);
+    return await callExtension("browser_click", params);
+  },
+};
+
+export const browserRef: Tool = {
+  schema: {
+    name: "browser_ref",
+    description: "Resolve an element reference from a snapshot and return its details",
+    inputSchema: zodToJsonSchema(RefSchema) as any,
+  },
+  handle: async (params) => {
+    if (!hasExtensionConnection()) {
+      await waitForBridgeConnection(4000);
+    }
+
+    return await callExtension("browser_ref", params);
   },
 };
 
@@ -43,7 +52,7 @@ const TypeSchema = ElementSchema.extend({
 export const browserType: Tool = {
   schema: {
     name: "browser_type",
-    description: "Type text into editable element",
+    description: "Click then type text into an editable element found by snapshot ref using debugger keystrokes",
     inputSchema: zodToJsonSchema(TypeSchema) as any,
   },
   handle: async (params) => {
@@ -51,10 +60,7 @@ export const browserType: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    await callExtension("browser_type", { ...params, pressEnter: params.submit === true });
-    const action = params.submit ? `Typed "${params.text}" and pressed Enter` : `Typed "${params.text}"`;
-    const snapshot = await captureAriaSnapshot();
-    return withActionText(`${action} into "${params.element}"`, snapshot);
+    return await callExtension("browser_type", { ...params, pressEnter: params.submit === true });
   },
 };
 
@@ -63,7 +69,7 @@ const HoverSchema = ElementSchema;
 export const browserHover: Tool = {
   schema: {
     name: "browser_hover",
-    description: "Hover over element on page",
+    description: "Hover over an element identified by snapshot ref and return element metadata",
     inputSchema: zodToJsonSchema(HoverSchema) as any,
   },
   handle: async (params) => {
@@ -71,9 +77,7 @@ export const browserHover: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    await callExtension("browser_hover", params);
-    const snapshot = await captureAriaSnapshot();
-    return withActionText(`Hovered over "${params.element}"`, snapshot);
+    return await callExtension("browser_hover", params);
   },
 };
 
@@ -84,7 +88,7 @@ const SelectOptionSchema = ElementSchema.extend({
 export const browserSelectOption: Tool = {
   schema: {
     name: "browser_select_option",
-    description: "Select an option in a dropdown",
+    description: "Select one or more options in a dropdown identified by snapshot ref",
     inputSchema: zodToJsonSchema(SelectOptionSchema) as any,
   },
   handle: async (params) => {
@@ -92,18 +96,12 @@ export const browserSelectOption: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    await callExtension("browser_select_option", params);
-    const snapshot = await captureAriaSnapshot();
-    return withActionText(`Selected option in "${params.element}"`, snapshot);
+    return await callExtension("browser_select_option", params);
   },
 };
 
 const FillFormFieldSchema = z.object({
-  selector: z
-    .string()
-    .optional()
-    .describe("CSS selector for the form field (legacy fallback, prefer ref)"),
-  ref: z.string().optional().describe("Element reference from browser_snapshot"),
+  ref: z.string().describe("Element reference from browser_snapshot"),
   value: z.string().describe("Value to set (use 'true'/'false' for checkboxes)"),
 });
 
@@ -114,7 +112,7 @@ const FillFormSchema = z.object({
 export const browserFillForm: Tool = {
   schema: {
     name: "browser_fill_form",
-    description: "Fill multiple form fields (inputs, selects, checkboxes, radios) by selector/value.",
+    description: "Fill multiple form fields (inputs, selects, checkboxes, radios) using snapshot refs and values",
     inputSchema: zodToJsonSchema(FillFormSchema) as any,
   },
   handle: async (params) => {
@@ -122,10 +120,7 @@ export const browserFillForm: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    const data = await callExtension("browser_fill_form", params);
-    const fieldCount = data?.data?.successfulFields || params.fields.length;
-    const snapshot = await captureAriaSnapshot();
-    return withActionText(`Filled ${fieldCount} form fields`, snapshot);
+    return await callExtension("browser_fill_form", params);
   },
 };
 
@@ -136,7 +131,7 @@ const PressKeySchema = z.object({
 export const browserPressKey: Tool = {
   schema: {
     name: "browser_press_key",
-    description: "Press a key on the keyboard",
+    description: "Press a key on the active element (or page) and report the target element metadata",
     inputSchema: zodToJsonSchema(PressKeySchema) as any,
   },
   handle: async (params) => {
@@ -144,25 +139,19 @@ export const browserPressKey: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    await callExtension("browser_press_key", params);
-    const snapshot = await captureAriaSnapshot();
-    return withActionText(`Pressed key ${params.key}`, snapshot);
+    return await callExtension("browser_press_key", params);
   },
 };
 
 const DragSchema = z.object({
-  startElement: z.string().describe("Human-readable source element description"),
   startRef: z.string().describe("Source element reference from browser_snapshot"),
-  startSelector: z.string().optional().describe("Optional CSS selector fallback for the source element"),
-  endElement: z.string().describe("Human-readable target element description"),
   endRef: z.string().describe("Target element reference from browser_snapshot"),
-  endSelector: z.string().optional().describe("Optional CSS selector fallback for the target element"),
 });
 
 export const browserDrag: Tool = {
   schema: {
     name: "browser_drag",
-    description: "Perform drag and drop between two elements",
+    description: "Perform drag and drop between two elements using start/end snapshot refs",
     inputSchema: zodToJsonSchema(DragSchema) as any,
   },
   handle: async (params) => {
@@ -170,22 +159,6 @@ export const browserDrag: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    await callExtension("browser_drag", params);
-    const snapshot = await captureAriaSnapshot();
-    return withActionText(`Dragged "${params.startElement}" to "${params.endElement}"`, snapshot);
+    return await callExtension("browser_drag", params);
   },
 };
-
-function withActionText(action: string, snapshot: ToolResult): ToolResult {
-  const existing = Array.isArray(snapshot.content) ? snapshot.content : [];
-  return {
-    ...snapshot,
-    content: [
-      {
-        type: "text",
-        text: action,
-      },
-      ...existing,
-    ],
-  };
-}
