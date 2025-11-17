@@ -10,7 +10,7 @@ import { createErrorResult } from './snapshot-utils.js';
  * when Phase 5 (extract search modules) is complete.
  *
  * @param {object} params - Search parameters
- * @param {object} searchFunctions - Object containing performDuckDuckGoSearchAndScrape and performGoogleSearchAndScrape
+ * @param {object} searchFunctions - Object containing performGoogleSearchAndScrape
  * @returns {Promise<{ok: boolean, data?: object, error?: string}>}
  */
 export async function handleSearch(params, searchFunctions) {
@@ -21,52 +21,18 @@ export async function handleSearch(params, searchFunctions) {
 
   const numResults = Math.max(1, Math.min(Number(params?.numResults || DEFAULT_SEARCH_RESULTS), MAX_SEARCH_RESULTS));
   const format = params?.format || 'serper';
+  const startedAt = Date.now();
 
   console.log('[MCP Tools] search', { query, numResults });
 
   try {
-    // Try DuckDuckGo first
-    console.log('[MCP Tools] invoking performDuckDuckGoSearchAndScrape', { query, numResults });
-    const ddgRes = await searchFunctions.performDuckDuckGoSearchAndScrape({
-      query,
-      numResults,
-      closeTab: true,
-      debug: true
-    });
-
-    console.log('[MCP Tools] performDuckDuckGoSearchAndScrape done', {
-      ok: ddgRes?.ok,
-      hasData: !!ddgRes?.data
-    });
-
-    const dCount = (ddgRes?.ok && ddgRes?.data && Array.isArray(ddgRes.data.results))
-      ? ddgRes.data.results.length
-      : 0;
-
-    if (ddgRes?.ok && ddgRes?.data && dCount > 0) {
-      try {
-        const d = ddgRes.data;
-        const summarizeResult = (r) => ({
-          title: r?.title,
-          url: r?.url,
-          snippetLen: r?.snippet ? r.snippet.length : 0,
-        });
-
-        console.log('[MCP Tools] DuckDuckGo scrape preview', {
-          query: d.query,
-          count: d.results?.length || 0,
-          sample: d.results?.slice(0, 3).map(summarizeResult) || [],
-        });
-      } catch (e) {
-        console.warn('[MCP Tools] Failed to log DDG preview:', e);
-      }
-
-      return buildSearchResponse({ query, data: ddgRes.data, format });
+    const { performGoogleSearchAndScrape } = searchFunctions || {};
+    if (typeof performGoogleSearchAndScrape !== 'function') {
+      return createErrorResult('Search failed', 'Google search is unavailable');
     }
 
-    // Fallback to Google if DuckDuckGo fails
-    console.log('[MCP Tools] DuckDuckGo failed or returned no results, falling back to Google');
-    const googleRes = await searchFunctions.performGoogleSearchAndScrape({
+    console.log('[MCP Tools] invoking performGoogleSearchAndScrape', { query, numResults });
+    const googleRes = await performGoogleSearchAndScrape({
       query,
       numResults,
       closeTab: true,
@@ -74,21 +40,23 @@ export async function handleSearch(params, searchFunctions) {
     });
 
     if (!googleRes?.ok || !googleRes?.data) {
-      return createErrorResult('Search failed', 'Both DuckDuckGo and Google search failed');
+      return createErrorResult('Search failed', googleRes?.error || 'Google search failed');
     }
 
-    return buildSearchResponse({ query, data: googleRes.data, format });
+    const elapsedMs = Date.now() - startedAt;
+    return buildSearchResponse({ query, data: googleRes.data, format, numResults, elapsedMs });
   } catch (e) {
     console.error('[MCP Tools] search error:', e);
     return createErrorResult('Search failed', e);
   }
 }
 
-function buildSearchResponse({ query, data, format }) {
-  const urls = deriveUrls(data);
+function buildSearchResponse({ query, data, format, numResults, elapsedMs }) {
+  const normalized = normalizeToSerperLike({ query, data, numResults, elapsedMs });
+  const urls = deriveUrls(normalized);
 
   if (format === 'text') {
-    const text = formatSearchResultsAsText(query, data);
+    const text = formatSearchResultsAsText(query, normalized);
     return {
       ok: true,
       content: [
@@ -98,7 +66,7 @@ function buildSearchResponse({ query, data, format }) {
         },
       ],
       _meta: urls.length ? { urls } : undefined,
-      data,
+      data: normalized,
     };
   }
 
@@ -107,12 +75,129 @@ function buildSearchResponse({ query, data, format }) {
     content: [
       {
         type: 'text',
-        text: JSON.stringify(data, null, 2),
+        text: JSON.stringify(normalized, null, 2),
       },
     ],
     _meta: urls.length ? { urls } : undefined,
-    data,
+    data: normalized,
   };
+}
+
+function normalizeToSerperLike({ query, data, numResults, elapsedMs }) {
+  const clean = (text) => {
+    if (!text) return '';
+    return String(text)
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const deriveLocale = () => {
+    try {
+      const uiLang = (typeof navigator !== 'undefined' ? navigator.language : '') || 'en-US';
+      const [lang, regionRaw] = String(uiLang).split('-');
+      const hl = uiLang || 'en-US';
+      const gl = (regionRaw || lang || 'US').toUpperCase();
+      return { hl, gl };
+    } catch (_) {
+      return { hl: 'en', gl: 'US' };
+    }
+  };
+
+  const organicSource = Array.isArray(data?.results)
+    ? data.results
+    : Array.isArray(data?.organic)
+      ? data.organic
+      : [];
+
+  const organic = organicSource
+    .map((item, idx) => {
+      const url = item?.url || item?.link;
+      const title = clean(item?.title);
+      if (!url || !title) return null;
+
+      let displayedLink = '';
+      try {
+        const u = new URL(url);
+        displayedLink = u.host;
+      } catch (_) {}
+
+      return {
+        position: idx + 1,
+        title,
+        link: url,
+        displayedLink,
+        snippet: clean(item?.snippet || item?.snippetHtml),
+        favicon: item?.favicon,
+        sitelinks: Array.isArray(item?.sitelinks) ? item.sitelinks : undefined,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, numResults || DEFAULT_SEARCH_RESULTS);
+
+  const answerBox = (() => {
+    if (data?.answerBox && typeof data.answerBox === 'object') {
+      return {
+        snippet: clean(data.answerBox.text || data.answerBox.snippet || data.answerBox.answer),
+        snippetHighlighted: Array.isArray(data.answerBox.snippetHighlighted)
+          ? data.answerBox.snippetHighlighted.map((t) => clean(t)).filter(Boolean)
+          : [],
+      };
+    }
+
+    const snippet = clean(data?.answerBox || data?.answerBoxHtml);
+    return snippet ? { snippet, snippetHighlighted: [] } : null;
+  })();
+
+  const { hl, gl } = deriveLocale();
+
+  const normalized = {
+    searchParameters: {
+      q: query,
+      type: 'search',
+      hl,
+      gl,
+      num: numResults || organic.length || DEFAULT_SEARCH_RESULTS,
+      page: 1,
+      autocorrect: true,
+    },
+    searchInformation: {
+      searchTime: typeof elapsedMs === 'number' ? elapsedMs / 1000 : undefined,
+      formattedSearchTime: typeof elapsedMs === 'number' ? (elapsedMs / 1000).toFixed(2) : undefined,
+      totalResults: String(Math.max(organic.length, 0)),
+      formattedTotalResults: Math.max(organic.length, 0).toLocaleString('en-US'),
+    },
+    organic,
+    relatedSearches: Array.isArray(data?.relatedSearches) ? data.relatedSearches : [],
+    topStories: Array.isArray(data?.topStories) ? data.topStories : [],
+  };
+
+  if (answerBox?.snippet) {
+    normalized.answerBox = {
+      type: 'answer',
+      snippet: answerBox.snippet,
+      snippetHighlighted: answerBox.snippetHighlighted || [],
+    };
+  }
+
+  if (data?.knowledgeGraph) {
+    normalized.knowledgeGraph = data.knowledgeGraph;
+  }
+
+  if (Array.isArray(data?.peopleAlsoAsk) && data.peopleAlsoAsk.length) {
+    normalized.peopleAlsoAsk = data.peopleAlsoAsk.map((p, idx) => ({
+      position: idx + 1,
+      question: clean(p.question || p.title),
+      snippet: clean(p.snippet),
+      title: clean(p.title),
+      link: p.link,
+    }));
+  } else {
+    normalized.peopleAlsoAsk = [];
+  }
+
+  normalized.urls = deriveUrls(normalized);
+  return normalized;
 }
 
 function deriveUrls(data) {
@@ -127,11 +212,18 @@ function deriveUrls(data) {
     if (!Array.isArray(items)) return;
     for (const item of items) {
       if (item?.url) urls.add(item.url);
+      if (item?.link) urls.add(item.link);
     }
   };
 
   collect(data?.results);
   collect(data?.organic);
+  collect(data?.topStories);
+  collect(data?.peopleAlsoAsk);
+
+  if (data?.knowledgeGraph?.website) {
+    urls.add(data.knowledgeGraph.website);
+  }
 
   return Array.from(urls);
 }
@@ -144,12 +236,12 @@ function formatSearchResultsAsText(query, data) {
     text += `Knowledge Graph: ${kg.title || ''}\n${kg.description || ''}\n\n`;
   }
 
-  const results = Array.isArray(data?.results) ? data.results : Array.isArray(data?.organic) ? data.organic : [];
+  const results = Array.isArray(data?.organic) ? data.organic : Array.isArray(data?.results) ? data.results : [];
   if (results.length > 0) {
     text += 'Results:\n';
     for (const item of results) {
       text += `\n${item.position || ''} ${item.title || ''}\n`;
-      if (item.url) text += `   ${item.url}\n`;
+      if (item.link || item.url) text += `   ${item.link || item.url}\n`;
       if (item.snippet) text += `   ${item.snippet}\n`;
     }
   } else {

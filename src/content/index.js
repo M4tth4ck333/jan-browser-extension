@@ -83,6 +83,122 @@ function collectGoogleResults(numResults) {
   return results;
 }
 
+function collectGoogleRelatedSearches() {
+  const out = [];
+  const seen = new Set();
+  const containers = [
+    document.querySelector('#bres'),
+    document.querySelector('div[data-async-context*="query:related"]'),
+    document.querySelector('[aria-label="Related searches"], [data-hveid][aria-label*="Related"]')
+  ].filter(Boolean);
+
+  for (const container of containers) {
+    const anchors = Array.from(container.querySelectorAll('a[href]'));
+    for (const a of anchors) {
+      const query = (a.textContent || '').trim();
+      if (!query || seen.has(query)) continue;
+      out.push({ query });
+      seen.add(query);
+    }
+  }
+
+  return out;
+}
+
+function collectGoogleTopStories() {
+  const out = [];
+  const seen = new Set();
+
+  const containers = Array.from(
+    document.querySelectorAll(
+      [
+        'div[aria-label="Top stories"]',
+        'g-scrolling-carousel[aria-label*="Top stories"]',
+        'div[jscontroller="U16t3c"]',
+        'div[data-ved][data-hveid] g-card',
+        'div.VkpGBb',
+        '#search .SoAPf',
+        '#search .WlydOe',
+        '#search .JJZKK',
+        '#search .dbsr'
+      ].join(',')
+    )
+  ).filter(Boolean);
+
+  const extractStoryFromCard = (card) => {
+    const anchor = Array.from(card.querySelectorAll('a[href]')).find((a) => /^https?:/i.test(a.href));
+    if (!anchor || seen.has(anchor.href)) return null;
+
+    const titleEl =
+      card.querySelector('div[role="heading"], .mCBkyc, .JheGif, .nDgy9d, .BNeawe.vvjwJb, h3, h4') ||
+      anchor.querySelector('div[role="heading"], .mCBkyc, .JheGif, .nDgy9d, .BNeawe.vvjwJb, h3, h4');
+    const sourceEl =
+      card.querySelector('.CEMjEf, .UpZIS, cite, .vr1PYe, .XTjFC.WF4CUc, .NUnG9d') ||
+      anchor.querySelector('.CEMjEf, .UpZIS, cite, .vr1PYe, .XTjFC.WF4CUc, .NUnG9d');
+    const dateEl = card.querySelector('time, .LfVVr, .WG9SHc span, .OSrXXb, .ZE0LJd');
+    const snippetEl =
+      card.querySelector('.GI74Re, .y3IQfc, .pcJO7e, .JheGif, .BNeawe.s3v9rd, .JheGif') ||
+      anchor.querySelector('.GI74Re, .y3IQfc, .pcJO7e, .JheGif, .BNeawe.s3v9rd, .JheGif');
+
+    const title = (titleEl?.textContent || anchor.textContent || '').trim();
+    if (!title) return null;
+
+    seen.add(anchor.href);
+    return {
+      title,
+      link: anchor.href,
+      source: (sourceEl?.textContent || '').trim(),
+      date: (dateEl?.getAttribute?.('datetime') || dateEl?.textContent || '').trim(),
+      snippet: (snippetEl?.textContent || '').trim(),
+    };
+  };
+
+  for (const container of containers) {
+    const cards = Array.from(container.querySelectorAll('g-card, article, .SoAPf, .WlydOe, .JJZKK, .dbsr, .xSqewd, .F9rcV')).filter(Boolean);
+    for (const card of cards) {
+      const story = extractStoryFromCard(card);
+      if (story) out.push(story);
+    }
+  }
+
+  // Fallback: scan any news-style cards under #search if nothing was found yet
+  if (!out.length) {
+    const fallbackCards = Array.from(document.querySelectorAll('#search .dbsr, #search .SoAPf, #search .WlydOe'));
+    for (const card of fallbackCards) {
+      const story = extractStoryFromCard(card);
+      if (story) out.push(story);
+    }
+  }
+
+  return out.slice(0, 10);
+}
+
+function collectGooglePeopleAlsoAsk() {
+  const out = [];
+  const seen = new Set();
+  const containers = Array.from(document.querySelectorAll('[jscontroller="Q7Rsec"], [jsname="Cpkphb"], .related-question-pair'));
+
+  for (const container of containers) {
+    const questionEl = container.querySelector('div[role="heading"], .ptHjxf, .mv7LYc, .yuRUbf, h2, h3, span');
+    const anchor = container.querySelector('a[href]');
+    const snippetEl = container.querySelector('.hgKElc, .kno-rdesc, .LGOjhe, [data-tts], .yXK7lf, .w6p8Qb');
+
+    const question = (questionEl?.textContent || '').trim();
+    if (!question || seen.has(question)) continue;
+
+    out.push({
+      question,
+      title: (anchor?.textContent || question).trim(),
+      link: anchor?.href || '',
+      snippet: (snippetEl?.textContent || '').trim(),
+    });
+
+    seen.add(question);
+  }
+
+  return out;
+}
+
 function collectDuckDuckGoResults(numResults) {
   const out = [];
   const seen = new Set();
@@ -160,10 +276,11 @@ function collectGoogleAnswerBox() {
   for (const sel of selectors) {
     const el = document.querySelector(sel);
     if (el && (el.innerText || '').trim()) {
-      return { text: el.innerText.trim(), html: el.outerHTML || '' };
+      const highlights = Array.from(el.querySelectorAll('em, b, strong')).map((n) => (n.textContent || '').trim()).filter(Boolean);
+      return { text: el.innerText.trim(), html: el.outerHTML || '', snippetHighlighted: highlights };
     }
   }
-  return { text: '', html: '' };
+  return { text: '', html: '', snippetHighlighted: [] };
 }
 
 function collectDuckDuckGoAnswerBox() {
@@ -311,12 +428,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             try {
               const retryResults = collectGoogleResults(numResults).slice(0, numResults);
               const answerBox = collectGoogleAnswerBox();
+              const relatedSearches = collectGoogleRelatedSearches();
+              const topStories = collectGoogleTopStories();
+              const peopleAlsoAsk = collectGooglePeopleAlsoAsk();
               const payload = {
                 ok: true,
                 query,
                 pageTitle: document.title || '',
-                answerBox: answerBox.text,
+                answerBox,
                 answerBoxHtml: answerBox.html,
+                relatedSearches,
+                topStories,
+                peopleAlsoAsk,
                 results: retryResults,
               };
               if (debug) {
@@ -342,12 +465,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
         results = results.slice(0, numResults);
         const answerBox = collectGoogleAnswerBox();
+        const relatedSearches = collectGoogleRelatedSearches();
+        const topStories = collectGoogleTopStories();
+        const peopleAlsoAsk = collectGooglePeopleAlsoAsk();
         const payload = {
           ok: true,
           query,
           pageTitle: document.title || '',
-          answerBox: answerBox.text,
+          answerBox,
           answerBoxHtml: answerBox.html,
+          relatedSearches,
+          topStories,
+          peopleAlsoAsk,
           results,
         };
         if (debug) {

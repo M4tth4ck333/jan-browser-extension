@@ -6,10 +6,8 @@ import { captureWithTimeout } from '../lib/fetch-utils.js';
 import { SCREENSHOT_CAPTURE_TIMEOUT } from '../constants.js';
 import {
   captureSnapshotResponse,
-  captureSnapshotForTab,
   ensureTabForSnapshot,
   createErrorResult,
-  formatSnapshotAsYAML,
 } from './snapshot-utils.js';
 
 const waitForLoadCompletion = async (tabId, timeoutMs = 10000) => {
@@ -184,28 +182,30 @@ export async function handleBrowserSnapshotYaml(params = {}) {
     }
 
     const { tabId, tab } = selection;
-    const snapshot = await captureSnapshotForTab(tabId, params?.fullPage !== false);
-    if (!snapshot) {
-      return createErrorResult('Snapshot failed', 'Snapshot capture returned empty result');
-    }
+    const status = typeof params?.status === 'string' && params.status.trim()
+      ? params.status.trim()
+      : 'Snapshot captured';
 
-    const yaml = formatSnapshotAsYAML(snapshot);
-    const urls = snapshot.url ? [snapshot.url] : tab?.url ? [tab.url] : [];
-    const meta = {};
-    if (urls.length) meta.urls = urls;
-    if (typeof tabId === 'number') meta.tabId = tabId;
+    await waitForLoadCompletion(tabId);
+
+    const snapshotResult = await captureSnapshotResponse({
+      tabId,
+      status,
+      details: Array.isArray(params?.details) ? params.details : [],
+      fallbackUrl: params?.url || tab?.url,
+      fullPage: params?.fullPage !== false,
+    });
+
+    if (!snapshotResult.ok) {
+      return snapshotResult;
+    }
 
     return {
       ok: true,
-      content: [
-        {
-          type: 'text',
-          text: yaml,
-        },
-      ],
-      _meta: Object.keys(meta).length ? meta : undefined,
+      content: snapshotResult.content,
+      _meta: snapshotResult._meta,
       data: {
-        snapshot,
+        snapshot: snapshotResult.snapshot,
         tabId,
       },
     };

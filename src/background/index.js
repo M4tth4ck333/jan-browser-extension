@@ -16,10 +16,7 @@ import {
   getMcpRegisteredTab,
   setMcpRegisteredTab,
 } from '../lib/tab-manager.js';
-import {
-  performDuckDuckGoSearchAndScrape,
-  performGoogleSearchAndScrape,
-} from '../search/index.js';
+import { performGoogleSearchAndScrape } from '../search/index.js';
 
 // -----------------------------------------------------------------------------
 // Browser API shim (kept for Chromium/Firefox compatibility)
@@ -41,7 +38,6 @@ try {
 // -----------------------------------------------------------------------------
 initializeMcpBridge({
   searchFunctions: {
-    performDuckDuckGoSearchAndScrape,
     performGoogleSearchAndScrape,
   },
 });
