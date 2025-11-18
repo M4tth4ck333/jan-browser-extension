@@ -31,12 +31,56 @@ export function resolveAccessibilityRef(ref, tabId) {
   return { ok: true, value: mappedSelector, originalRef: normalized, usedSnapshot: true };
 }
 
+/**
+ * Resolve a backend node ID to bounding box coordinates
+ * @param {number} tabId - Tab ID
+ * @param {number} backendNodeId - Backend DOM node ID
+ * @returns {Promise<{x: number, y: number} | null>} Center point or null
+ */
+export async function resolveBackendNodeToPoint(tabId, backendNodeId) {
+  try {
+    const target = { tabId };
+    await chrome.debugger.attach(target, '1.3');
+
+    try {
+      const { model } = await chrome.debugger.sendCommand(target, 'DOM.getBoxModel', {
+        backendNodeId,
+      });
+
+      if (model && model.content && model.content.length >= 8) {
+        // content is [x1, y1, x2, y2, x3, y3, x4, y4] - calculate center
+        const xs = [model.content[0], model.content[2], model.content[4], model.content[6]];
+        const ys = [model.content[1], model.content[3], model.content[5], model.content[7]];
+        const centerX = xs.reduce((a, b) => a + b, 0) / 4;
+        const centerY = ys.reduce((a, b) => a + b, 0) / 4;
+
+        await chrome.debugger.detach(target);
+        return { x: Math.round(centerX), y: Math.round(centerY) };
+      }
+
+      await chrome.debugger.detach(target);
+      return null;
+    } catch (err) {
+      await chrome.debugger.detach(target);
+      throw err;
+    }
+  } catch (err) {
+    console.error('[Action Targets] Failed to resolve backend node to point:', err);
+    return null;
+  }
+}
+
 export async function prepareElementForAction(tabId, { ref, mode }) {
   const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId },
     func: async ({ ref, mode, capabilityMap }) => {
       const resolveElementFromRef = (reference) => {
         if (typeof reference !== 'string' || reference.length === 0) {
+          return null;
+        }
+
+        // backend: references are resolved server-side via Chrome DevTools Protocol
+        if (reference.startsWith('backend:')) {
           return null;
         }
 

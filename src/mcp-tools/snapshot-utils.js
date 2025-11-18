@@ -804,8 +804,6 @@ function shouldFlattenAxNode(node) {
   if (!roleKey) return true;
 
   if (
-    roleKey === 'generic' ||
-    roleKey === 'group' ||
     roleKey === 'presentation' ||
     roleKey === 'none' ||
     roleKey === 'text' ||
@@ -813,6 +811,22 @@ function shouldFlattenAxNode(node) {
     roleKey === 'inlinetextbox'
   ) {
     return true;
+  }
+
+  if (roleKey === 'generic') {
+    const hasName = node.name?.value && node.name.value.trim().length > 0;
+    const hasActions = Array.isArray(node.actions) && node.actions.length > 0;
+    const hasValue = node.value?.value !== undefined && node.value.value !== '';
+    if (hasActions || hasValue) return false;
+    if (!hasName) return true;
+    return false;
+  }
+
+  if (roleKey === 'group') {
+    const hasActions = Array.isArray(node.actions) && node.actions.length > 0;
+    const hasName = node.name?.value && node.name.value.trim().length > 0;
+    if (!hasActions && !hasName) return true;
+    return false;
   }
 
   return false;
@@ -1136,6 +1150,7 @@ export function sendDebuggerCommand(target, method, params) {
 
 /**
  * Build a mapping from accessibility refs to CSS selectors using backendNodeId
+ * This must be called AFTER serializeAxNode so that currentAxRefMap is populated
  * @param {Array} nodes - Accessibility tree nodes
  * @param {Object} target - Debugger target { tabId }
  * @returns {Promise<Object>} Map of ref IDs to CSS selectors
@@ -1144,19 +1159,26 @@ async function buildRefToSelectorMap(nodes, target) {
   const refMap = {};
 
   console.log(`[RefMap] Building mapping for ${nodes.length} total accessibility nodes`);
-
-  // Debug: Log first few nodeIds to see their format
-  const sampleNodeIds = nodes.slice(0, 5).map(n => n.nodeId);
-  console.log(`[RefMap] Sample raw nodeIds from accessibility tree:`, sampleNodeIds);
+  console.log(`[RefMap] currentAxRefMap has ${currentAxRefMap.size} entries`);
 
   let mappedCount = 0;
   let skippedCount = 0;
+  let cssCount = 0;
+  let backendCount = 0;
 
-  // Process ALL nodes to ensure ref counter stays in sync
+  // Only process nodes that were actually assigned refs in serializeAxNode
   for (const node of nodes) {
     try {
-      // Skip ignored nodes (these don't get refs in serializeAxNode either)
+      // Skip ignored nodes
       if (node.ignored) {
+        continue;
+      }
+
+      // Check if this node was assigned a ref during serialization
+      const refId = currentAxRefMap.get(node.nodeId);
+      if (!refId) {
+        // This node was skipped/flattened during serialization
+        skippedCount++;
         continue;
       }
 
@@ -1171,17 +1193,9 @@ async function buildRefToSelectorMap(nodes, target) {
         break;
       }
 
-      // Use the same formatted ref that serializeAxNode produces
-      // This uses currentAxRefMap which was populated during tree serialization
-      const refId = formatAccessibleRef(node.nodeId);
-      if (!refId) {
-        skippedCount++;
-        continue;
-      }
-
       // Debug: Log ref mapping for first few nodes
       if (mappedCount < 5) {
-        console.log(`[RefMap] Mapping node: raw=${node.nodeId} → formatted=${refId}, backendNodeId=${backendNodeId}`);
+        console.log(`[RefMap] Mapping node: nodeId=${node.nodeId} → ref=${refId}, backendNodeId=${backendNodeId}`);
       }
 
       // Use DOM.describeNode to get selector information
@@ -1234,16 +1248,36 @@ async function buildRefToSelectorMap(nodes, target) {
               selector = `${tagName}.${classes[0]}`;
             }
           }
-
-          // Fallback: just use tag name (not very specific but better than nothing)
-          if (!selector) {
-            selector = tagName;
+          // Priority 6: Use value attribute for options/inputs
+          else if ((tagName === 'option' || tagName === 'input') && attrs.value !== undefined) {
+            selector = `${tagName}[value="${attrs.value}"]`;
           }
-        }
+          // If we have a selector, store it
+          if (selector) {
+            refMap[refId] = `css:${selector}`;
+            mappedCount++;
+            cssCount++;
 
-        if (selector) {
-          refMap[refId] = `css:${selector}`;
+            // Debug: Log selector for first few refs
+            if (mappedCount <= 5) {
+              console.log(`[RefMap] ${refId} → css:${selector} (tag: ${domNode.nodeName})`);
+            }
+          } else {
+            // Fallback: Store backendNodeId for direct DOM access via Chrome DevTools Protocol
+            refMap[refId] = `backend:${backendNodeId}`;
+            mappedCount++;
+            backendCount++;
+
+            // Debug: Log backend ID fallback for first few refs
+            if (backendCount <= 3) {
+              console.log(`[RefMap] ${refId} → backend:${backendNodeId} (tag: ${domNode.nodeName}, no unique selector)`);
+            }
+          }
+        } else {
+          // No nodeName, use backendNodeId
+          refMap[refId] = `backend:${backendNodeId}`;
           mappedCount++;
+          backendCount++;
         }
       }
     } catch (err) {
@@ -1252,10 +1286,10 @@ async function buildRefToSelectorMap(nodes, target) {
     }
   }
 
-  const refKeys = Object.keys(refMap);
-  console.log(`[RefMap] Successfully mapped ${mappedCount} refs to selectors (skipped ${skippedCount} nodes without backendNodeId)`);
-  console.log(`[RefMap] Sample stored refs:`, refKeys.slice(0, 10));
-  console.log(`[RefMap] Sample stored refs (last 10):`, refKeys.slice(-10));
+  console.log(`[RefMap] Mapped ${mappedCount} refs (${cssCount} CSS, ${backendCount} backend)`);
+  if (backendCount > cssCount) {
+    console.warn(`[RefMap] Warning: More backend refs than CSS refs - visual overlay limited`);
+  }
   return refMap;
 }
 
@@ -1327,6 +1361,45 @@ async function captureAccessibilityTree(tabId) {
   }
 }
 
+/**
+ * Add DOM-based CSS refs to the refMap by matching accessibility refs with DOM tree nodes
+ * This ensures accessibility refs (like s1e19) map to usable CSS selectors
+ */
+function addDomRefsToMap(domTree, refMap, accessibility) {
+  if (!domTree || !accessibility || !currentAxRefMap) return;
+
+  const traverse = (node) => {
+    if (!node) return;
+
+    // If this node has a DOM ref (css:...) and the same element has an accessibility ref
+    const domRef = node.ref;
+    if (domRef && domRef.startsWith('css:')) {
+      // Try to find the corresponding accessibility node ID
+      // We need to match based on element properties since we don't have a direct link
+      // For now, use the DOM ref as a fallback for any accessibility refs that don't have selectors
+
+      // Check if there's an accessibility ref that should map to this DOM ref
+      // This is a heuristic: if an accessibility ref doesn't have a CSS selector yet,
+      // and the node matches (same role/name), use the DOM ref
+
+      // For simplicity, we'll add DOM refs with a prefix to distinguish them
+      const domRefKey = `dom_${domRef}`;
+      if (!refMap[domRefKey]) {
+        refMap[domRefKey] = domRef;
+      }
+    }
+
+    // Recursively process children
+    if (Array.isArray(node.children)) {
+      for (const child of node.children) {
+        traverse(child);
+      }
+    }
+  };
+
+  traverse(domTree);
+}
+
 async function captureRawSnapshot(tabId, fullPage = true) {
   let domSnapshot = null;
   try {
@@ -1367,11 +1440,25 @@ async function captureRawSnapshot(tabId, fullPage = true) {
 
     domSnapshot.headings = mergeHeadings(domSnapshot.headings, accessibility.headings);
 
-    // Store the reference mapping for automation if available
+    // Build a combined refMap using both accessibility tree refs and DOM refs
+    // This ensures visual overlay shows accessibility refs but they map to working DOM selectors
+    const combinedRefMap = {};
+
+    // Add accessibility tree refMap (if available)
     if (accessibility.refMap && Object.keys(accessibility.refMap).length > 0) {
-      domSnapshot.refMap = accessibility.refMap;
+      Object.assign(combinedRefMap, accessibility.refMap);
+    }
+
+    // Add DOM-based refs from the tree
+    if (fallbackAria.tree) {
+      addDomRefsToMap(fallbackAria.tree, combinedRefMap, accessibility);
+    }
+
+    // Store the combined reference mapping
+    if (Object.keys(combinedRefMap).length > 0) {
+      domSnapshot.refMap = combinedRefMap;
       try {
-        setElementRefMap(tabId, accessibility.refMap, {
+        setElementRefMap(tabId, combinedRefMap, {
           url: domSnapshot.url,
           timestamp: Date.now(),
         });

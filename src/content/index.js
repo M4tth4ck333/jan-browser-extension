@@ -1,6 +1,10 @@
 // content.js
 // Minimal content script that supports the browser MCP workflows.
 
+// Note: reference-overlay.js is loaded before this file in manifest.json
+// Functions showReferenceOverlay, hideReferenceOverlay, toggleReferenceOverlay, getOverlayStatus
+// are available globally from that script
+
 // -----------------------------------------------------------------------------
 // Browser compatibility shim
 // -----------------------------------------------------------------------------
@@ -556,6 +560,51 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           };
         }
         sendResponse(payload);
+      } catch (error) {
+        sendResponse({ ok: false, error: String(error?.message || error) });
+      }
+      return true;
+    }
+
+    case 'SHOW_REFERENCE_OVERLAY': {
+      try {
+        const refMap = message?.payload?.refMap;
+        if (!refMap) {
+          sendResponse({ ok: false, error: 'Missing refMap in payload' });
+          return true;
+        }
+        const result = showReferenceOverlay(refMap);
+        sendResponse(result);
+      } catch (error) {
+        sendResponse({ ok: false, error: String(error?.message || error) });
+      }
+      return true;
+    }
+
+    case 'HIDE_REFERENCE_OVERLAY': {
+      try {
+        const result = hideReferenceOverlay();
+        sendResponse(result);
+      } catch (error) {
+        sendResponse({ ok: false, error: String(error?.message || error) });
+      }
+      return true;
+    }
+
+    case 'TOGGLE_REFERENCE_OVERLAY': {
+      try {
+        const result = toggleReferenceOverlay();
+        sendResponse(result);
+      } catch (error) {
+        sendResponse({ ok: false, error: String(error?.message || error) });
+      }
+      return true;
+    }
+
+    case 'GET_OVERLAY_STATUS': {
+      try {
+        const result = getOverlayStatus();
+        sendResponse({ ok: true, status: result });
       } catch (error) {
         sendResponse({ ok: false, error: String(error?.message || error) });
       }
