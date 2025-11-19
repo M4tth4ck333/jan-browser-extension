@@ -35,13 +35,13 @@ function injectStyles() {
       position: absolute;
       pointer-events: none;
       display: inline-block;
-      padding: 2px 6px;
+      padding: 3px 7px;
       background: linear-gradient(to bottom, #ffd76e 0%, #ffb700 100%);
       border: 1px solid #c38a22;
       border-radius: 3px;
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.8) inset;
       color: #000;
-      font-size: 11px;
+      font-size: 13px;
       font-weight: 700;
       line-height: 1.2;
       text-transform: lowercase;
@@ -332,6 +332,14 @@ function getOverlayStatus() {
     markerCount: currentMarkers.length,
     visibleMarkerCount: currentMarkers.filter(({ marker }) => marker.style.display !== 'none').length,
   };
+}
+
+// Export functions to global scope for use by content/index.js
+if (typeof window !== 'undefined') {
+  window.showReferenceOverlay = showReferenceOverlay;
+  window.hideReferenceOverlay = hideReferenceOverlay;
+  window.toggleReferenceOverlay = toggleReferenceOverlay;
+  window.getOverlayStatus = getOverlayStatus;
 }
 
 // Auto-update marker positions on scroll and resize
