@@ -92,30 +92,6 @@ export const browserScroll: Tool = {
   },
 };
 
-const WaitSchema = z.object({
-  time: z.number().min(0.1).max(10).describe("The time to wait in seconds"),
-});
-
-export const browserWait: Tool = {
-  schema: {
-    name: "browser_wait",
-    description: "Wait for a specified time in seconds",
-    inputSchema: zodToJsonSchema(WaitSchema) as any,
-  },
-  handle: async (params) => {
-    const milliseconds = Math.min(params.time * 1000, 10000);
-    await new Promise((resolve) => setTimeout(resolve, milliseconds));
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Waited for ${params.time} seconds`,
-        },
-      ],
-    };
-  },
-};
 
 function toTextResult(text: string): ToolResult {
   return {

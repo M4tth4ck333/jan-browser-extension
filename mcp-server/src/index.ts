@@ -139,7 +139,6 @@ const allTools: Tool[] = [
   // Automation tools
   automation.browserClick,
   automation.browserType,
-  automation.browserHover,
   automation.browserSelectOption,
   automation.browserPressKey,
   automation.browserDrag,
@@ -151,13 +150,10 @@ const allTools: Tool[] = [
   navigation.browserGoBack,
   navigation.browserGoForward,
   navigation.browserScroll,
-  navigation.browserWait,
 
   // Observation tools
   observation.browserSnapshot,
   observation.browserScreenshot,
-  observation.webSearch,
-  observation.bridgeStatus,
 ];
 
 // Register tool list handler
