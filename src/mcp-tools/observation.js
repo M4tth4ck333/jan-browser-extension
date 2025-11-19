@@ -68,7 +68,56 @@ export async function handleScreenshot(params = {}) {
     const { windowInfo } = windowValidation;
     console.log('[MCP Tools] screenshot - window state:', windowInfo.state, 'focused:', windowInfo.focused);
 
-    // Capture screenshot with timeout
+    // Try to build ARIA tree and show inline refs if available
+    // This is optional - if it fails quickly, we take screenshot immediately
+    const startTime = Date.now();
+    try {
+      // Quick attempt to build ARIA tree - no waiting for load completion
+      const snapshotResult = await captureSnapshotResponse({
+        tabId,
+        status: '',
+        details: [],
+        fallbackUrl: tab?.url,
+        fullPage: false, // Only capture viewport for screenshot
+      });
+
+      console.log(`[MCP Tools] ARIA tree built in ${Date.now() - startTime}ms`);
+
+      // Show visual reference overlay BEFORE taking screenshot if refMap is available
+      const refMap = snapshotResult?.snapshot?.refMap;
+      if (refMap && Object.keys(refMap).length > 0) {
+        try {
+          // Try to inject content scripts if not already loaded
+          try {
+            await chrome.scripting.executeScript({
+              target: { tabId },
+              files: ['content/reference-overlay.js'],
+            });
+            console.log('[MCP Tools] Injected reference-overlay.js');
+          } catch (injectError) {
+            // Already injected or failed - that's okay, try to send message anyway
+            console.log('[MCP Tools] reference-overlay.js already loaded or injection failed:', injectError?.message);
+          }
+
+          await chrome.tabs.sendMessage(tabId, {
+            type: 'SHOW_REFERENCE_OVERLAY',
+            payload: { refMap },
+          });
+          console.log('[MCP Tools] Visual reference overlay shown on tab', tabId, 'refs:', Object.keys(refMap).length);
+
+          // Wait for overlay to render before screenshot
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        } catch (overlayError) {
+          console.warn('[MCP Tools] Failed to show reference overlay:', overlayError);
+        }
+      } else {
+        console.log('[MCP Tools] No refMap available, screenshot without inline refs');
+      }
+    } catch (snapshotError) {
+      console.warn('[MCP Tools] Failed to build ARIA tree for screenshot (took', Date.now() - startTime, 'ms), proceeding without inline refs:', snapshotError);
+    }
+
+    // Capture screenshot with timeout (with or without overlay)
     console.log('[MCP Tools] screenshot - capturing from window:', tab.windowId);
     const dataUrl = await captureWithTimeout(
       tab.windowId,
@@ -156,20 +205,6 @@ export async function handleSnapshot(params = {}) {
       return snapshotResult;
     }
 
-    // Automatically show visual reference overlay if refMap is available
-    const refMap = snapshotResult.snapshot?.refMap;
-    if (refMap && Object.keys(refMap).length > 0) {
-      try {
-        await chrome.tabs.sendMessage(tabId, {
-          type: 'SHOW_REFERENCE_OVERLAY',
-          payload: { refMap },
-        });
-        console.log('[MCP Tools] Visual reference overlay shown on tab', tabId);
-      } catch (overlayError) {
-        console.warn('[MCP Tools] Failed to show reference overlay:', overlayError);
-      }
-    }
-
     return {
       ok: true,
       content: snapshotResult.content,
@@ -212,20 +247,6 @@ export async function handleBrowserSnapshotYaml(params = {}) {
 
     if (!snapshotResult.ok) {
       return snapshotResult;
-    }
-
-    // Automatically show visual reference overlay if refMap is available
-    const refMap = snapshotResult.snapshot?.refMap;
-    if (refMap && Object.keys(refMap).length > 0) {
-      try {
-        await chrome.tabs.sendMessage(tabId, {
-          type: 'SHOW_REFERENCE_OVERLAY',
-          payload: { refMap },
-        });
-        console.log('[MCP Tools] Visual reference overlay shown on tab', tabId);
-      } catch (overlayError) {
-        console.warn('[MCP Tools] Failed to show reference overlay:', overlayError);
-      }
     }
 
     return {

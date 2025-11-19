@@ -64,22 +64,6 @@ export const browserType: Tool = {
   },
 };
 
-const HoverSchema = ElementSchema;
-
-export const browserHover: Tool = {
-  schema: {
-    name: "browser_hover",
-    description: "Hover over an element identified by snapshot ref and return element metadata",
-    inputSchema: zodToJsonSchema(HoverSchema) as any,
-  },
-  handle: async (params) => {
-    if (!hasExtensionConnection()) {
-      await waitForBridgeConnection(4000);
-    }
-
-    return await callExtension("browser_hover", params);
-  },
-};
 
 const SelectOptionSchema = ElementSchema.extend({
   values: z.array(z.string()).min(1).describe("Array of values to select in the dropdown"),

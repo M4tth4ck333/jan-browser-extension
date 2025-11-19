@@ -125,7 +125,7 @@ Add an entry under `mcpServers`:
 }
 ```
 
-Restart Claude Desktop. Make sure the Jan Browser extension is running in Chrome. In a chat, you can use tools like `browser_navigate`, `snapshot`, `web_search`, etc.
+Restart Claude Desktop. Make sure the Jan Browser extension is running in Chrome. In a chat, you can use tools like `browser_navigate`, `browser_snapshot`, `browser_screenshot`, etc.
 
 ### Jan Desktop App
 
@@ -170,7 +170,7 @@ Jan Desktop supports MCP servers via the Model Context Protocol extension.
 
 5. Save and restart Jan Desktop
 
-**Available Tools**: `snapshot`, `browser_navigate`, `click`, `type`, `screenshot`, `web_search`, and more.
+**Available Tools**: `browser_snapshot`, `browser_navigate`, `browser_click`, `browser_type`, `browser_screenshot`, and more.
 
 **Troubleshooting Jan Desktop:**
 - If you see "Failed to start MCP server", ensure the path to `index.js` is absolute and correct
