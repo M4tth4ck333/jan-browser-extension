@@ -255,7 +255,7 @@ describe.skip('Agentic Workflow Tests', () => {
     }, TIMEOUT);
   });
 
-  describe('Search Tool', () => {
+  describe.skip('Search Tool (removed)', () => {
     it('should perform web search', async () => {
       const result = await callTool('web_search', {
         query: 'test query',

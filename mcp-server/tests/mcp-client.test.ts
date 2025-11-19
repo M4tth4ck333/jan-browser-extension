@@ -145,10 +145,8 @@ describe.skip('MCP Server Integration Tests', () => {
 
       const toolNames = response.result.tools.map((t: any) => t.name);
       expect(toolNames).toContain('browser_navigate');
-      expect(toolNames).toContain('web_search');
       expect(toolNames).toContain('browser_snapshot');
       expect(toolNames).toContain('browser_screenshot');
-      expect(toolNames).toContain('bridge_status');
       expect(toolNames).toContain('browser_click');
       expect(toolNames).toContain('browser_type');
     });
@@ -231,11 +229,8 @@ describe.skip('MCP Server Integration Tests', () => {
   describe('Web Search Tool', () => {
     it('should fail gracefully when extension is not connected', async () => {
       const response = await client.sendRequest('tools/call', {
-        name: 'web_search',
-        arguments: {
-          query: 'test search',
-          numResults: 3,
-        },
+        name: 'browser_snapshot',
+        arguments: {},
       });
 
       expect(response.result).toBeDefined();
