@@ -39,6 +39,7 @@
         "<all_urls>"
       ],
       "js": [
+        "content/reference-overlay.js",
         "content/index.js"
       ],
       "run_at": "document_idle",

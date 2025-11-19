@@ -804,8 +804,6 @@ function shouldFlattenAxNode(node) {
   if (!roleKey) return true;
 
   if (
-    roleKey === 'generic' ||
-    roleKey === 'group' ||
     roleKey === 'presentation' ||
     roleKey === 'none' ||
     roleKey === 'text' ||
@@ -813,6 +811,22 @@ function shouldFlattenAxNode(node) {
     roleKey === 'inlinetextbox'
   ) {
     return true;
+  }
+
+  if (roleKey === 'generic') {
+    const hasName = node.name?.value && node.name.value.trim().length > 0;
+    const hasActions = Array.isArray(node.actions) && node.actions.length > 0;
+    const hasValue = node.value?.value !== undefined && node.value.value !== '';
+    if (hasActions || hasValue) return false;
+    if (!hasName) return true;
+    return false;
+  }
+
+  if (roleKey === 'group') {
+    const hasActions = Array.isArray(node.actions) && node.actions.length > 0;
+    const hasName = node.name?.value && node.name.value.trim().length > 0;
+    if (!hasActions && !hasName) return true;
+    return false;
   }
 
   return false;
@@ -1136,127 +1150,114 @@ export function sendDebuggerCommand(target, method, params) {
 
 /**
  * Build a mapping from accessibility refs to CSS selectors using backendNodeId
+ * This must be called AFTER serializeAxNode so that currentAxRefMap is populated
  * @param {Array} nodes - Accessibility tree nodes
  * @param {Object} target - Debugger target { tabId }
  * @returns {Promise<Object>} Map of ref IDs to CSS selectors
  */
 async function buildRefToSelectorMap(nodes, target) {
   const refMap = {};
+  const startTime = performance.now();
 
   console.log(`[RefMap] Building mapping for ${nodes.length} total accessibility nodes`);
 
-  // Debug: Log first few nodeIds to see their format
-  const sampleNodeIds = nodes.slice(0, 5).map(n => n.nodeId);
-  console.log(`[RefMap] Sample raw nodeIds from accessibility tree:`, sampleNodeIds);
-
-  let mappedCount = 0;
-  let skippedCount = 0;
-
-  // Process ALL nodes to ensure ref counter stays in sync
+  // Pre-filter nodes to only those with refs and backendNodeIds
+  const nodesToMap = [];
   for (const node of nodes) {
-    try {
-      // Skip ignored nodes (these don't get refs in serializeAxNode either)
-      if (node.ignored) {
-        continue;
-      }
+    if (node.ignored) continue;
 
-      const backendNodeId = node.backendDOMNodeId || node.domNodeId;
-      if (!backendNodeId) {
-        skippedCount++;
-        continue;
-      }
+    const refId = currentAxRefMap.get(node.nodeId);
+    if (!refId) continue;
 
-      // Stop after mapping enough nodes for performance
-      if (mappedCount >= 2000) {
-        break;
-      }
+    const backendNodeId = node.backendDOMNodeId || node.domNodeId;
+    if (!backendNodeId) continue;
 
-      // Use the same formatted ref that serializeAxNode produces
-      // This uses currentAxRefMap which was populated during tree serialization
-      const refId = formatAccessibleRef(node.nodeId);
-      if (!refId) {
-        skippedCount++;
-        continue;
-      }
+    nodesToMap.push({ node, refId, backendNodeId });
 
-      // Debug: Log ref mapping for first few nodes
-      if (mappedCount < 5) {
-        console.log(`[RefMap] Mapping node: raw=${node.nodeId} → formatted=${refId}, backendNodeId=${backendNodeId}`);
-      }
-
-      // Use DOM.describeNode to get selector information
-      const description = await sendDebuggerCommand(target, 'DOM.describeNode', {
-        backendNodeId,
-      });
-
-      if (description?.node) {
-        const domNode = description.node;
-
-        // Build CSS selector from node info
-        let selector = null;
-
-        if (domNode.nodeName) {
-          const tagName = domNode.nodeName.toLowerCase();
-
-          // Parse attributes
-          const attrs = {};
-          if (domNode.attributes) {
-            for (let i = 0; i < domNode.attributes.length; i += 2) {
-              const key = domNode.attributes[i];
-              const value = domNode.attributes[i + 1];
-              attrs[key] = value;
-            }
-          }
-
-          // Priority 1: Use ID if available (most specific)
-          if (attrs.id) {
-            selector = `#${attrs.id}`;
-          }
-          // Priority 2: For links, use href attribute (very specific for navigation)
-          else if (tagName === 'a' && attrs.href) {
-            selector = `a[href="${attrs.href}"]`;
-          }
-          // Priority 3: Use unique attributes like data-* or name
-          else if (attrs['data-testid']) {
-            selector = `${tagName}[data-testid="${attrs['data-testid']}"]`;
-          }
-          else if (attrs.name) {
-            selector = `${tagName}[name="${attrs.name}"]`;
-          }
-          // Priority 4: Use aria-label for buttons/interactive elements
-          else if (attrs['aria-label']) {
-            selector = `${tagName}[aria-label="${attrs['aria-label']}"]`;
-          }
-          // Priority 5: Use class if available
-          else if (attrs.class) {
-            const classes = attrs.class.split(/\s+/).filter(c => c && !c.match(/^(active|hover|focus|selected)$/));
-            if (classes.length > 0) {
-              selector = `${tagName}.${classes[0]}`;
-            }
-          }
-
-          // Fallback: just use tag name (not very specific but better than nothing)
-          if (!selector) {
-            selector = tagName;
-          }
-        }
-
-        if (selector) {
-          refMap[refId] = `css:${selector}`;
-          mappedCount++;
-        }
-      }
-    } catch (err) {
-      // Silently skip nodes that can't be mapped
-      continue;
-    }
+    if (nodesToMap.length >= 500) break; // Limit for performance
   }
 
-  const refKeys = Object.keys(refMap);
-  console.log(`[RefMap] Successfully mapped ${mappedCount} refs to selectors (skipped ${skippedCount} nodes without backendNodeId)`);
-  console.log(`[RefMap] Sample stored refs:`, refKeys.slice(0, 10));
-  console.log(`[RefMap] Sample stored refs (last 10):`, refKeys.slice(-10));
+  console.log(`[RefMap] Processing ${nodesToMap.length} nodes with refs`);
+
+  // Batch parallel requests with concurrency control
+  const BATCH_SIZE = 50;
+  let cssCount = 0;
+  let backendCount = 0;
+
+  for (let i = 0; i < nodesToMap.length; i += BATCH_SIZE) {
+    const batch = nodesToMap.slice(i, i + BATCH_SIZE);
+
+    const descriptions = await Promise.allSettled(
+      batch.map(({ backendNodeId }) =>
+        sendDebuggerCommand(target, 'DOM.describeNode', { backendNodeId })
+      )
+    );
+
+    // Process results
+    descriptions.forEach((result, idx) => {
+      const { refId, backendNodeId } = batch[idx];
+
+      if (result.status === 'rejected' || !result.value?.node) {
+        refMap[refId] = `backend:${backendNodeId}`;
+        backendCount++;
+        return;
+      }
+
+      const domNode = result.value.node;
+      const selector = buildCssSelector(domNode);
+
+      if (selector) {
+        refMap[refId] = `css:${selector}`;
+        cssCount++;
+      } else {
+        refMap[refId] = `backend:${backendNodeId}`;
+        backendCount++;
+      }
+    });
+  }
+
+  const elapsed = Math.round(performance.now() - startTime);
+  console.log(`[RefMap] Mapped ${cssCount + backendCount} refs in ${elapsed}ms (${cssCount} CSS, ${backendCount} backend)`);
+
+  if (backendCount > cssCount) {
+    console.warn(`[RefMap] Warning: More backend refs than CSS refs - visual overlay limited`);
+  }
+
   return refMap;
+}
+
+function buildCssSelector(domNode) {
+  if (!domNode.nodeName) return null;
+
+  const tagName = domNode.nodeName.toLowerCase();
+  const attrs = parseAttributes(domNode.attributes);
+
+  if (attrs.id) return `#${attrs.id}`;
+  if (tagName === 'a' && attrs.href) return `a[href="${attrs.href}"]`;
+  if (attrs['data-testid']) return `${tagName}[data-testid="${attrs['data-testid']}"]`;
+  if (attrs.name) return `${tagName}[name="${attrs.name}"]`;
+  if (attrs['aria-label']) return `${tagName}[aria-label="${attrs['aria-label']}"]`;
+
+  if (attrs.class) {
+    const classes = attrs.class.split(/\s+/).filter(c => c && !c.match(/^(active|hover|focus|selected)$/));
+    if (classes.length > 0) return `${tagName}.${classes[0]}`;
+  }
+
+  if ((tagName === 'option' || tagName === 'input') && attrs.value !== undefined) {
+    return `${tagName}[value="${attrs.value}"]`;
+  }
+
+  return null;
+}
+
+function parseAttributes(attrArray) {
+  const attrs = {};
+  if (!attrArray) return attrs;
+
+  for (let i = 0; i < attrArray.length; i += 2) {
+    attrs[attrArray[i]] = attrArray[i + 1];
+  }
+  return attrs;
 }
 
 async function captureAccessibilityTree(tabId) {
@@ -1367,7 +1368,7 @@ async function captureRawSnapshot(tabId, fullPage = true) {
 
     domSnapshot.headings = mergeHeadings(domSnapshot.headings, accessibility.headings);
 
-    // Store the reference mapping for automation if available
+    // Store the reference mapping from accessibility tree
     if (accessibility.refMap && Object.keys(accessibility.refMap).length > 0) {
       domSnapshot.refMap = accessibility.refMap;
       try {

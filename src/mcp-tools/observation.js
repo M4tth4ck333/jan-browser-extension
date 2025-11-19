@@ -156,6 +156,20 @@ export async function handleSnapshot(params = {}) {
       return snapshotResult;
     }
 
+    // Automatically show visual reference overlay if refMap is available
+    const refMap = snapshotResult.snapshot?.refMap;
+    if (refMap && Object.keys(refMap).length > 0) {
+      try {
+        await chrome.tabs.sendMessage(tabId, {
+          type: 'SHOW_REFERENCE_OVERLAY',
+          payload: { refMap },
+        });
+        console.log('[MCP Tools] Visual reference overlay shown on tab', tabId);
+      } catch (overlayError) {
+        console.warn('[MCP Tools] Failed to show reference overlay:', overlayError);
+      }
+    }
+
     return {
       ok: true,
       content: snapshotResult.content,
@@ -198,6 +212,20 @@ export async function handleBrowserSnapshotYaml(params = {}) {
 
     if (!snapshotResult.ok) {
       return snapshotResult;
+    }
+
+    // Automatically show visual reference overlay if refMap is available
+    const refMap = snapshotResult.snapshot?.refMap;
+    if (refMap && Object.keys(refMap).length > 0) {
+      try {
+        await chrome.tabs.sendMessage(tabId, {
+          type: 'SHOW_REFERENCE_OVERLAY',
+          payload: { refMap },
+        });
+        console.log('[MCP Tools] Visual reference overlay shown on tab', tabId);
+      } catch (overlayError) {
+        console.warn('[MCP Tools] Failed to show reference overlay:', overlayError);
+      }
     }
 
     return {

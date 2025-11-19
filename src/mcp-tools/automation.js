@@ -351,6 +351,52 @@ export async function handleClickElement(params = {}) {
       return createErrorResult('Click failed', resolvedRef.error);
     }
 
+    // Special handling for backend: references
+    if (resolvedRef.value && resolvedRef.value.startsWith('backend:')) {
+      const backendNodeId = parseInt(resolvedRef.value.slice(8), 10);
+      if (isNaN(backendNodeId)) {
+        return createErrorResult('Click failed', 'Invalid backend node ID');
+      }
+
+      const { resolveBackendNodeToPoint } = await import('./action-targets.js');
+      const clickPoint = await resolveBackendNodeToPoint(tabId, backendNodeId);
+
+      if (!clickPoint) {
+        return createErrorResult('Click failed', `Could not resolve backend node ${backendNodeId} to coordinates`);
+      }
+
+      try {
+        await clickPointWithDebugger(tabId, clickPoint);
+      } catch (err) {
+        console.error('[MCP Tools] debugger click failed', err);
+        return createErrorResult('Click failed', err);
+      }
+
+      const meta = {};
+      if (tab?.url) meta.urls = [tab.url];
+      if (typeof tabId === 'number') meta.tabId = tabId;
+
+      return {
+        ok: true,
+        content: [
+          {
+            type: 'text',
+            text: `Clicked element at ${ref} (backend node ${backendNodeId})`,
+          },
+        ],
+        _meta: Object.keys(meta).length ? meta : undefined,
+        data: {
+          url: tab?.url,
+          ref,
+          resolvedRef: resolvedRef.value,
+          clickPoint,
+          backendNodeId,
+          timestamp: new Date().toISOString(),
+          tabId,
+        },
+      };
+    }
+
     const preparedTarget = await prepareElementForAction(tabId, {
       ref: resolvedRef.value,
       mode: 'click',

@@ -60,6 +60,9 @@ export function getElementSelector(tabId, refId) {
   const selector = map.get(refId);
   if (!selector) {
     console.warn(`[RefMap] Reference ${refId} not found in map for tab ${tabId}`);
+    console.warn(`[RefMap] Available refs (first 20):`, Array.from(map.keys()).slice(0, 20));
+  } else {
+    console.log(`[RefMap] Resolved ${refId} → ${selector}`);
   }
 
   return selector || null;
