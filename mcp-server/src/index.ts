@@ -141,7 +141,6 @@ const allTools: Tool[] = [
   automation.browserType,
   automation.browserInput,
   automation.browserDrag,
-  automation.browserRef,
 
   // Navigation tools
   navigation.browserNavigate,

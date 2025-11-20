@@ -6,7 +6,6 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { callExtension, waitForBridgeConnection, hasExtensionConnection } from "../utils/bridge.js";
 import {
   sanitizeClickParams,
-  sanitizeRefParams,
   sanitizeTypeParams,
   sanitizeInputParams,
   sanitizeDragParams,
@@ -22,10 +21,6 @@ const ClickSchema = z.object({
   target: TargetSchema,
 });
 
-const RefSchema = z.object({
-  ref: z.string().describe("Exact target element reference from the browser snapshot"),
-});
-
 export const browserClick: Tool = {
   schema: {
     name: "browser_click",
@@ -38,21 +33,6 @@ export const browserClick: Tool = {
     }
 
     return await callExtension("browser_click", sanitizeClickParams(params));
-  },
-};
-
-export const browserRef: Tool = {
-  schema: {
-    name: "browser_ref",
-    description: "Resolve an element reference from a snapshot and return its details",
-    inputSchema: zodToJsonSchema(RefSchema) as any,
-  },
-  handle: async (params) => {
-    if (!hasExtensionConnection()) {
-      await waitForBridgeConnection(4000);
-    }
-
-    return await callExtension("browser_ref", sanitizeRefParams(params));
   },
 };
 

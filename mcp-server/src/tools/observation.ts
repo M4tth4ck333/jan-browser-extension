@@ -53,13 +53,13 @@ const ScreenshotSchema = z.object({
   includeRefs: z
     .boolean()
     .optional()
-    .describe("Whether to show snapshot refs inline before capturing the screenshot. Default: true"),
+    .describe("Whether to show snapshot refs inline before capturing the screenshot. Default: false"),
 });
 
 export const browserScreenshot: Tool = {
   schema: {
     name: "browser_screenshot",
-    description: "Screenshot the current tab; optionally overlay snapshot refs (includeRefs=true, default).",
+    description: "Screenshot the current tab; optionally overlay snapshot refs when includeRefs=true.",
     inputSchema: zodToJsonSchema(ScreenshotSchema) as any,
   },
   handle: async (params) => {
@@ -70,7 +70,7 @@ export const browserScreenshot: Tool = {
     try {
       const { includeRefs } = sanitizeScreenshotParams(params);
       const data = await callExtension("browser_screenshot", {
-        includeRefs,
+        includeRefs: includeRefs === true,
       });
 
       const direct = useExtensionResult(data);

@@ -11,12 +11,6 @@ export function sanitizeClickParams(params: any) {
   };
 }
 
-export function sanitizeRefParams(params: any) {
-  return {
-    ref: trimString(params?.ref),
-  };
-}
-
 export function sanitizeTypeParams(params: any) {
   return {
     target: trimString(params?.target),

@@ -5,7 +5,7 @@
  * This allows click/automation tools to resolve Chrome accessibility IDs to actual elements.
  */
 
-// Global reference map: { tabId: { refId: cssSelector } }
+// Global reference map: { tabId: { refId: { css?: string, backend?: number } } }
 const refMaps = new Map();
 
 // Maximum age of a reference map before it's considered stale (5 minutes)
@@ -26,7 +26,29 @@ export function setElementRefMap(tabId, refMap, metadata = {}) {
     return;
   }
 
-  refMaps.set(tabId, new Map(Object.entries(refMap)));
+  const normalized = new Map();
+  Object.entries(refMap || {}).forEach(([refId, value]) => {
+    if (!refId) return;
+    if (value && typeof value === 'object') {
+      const entry = {};
+      if (value.css) entry.css = value.css;
+      if (typeof value.backend === 'number') entry.backend = value.backend;
+      if (entry.css || entry.backend !== undefined) {
+        normalized.set(refId, entry);
+      }
+    } else if (typeof value === 'string') {
+      if (value.startsWith('backend:')) {
+        const id = Number(value.slice(8));
+        if (!Number.isNaN(id)) {
+          normalized.set(refId, { backend: id });
+        }
+      } else {
+        normalized.set(refId, { css: value });
+      }
+    }
+  });
+
+  refMaps.set(tabId, normalized);
   refMapMetadata.set(tabId, {
     timestamp: Date.now(),
     url: metadata.url || 'unknown',
@@ -42,7 +64,7 @@ export function setElementRefMap(tabId, refMap, metadata = {}) {
  * @param {string} refId - Reference ID (e.g., "s1e14")
  * @returns {string|null} CSS selector or null if not found
  */
-export function getElementSelector(tabId, refId) {
+function getRefEntry(tabId, refId) {
   const map = refMaps.get(tabId);
   if (!map) {
     console.log(`[RefMap] No reference map found for tab ${tabId}`);
@@ -57,15 +79,25 @@ export function getElementSelector(tabId, refId) {
     }
   }
 
-  const selector = map.get(refId);
-  if (!selector) {
+  const entry = map.get(refId);
+  if (!entry) {
     console.warn(`[RefMap] Reference ${refId} not found in map for tab ${tabId}`);
     console.warn(`[RefMap] Available refs (first 20):`, Array.from(map.keys()).slice(0, 20));
   } else {
-    console.log(`[RefMap] Resolved ${refId} → ${selector}`);
+    console.log(`[RefMap] Resolved ${refId} →`, entry);
   }
 
-  return selector || null;
+  return entry || null;
+}
+
+export function getElementSelector(tabId, refId) {
+  const entry = getRefEntry(tabId, refId);
+  return entry?.css || null;
+}
+
+export function getBackendNodeId(tabId, refId) {
+  const entry = getRefEntry(tabId, refId);
+  return typeof entry?.backend === 'number' ? entry.backend : null;
 }
 
 /**

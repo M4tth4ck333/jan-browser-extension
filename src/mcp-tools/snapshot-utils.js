@@ -1198,7 +1198,7 @@ async function buildRefToSelectorMap(nodes, target) {
       const { refId, backendNodeId } = batch[idx];
 
       if (result.status === 'rejected' || !result.value?.node) {
-        refMap[refId] = `backend:${backendNodeId}`;
+        refMap[refId] = { backend: backendNodeId };
         backendCount++;
         return;
       }
@@ -1207,10 +1207,10 @@ async function buildRefToSelectorMap(nodes, target) {
       const selector = buildCssSelector(domNode);
 
       if (selector) {
-        refMap[refId] = `css:${selector}`;
+        refMap[refId] = { css: `css:${selector}`, backend: backendNodeId };
         cssCount++;
       } else {
-        refMap[refId] = `backend:${backendNodeId}`;
+        refMap[refId] = { backend: backendNodeId };
         backendCount++;
       }
     });

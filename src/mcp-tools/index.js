@@ -6,7 +6,6 @@ import {
   handleTypeText,
   handleInputValue,
   handleDragElement,
-  handleBrowserRef,
 } from './automation.js';
 
 import {
@@ -31,7 +30,6 @@ export const mcpToolHandlers = {
   browser_type: handleTypeText,
   browser_input: handleInputValue,
   browser_drag: handleDragElement,
-  browser_ref: handleBrowserRef,
 
   // Navigation tools
   browser_navigate: handleNavigate,

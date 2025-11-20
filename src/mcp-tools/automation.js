@@ -3,10 +3,19 @@
 
 import { selectTab } from '../lib/tab-manager.js';
 import { createErrorResult } from './snapshot-utils.js';
-import { getElementDetails, getElementDetailsAtPoint, prepareElementForAction, resolveAccessibilityRef } from './action-targets.js';
+import {
+  getElementDetails,
+  getElementDetailsAtPoint,
+  prepareElementForAction,
+  resolveAccessibilityRef,
+  resolveBackendNodeToPoint,
+} from './action-targets.js';
 import { clickPointWithDebugger, typeTextWithDebugger, sendKeysWithDebugger, waitMs } from './debugger-input.js';
 
 function formatElementLabel(detectedElement = {}, fallbackRef = '') {
+  if (!detectedElement) {
+    detectedElement = {};
+  }
   const tag = detectedElement.tagName ? detectedElement.tagName.toLowerCase() : '';
   const role = detectedElement.role ? `role="${detectedElement.role}"` : '';
   const type = detectedElement.type ? `type="${detectedElement.type}"` : '';
@@ -242,143 +251,6 @@ async function pressKeysOnActiveElement(tabId, keys) {
   return result;
 }
 
-export async function handleBrowserRef(params = {}) {
-  const ref = typeof params?.ref === 'string' ? params.ref.trim() : '';
-
-  if (!ref) {
-    return createErrorResult('Resolve ref failed', 'Missing element ref parameter');
-  }
-
-  try {
-    const selection = await selectTab({ toolName: 'browser_ref' });
-    if (!selection.ok) {
-      return createErrorResult('Resolve ref failed', selection.error);
-    }
-
-    const { tabId, tab } = selection;
-    const resolvedRef = resolveAccessibilityRef(ref, tabId);
-    if (!resolvedRef.ok) {
-      return createErrorResult('Resolve ref failed', resolvedRef.error);
-    }
-
-    const [{ result }] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: (reference) => {
-        const resolveElementFromRef = (refValue) => {
-          if (typeof refValue !== 'string' || refValue.length === 0) return null;
-          if (refValue.includes('##')) {
-            const parts = refValue.split('##');
-            let current = null;
-            if (parts[0].startsWith('css:')) {
-              const hostSelector = parts[0].slice(4);
-              try {
-                current = document.querySelector(hostSelector);
-              } catch (err) {
-                return null;
-              }
-            }
-            if (!current) return null;
-            for (let i = 1; i < parts.length; i++) {
-              if (!current.shadowRoot) return null;
-              try {
-                current = current.shadowRoot.querySelector(parts[i]);
-              } catch (err) {
-                return null;
-              }
-              if (!current) return null;
-            }
-            return current;
-          }
-
-          if (refValue.startsWith('css:')) {
-            const selectorText = refValue.slice(4);
-            if (!selectorText) return null;
-            try {
-              return document.querySelector(selectorText);
-            } catch (err) {
-              return null;
-            }
-          }
-
-          try {
-            return (
-              document.querySelector(`[data-aria-id="${refValue}"]`) ||
-              document.getElementById(refValue) ||
-              document.querySelector(refValue)
-            );
-          } catch (err) {
-            return null;
-          }
-        };
-
-        const el = resolveElementFromRef(reference);
-        if (!el) {
-          return { success: false, error: 'Element not found' };
-        }
-
-        const rect = el.getBoundingClientRect();
-        const textContent = (el.innerText || el.textContent || '').trim();
-        return {
-          success: true,
-          detectedElement: {
-            tagName: el.tagName || null,
-            role: el.getAttribute?.('role') || null,
-            id: el.id || null,
-            className: el.className || null,
-            name: el.getAttribute?.('name') || null,
-            type: el.getAttribute?.('type') || null,
-            ariaLabel: el.getAttribute?.('aria-label') || null,
-            ariaDescription: el.getAttribute?.('aria-description') || null,
-            href: el.getAttribute?.('href') || null,
-          },
-          boundingRect: rect ? { ...rect.toJSON?.(), x: rect.x, y: rect.y } : null,
-          text: textContent.slice(0, 500),
-          value: el.value !== undefined ? String(el.value).slice(0, 200) : null,
-          isContentEditable:
-            el.isContentEditable || el.contentEditable === 'true' || el.getAttribute?.('contenteditable') === 'true',
-        };
-      },
-      args: [resolvedRef.value],
-    });
-
-    if (!result?.success) {
-      return createErrorResult('Resolve ref failed', result?.error || 'Element lookup failed');
-    }
-
-    const elementLabel = formatElementLabel(result.detectedElement, ref);
-    const meta = {};
-    if (tab?.url) meta.urls = [tab.url];
-    if (typeof tabId === 'number') meta.tabId = tabId;
-
-    return {
-      ok: true,
-      content: [
-        {
-          type: 'text',
-          text: `Reference ${ref} resolves to ${elementLabel}`,
-        },
-      ],
-      _meta: Object.keys(meta).length ? meta : undefined,
-      data: {
-        url: tab?.url,
-        ref,
-        resolvedRef: resolvedRef.value,
-        element: result.detectedElement,
-        boundingRect: result.boundingRect,
-        text: result.text,
-        value: result.value,
-        isContentEditable: result.isContentEditable,
-        elementLabel,
-        timestamp: new Date().toISOString(),
-        tabId,
-      },
-    };
-  } catch (e) {
-    console.error('[MCP Tools] browser_ref error:', e);
-    return createErrorResult('Resolve ref failed', e);
-  }
-}
-
 export async function handleClickElement(params = {}) {
   const parsedTarget = parseTargetInput(params?.target ?? params?.ref ?? params?.coordinates ?? '');
   const ref = parsedTarget.ref || (typeof params?.ref === 'string' ? params.ref.trim() : '');
@@ -455,7 +327,6 @@ export async function handleClickElement(params = {}) {
         return createErrorResult('Click failed', 'Invalid backend node ID');
       }
 
-      const { resolveBackendNodeToPoint } = await import('./action-targets.js');
       const clickPoint = await resolveBackendNodeToPoint(tabId, backendNodeId);
 
       if (!clickPoint) {

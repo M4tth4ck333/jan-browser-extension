@@ -72,7 +72,7 @@ const waitForLoadCompletion = async (tabId, timeoutMs = 10000) => {
 export async function handleScreenshot(params = {}) {
   console.log('[MCP Tools] screenshot called');
 
-  const includeRefs = params?.includeRefs !== false;
+  const includeRefs = params?.includeRefs === true;
   let overlayShown = false;
   let lastTabId = null;
 
@@ -115,6 +115,16 @@ export async function handleScreenshot(params = {}) {
         // Show visual reference overlay BEFORE taking screenshot if refMap is available
         const refMap = snapshotResult?.snapshot?.refMap;
         if (refMap && Object.keys(refMap).length > 0) {
+          const overlayRefMap = Object.fromEntries(
+            Object.entries(refMap)
+              .map(([key, val]) => {
+                if (val && typeof val === 'object') {
+                  return val.css ? [key, val.css] : null;
+                }
+                return [key, val];
+              })
+              .filter(Boolean)
+          );
           try {
             // Try to inject content scripts if not already loaded
             try {
@@ -130,7 +140,7 @@ export async function handleScreenshot(params = {}) {
 
             await chrome.tabs.sendMessage(tabId, {
               type: 'SHOW_REFERENCE_OVERLAY',
-              payload: { refMap },
+              payload: { refMap: overlayRefMap },
             });
             overlayShown = true;
             console.log('[MCP Tools] Visual reference overlay shown on tab', tabId, 'refs:', Object.keys(refMap).length);
@@ -151,10 +161,20 @@ export async function handleScreenshot(params = {}) {
       if (!overlayShown) {
         const cachedRefMap = getElementRefMap(tabId);
         if (cachedRefMap && Object.keys(cachedRefMap).length > 0) {
+          const overlayRefMap = Object.fromEntries(
+            Array.from(cachedRefMap.entries())
+              .map(([key, val]) => {
+                if (val && typeof val === 'object') {
+                  return val.css ? [key, val.css] : null;
+                }
+                return [key, val];
+              })
+              .filter(Boolean)
+          );
           try {
             await chrome.tabs.sendMessage(tabId, {
               type: 'SHOW_REFERENCE_OVERLAY',
-              payload: { refMap: cachedRefMap },
+              payload: { refMap: overlayRefMap },
             });
             overlayShown = true;
             console.log('[MCP Tools] Fallback overlay shown from cached ref map on tab', tabId);

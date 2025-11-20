@@ -2,7 +2,7 @@
 // Element resolution and capability checks for automation actions
 
 import { ELEMENT_ACTION_CAPABILITIES } from './element-action-map.js';
-import { getElementSelector, hasElementRefMap } from '../lib/element-ref-map.js';
+import { getElementSelector, hasElementRefMap, getBackendNodeId } from '../lib/element-ref-map.js';
 
 export function resolveAccessibilityRef(ref, tabId) {
   const normalized = typeof ref === 'string' ? ref.trim() : '';
@@ -18,7 +18,9 @@ export function resolveAccessibilityRef(ref, tabId) {
   }
 
   const mappedSelector = getElementSelector(tabId, normalized);
-  if (!mappedSelector) {
+  const backendId = getBackendNodeId(tabId, normalized);
+
+  if (!mappedSelector && backendId === null) {
     return {
       ok: false,
       value: null,
@@ -28,7 +30,15 @@ export function resolveAccessibilityRef(ref, tabId) {
     };
   }
 
-  return { ok: true, value: mappedSelector, originalRef: normalized, usedSnapshot: true };
+  if (mappedSelector) {
+    return { ok: true, value: mappedSelector, originalRef: normalized, usedSnapshot: true };
+  }
+
+  if (backendId !== null) {
+    return { ok: true, value: `backend:${backendId}`, originalRef: normalized, usedSnapshot: true };
+  }
+
+  return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: true };
 }
 
 /**
@@ -412,7 +422,7 @@ export async function getElementDetails(tabId, ref) {
         return { success: false, error: 'Element not found' };
       }
 
-      const rect = el.getBoundingClientRect?.();
+      const rect = el?.getBoundingClientRect ? el.getBoundingClientRect() : null;
       const visualViewport = window.visualViewport;
       const viewportX = visualViewport ? visualViewport.offsetLeft : 0;
       const viewportY = visualViewport ? visualViewport.offsetTop : 0;
@@ -432,12 +442,13 @@ export async function getElementDetails(tabId, ref) {
       };
 
       const boundingRect = rect ? { ...rect.toJSON?.(), x: rect.x, y: rect.y } : null;
-      const clickPoint = rect
-        ? {
-            x: rect.left + viewportX + rect.width / 2,
-            y: rect.top + viewportY + rect.height / 2,
-          }
-        : null;
+      let clickPoint = null;
+      if (rect) {
+        clickPoint = {
+          x: rect.left + viewportX + rect.width / 2,
+          y: rect.top + viewportY + rect.height / 2,
+        };
+      }
 
       return { success: true, detectedElement, boundingRect, clickPoint };
     },
