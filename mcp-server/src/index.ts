@@ -139,16 +139,12 @@ const allTools: Tool[] = [
   // Automation tools
   automation.browserClick,
   automation.browserType,
-  automation.browserSelectOption,
-  automation.browserPressKey,
+  automation.browserInput,
   automation.browserDrag,
-  automation.browserFillForm,
   automation.browserRef,
 
   // Navigation tools
   navigation.browserNavigate,
-  navigation.browserGoBack,
-  navigation.browserGoForward,
   navigation.browserScroll,
 
   // Observation tools

@@ -103,7 +103,7 @@ function formatSnapshotAsYAML(data: any): string {
     return "error: No snapshot data available";
   }
 
-  const tree = data.aria?.tree;
+  const tree = data.aria?.tree ? ensureRefs(data.aria.tree) : null;
   if (tree) {
     return renderTree(tree).join("\n");
   }
@@ -172,4 +172,24 @@ function buildDetailLines(node: any, depth: number): string[] {
   }
 
   return lines;
+}
+
+function ensureRefs(node: any): any {
+  let counter = 1;
+  const assign = (n: any): any => {
+    if (!n) return n;
+    const cloned = { ...n };
+    if (!cloned.ref && cloned.id) {
+      cloned.ref = cloned.id;
+    }
+    if (!cloned.ref) {
+      cloned.ref = `auto-ref-${counter}`;
+      counter += 1;
+    }
+    if (Array.isArray(cloned.children)) {
+      cloned.children = cloned.children.map((child: any) => assign(child));
+    }
+    return cloned;
+  };
+  return assign(node);
 }

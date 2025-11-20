@@ -7,7 +7,7 @@
 - 🔌 Persistent MCP WebSocket bridge
 - 🧭 Tab registration helpers used by MCP automation tools
 - 🔍 DuckDuckGo and Google search scraping for MCP workflows
-- 🖼️ Screenshot, DOM snapshot, and interaction helpers (click, type, fill forms)
+- 🖼️ Screenshot, DOM snapshot, and interaction helpers (click, type/keys, set form inputs)
 
 ---
 

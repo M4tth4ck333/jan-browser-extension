@@ -46,6 +46,27 @@ const waitForPageReady = async (tabId, timeoutMs = 10000) => {
   return false;
 };
 
+export async function handleNavigate(params = {}) {
+  const rawTarget = typeof params?.target === 'string' ? params.target.trim() : '';
+  const direction = typeof params?.direction === 'string' ? params.direction.trim() : '';
+  const fallback = typeof params?.url === 'string' ? params.url.trim() : '';
+  const target = rawTarget || direction || fallback;
+
+  if (!target) {
+    return createErrorResult('Navigate failed', 'Missing target (URL or "back"/"forward")');
+  }
+
+  const lowered = target.toLowerCase();
+  if (lowered === 'back' || lowered === 'backward') {
+    return handleGoBack(params);
+  }
+  if (lowered === 'forward') {
+    return handleGoForward(params);
+  }
+
+  return handleVisit({ ...params, url: target });
+}
+
 /**
  * Visits a URL and extracts page content
  * If no tab is registered, creates and registers a new tab
@@ -225,7 +246,7 @@ export async function handleVisit(params) {
  */
 export async function handleGoBack(params) {
   try {
-    const selection = await selectTab({ toolName: 'go_back' });
+    const selection = await selectTab({ toolName: 'browser_navigate' });
     if (!selection.ok) {
       return createErrorResult('Go back failed', selection.error);
     }
@@ -268,7 +289,7 @@ export async function handleGoBack(params) {
  */
 export async function handleGoForward(params) {
   try {
-    const selection = await selectTab({ toolName: 'go_forward' });
+    const selection = await selectTab({ toolName: 'browser_navigate' });
     if (!selection.ok) {
       return createErrorResult('Go forward failed', selection.error);
     }

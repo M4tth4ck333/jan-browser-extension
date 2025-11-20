@@ -446,3 +446,51 @@ export async function getElementDetails(tabId, ref) {
 
   return result;
 }
+
+export async function getElementDetailsAtPoint(tabId, point) {
+  if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') {
+    return { success: false, error: 'Invalid coordinates' };
+  }
+
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: ({ x, y }) => {
+      const element = document.elementFromPoint(x, y);
+      if (!element) {
+        return { success: false, error: `No element found at coordinates (${x}, ${y})` };
+      }
+
+      const rect = element.getBoundingClientRect?.();
+      const visualViewport = window.visualViewport;
+      const viewportX = visualViewport ? visualViewport.offsetLeft : 0;
+      const viewportY = visualViewport ? visualViewport.offsetTop : 0;
+
+      const detectedElement = {
+        tagName: element.tagName || 'unknown',
+        role: element.getAttribute?.('role') || null,
+        id: element.id || null,
+        className: element.className || null,
+        name: element.getAttribute?.('name') || null,
+        type: element.getAttribute?.('type') || null,
+        ariaLabel: element.getAttribute?.('aria-label') || null,
+        ariaDescription: element.getAttribute?.('aria-description') || null,
+        placeholder: element.getAttribute?.('placeholder') || null,
+        text: (element.textContent || '').trim().slice(0, 500) || null,
+        value: element.value !== undefined ? String(element.value).slice(0, 200) : null,
+      };
+
+      const boundingRect = rect ? { ...rect.toJSON?.(), x: rect.x, y: rect.y } : null;
+      const clickPoint = rect
+        ? {
+            x: rect.left + viewportX + rect.width / 2,
+            y: rect.top + viewportY + rect.height / 2,
+          }
+        : { x, y };
+
+      return { success: true, detectedElement, boundingRect, clickPoint };
+    },
+    args: [{ x: Number(point.x), y: Number(point.y) }],
+  });
+
+  return result;
+}

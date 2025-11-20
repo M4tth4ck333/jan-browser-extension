@@ -99,7 +99,32 @@ const SPECIAL_KEYS = {
   Enter: { key: 'Enter', code: 'Enter', text: '\r', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 },
   Backspace: { key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 },
   Tab: { key: 'Tab', code: 'Tab', text: '\t', windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9 },
+  Escape: { key: 'Escape', code: 'Escape', text: '', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 },
+  ArrowLeft: { key: 'ArrowLeft', code: 'ArrowLeft', windowsVirtualKeyCode: 37, nativeVirtualKeyCode: 37 },
+  ArrowRight: { key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39, nativeVirtualKeyCode: 39 },
+  ArrowUp: { key: 'ArrowUp', code: 'ArrowUp', windowsVirtualKeyCode: 38, nativeVirtualKeyCode: 38 },
+  ArrowDown: { key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40, nativeVirtualKeyCode: 40 },
+  Space: { key: ' ', code: 'Space', text: ' ', windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32 },
 };
+
+function normalizeKeyName(name) {
+  if (!name) return '';
+  const trimmed = name.trim();
+  const lower = trimmed.toLowerCase();
+  if (['ctrl', 'control', 'cmdorctrl'].includes(lower)) return 'Control';
+  if (['cmd', 'meta', 'command', 'super', '⌘'].includes(lower)) return 'Meta';
+  if (['alt', 'option', '⌥'].includes(lower)) return 'Alt';
+  if (['shift', '⇧'].includes(lower)) return 'Shift';
+  if (['enter', 'return', '↩', '⏎'].includes(lower)) return 'Enter';
+  if (['esc', 'escape'].includes(lower)) return 'Escape';
+  if (['space', 'spacebar'].includes(lower)) return 'Space';
+  if (['tab'].includes(lower)) return 'Tab';
+  if (['arrowleft', 'left'].includes(lower)) return 'ArrowLeft';
+  if (['arrowright', 'right'].includes(lower)) return 'ArrowRight';
+  if (['arrowup', 'up'].includes(lower)) return 'ArrowUp';
+  if (['arrowdown', 'down'].includes(lower)) return 'ArrowDown';
+  return trimmed;
+}
 
 function keyPayloadForChar(char) {
   const codePoint = char.codePointAt(0);
@@ -256,5 +281,49 @@ export async function typeTextWithDebugger(tabId, text, options = {}) {
       pressedEnter: pressEnter,
       cleared: clear,
     };
+  });
+}
+
+export async function sendKeysWithDebugger(tabId, keys) {
+  if (!Array.isArray(keys) || keys.length === 0) {
+    return { success: true, pressed: 0, sequence: [] };
+  }
+
+  const sequence = keys.map((key) => normalizeKeyName(String(key)));
+
+  return withDebuggerSession(tabId, async (send) => {
+    let pressed = 0;
+    for (const key of sequence) {
+      if (!key) continue;
+
+      if (SPECIAL_KEYS[key]) {
+        await dispatchKey(send, SPECIAL_KEYS[key], key !== 'Backspace');
+        pressed += 1;
+        await waitMs(randomBetween(8, 16));
+        continue;
+      }
+
+      if (key.length === 1) {
+        const payload = keyPayloadForChar(key);
+        await dispatchKey(send, payload);
+        pressed += 1;
+        await waitMs(randomBetween(8, 18));
+        continue;
+      }
+
+      const payload = {
+        key,
+        code: key,
+        text: '',
+        windowsVirtualKeyCode: undefined,
+        nativeVirtualKeyCode: undefined,
+      };
+      await send('Input.dispatchKeyEvent', { type: 'keyDown', ...payload });
+      await send('Input.dispatchKeyEvent', { type: 'keyUp', ...payload });
+      pressed += 1;
+      await waitMs(randomBetween(8, 18));
+    }
+
+    return { success: true, pressed, sequence };
   });
 }

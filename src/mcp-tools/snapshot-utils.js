@@ -1452,8 +1452,8 @@ export async function captureSnapshotResponse({ tabId, status, details = [], fal
 }
 
 export async function ensureTabForSnapshot(params = {}) {
-  const { toolName = 'snapshot', preferredUrl } = params;
-  const selection = await selectTab({ toolName, preferredUrl });
+  const { toolName = 'snapshot', preferredUrl, allowCreate = true } = params;
+  const selection = await selectTab({ toolName, preferredUrl, allowCreate });
   if (!selection.ok) {
     return createErrorResult(`${toolName} tab selection failed`, selection.error);
   }
