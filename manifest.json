@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jan Browser MCP",
-  "version": "0.13.2",
+  "version": "0.14.0",
   "description": "Minimal browser extension that exposes tab automation to the Jan MCP bridge.",
   "icons": {
     "16": "icons/app-16.png",
