@@ -30,12 +30,12 @@ export function resolveAccessibilityRef(ref, tabId) {
     };
   }
 
-  if (mappedSelector) {
-    return { ok: true, value: mappedSelector, originalRef: normalized, usedSnapshot: true };
-  }
-
   if (backendId !== null) {
     return { ok: true, value: `backend:${backendId}`, originalRef: normalized, usedSnapshot: true };
+  }
+
+  if (mappedSelector) {
+    return { ok: true, value: mappedSelector, originalRef: normalized, usedSnapshot: true };
   }
 
   return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: true };
