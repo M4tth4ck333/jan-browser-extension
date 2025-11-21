@@ -15,7 +15,7 @@ import { sanitizeSnapshotParams, sanitizeScreenshotParams } from "./sanitize.js"
  */
 const SnapshotSchema = z.object({
   fullPage: z.boolean().optional().describe("Capture full page (true) or only viewport-visible content (false). Default: true"),
-  detail: z.enum(["shallow", "medium", "deep"]).optional().describe("Snapshot detail level (depth/limits). Default: medium"),
+  detail: z.enum(["shallow", "medium", "deep"]).optional().describe("Snapshot detail level (depth/limits). Default: deep"),
 });
 
 export const browserSnapshot: Tool = {
