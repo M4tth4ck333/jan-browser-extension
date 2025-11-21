@@ -253,23 +253,14 @@ async function clearExistingText(send) {
 export async function typeTextWithDebugger(tabId, text, options = {}) {
   const { pressEnter = false, clear = false } = options;
   const content = typeof text === 'string' ? text : String(text ?? '');
-
   return withDebuggerSession(tabId, async (send) => {
     if (clear) {
       await clearExistingText(send);
     }
 
-    for (const char of content) {
-      if (char === '\n') {
-        await dispatchSpecialKey(send, 'Enter');
-      } else if (char === '\t') {
-        await dispatchSpecialKey(send, 'Tab');
-      } else {
-        const payload = keyPayloadForChar(char);
-        await dispatchKey(send, payload);
-      }
-      await waitMs(randomBetween(KEY_DELAY_RANGE.min, KEY_DELAY_RANGE.max));
-    }
+    // Use insertText to preserve all characters (including extended/utf punctuation)
+    await send('Input.insertText', { text: content });
+    await waitMs(randomBetween(20, 45));
 
     if (pressEnter) {
       await dispatchSpecialKey(send, 'Enter');

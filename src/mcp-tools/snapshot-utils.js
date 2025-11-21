@@ -7,9 +7,9 @@ import { clearElementRefMap, getElementRefMap, setElementRefMap } from '../lib/e
 const DEBUGGER_PROTOCOL_VERSION = '1.3';
 
 const SNAPSHOT_PRESETS = {
-  shallow: { domDepth: 4, axDepth: 4, maxChildren: 8, maxInteractive: 30, maxLandmarks: 10 },
-  medium: { domDepth: 8, axDepth: 8, maxChildren: 16, maxInteractive: 60, maxLandmarks: 20 },
-  deep: { domDepth: 12, axDepth: 12, maxChildren: 24, maxInteractive: 120, maxLandmarks: 40 },
+  shallow: { domDepth: 8, axDepth: 8, maxChildren: 24, maxInteractive: 120, maxLandmarks: 40 },
+  medium: { domDepth: 16, axDepth: 16, maxChildren: 32, maxInteractive: 200, maxLandmarks: 80 },
+  deep: { domDepth: 32, axDepth: 32, maxChildren: 48, maxInteractive: 320, maxLandmarks: 120 },
 };
 
 function getSnapshotLimits(detailLevel = 'medium') {
