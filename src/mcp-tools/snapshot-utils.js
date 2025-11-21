@@ -5,10 +5,17 @@ import { selectTab } from '../lib/tab-manager.js';
 import { clearElementRefMap, getElementRefMap, setElementRefMap } from '../lib/element-ref-map.js';
 
 const DEBUGGER_PROTOCOL_VERSION = '1.3';
-const MAX_TREE_DEPTH = 8;
-const MAX_CHILDREN_PER_NODE = 16;
-const MAX_INTERACTIVE_ELEMENTS = 60;
-const MAX_LANDMARKS = 20;
+
+const SNAPSHOT_PRESETS = {
+  shallow: { domDepth: 4, axDepth: 4, maxChildren: 8, maxInteractive: 30, maxLandmarks: 10 },
+  medium: { domDepth: 8, axDepth: 8, maxChildren: 16, maxInteractive: 60, maxLandmarks: 20 },
+  deep: { domDepth: 12, axDepth: 12, maxChildren: 24, maxInteractive: 120, maxLandmarks: 40 },
+};
+
+function getSnapshotLimits(detailLevel = 'medium') {
+  const key = typeof detailLevel === 'string' ? detailLevel.toLowerCase() : 'medium';
+  return SNAPSHOT_PRESETS[key] || SNAPSHOT_PRESETS.medium;
+}
 
 const INTERACTIVE_ROLE_KEYS = new Set(
   [
@@ -65,6 +72,21 @@ const snapshotCache = new Map();
 const snapshotIdsByTab = new Map();
 const snapshotSequenceByTab = new Map();
 let navigationListenersRegistered = false;
+let snapshotLimits = SNAPSHOT_PRESETS.deep;
+
+function setSnapshotLimits(level = 'medium') {
+  if (typeof level === 'string') {
+    snapshotLimits = getSnapshotLimits(level);
+  } else if (level && typeof level === 'object') {
+    snapshotLimits = level;
+  } else {
+    snapshotLimits = SNAPSHOT_PRESETS.medium;
+  }
+}
+
+function getCurrentLimits() {
+  return snapshotLimits || SNAPSHOT_PRESETS.medium;
+}
 
 function ensureNavigationCacheResets() {
   if (navigationListenersRegistered) return;
@@ -354,7 +376,7 @@ async function captureDomSnapshot(tabId, fullPage = true) {
         return null;
       };
 
-      const buildAriaTree = (element, depth = 0, maxDepth = MAX_TREE_DEPTH, inShadow = false) => {
+      const buildAriaTree = (element, depth = 0, maxDepth = getCurrentLimits().domDepth, inShadow = false) => {
         if (!element || depth > maxDepth) return null;
 
         const role = inferRole(element);
@@ -384,7 +406,7 @@ async function captureDomSnapshot(tabId, fullPage = true) {
               role: 'group',
               name: '',
               tag: element.tagName.toLowerCase(),
-              children: children.slice(0, MAX_CHILDREN_PER_NODE),
+              children: children.slice(0, getCurrentLimits().maxChildren),
             };
           }
           return null;
@@ -448,7 +470,7 @@ async function captureDomSnapshot(tabId, fullPage = true) {
           }
         }
 
-        if (children.length) node.children = children.slice(0, MAX_CHILDREN_PER_NODE);
+        if (children.length) node.children = children.slice(0, getCurrentLimits().maxChildren);
 
         return node;
       };
@@ -833,7 +855,7 @@ function shouldFlattenAxNode(node) {
 }
 
 function serializeAxNode(node, map, depth = 0) {
-  if (!node || depth > MAX_TREE_DEPTH) return [];
+  if (!node || depth > getCurrentLimits().axDepth) return [];
 
   const includeNode = !shouldFlattenAxNode(node);
   const nextDepth = includeNode ? depth + 1 : depth;
@@ -879,10 +901,10 @@ function serializeAxNode(node, map, depth = 0) {
       if (serializedChildren.length) {
         for (const entry of serializedChildren) {
           children.push(entry);
-          if (children.length >= MAX_CHILDREN_PER_NODE) break;
+          if (children.length >= getCurrentLimits().maxChildren) break;
         }
       }
-      if (children.length >= MAX_CHILDREN_PER_NODE) break;
+      if (children.length >= getCurrentLimits().maxChildren) break;
     }
   }
 
@@ -956,7 +978,7 @@ function extractInteractiveFromAxNodes(nodes) {
 
     results.push(entry);
 
-    if (results.length >= MAX_INTERACTIVE_ELEMENTS) break;
+    if (results.length >= getCurrentLimits().maxInteractive) break;
   }
 
   return results.map((entry, index) => ({ ...entry, index }));
@@ -988,7 +1010,7 @@ function extractLandmarksFromAxNodes(nodes) {
       }),
     );
 
-    if (results.length >= MAX_LANDMARKS) break;
+    if (results.length >= getCurrentLimits().maxLandmarks) break;
   }
 
   return results;
@@ -1281,7 +1303,7 @@ async function captureAccessibilityTree(tabId) {
     await sendDebuggerCommand(target, 'DOM.enable');
 
     const response = await sendDebuggerCommand(target, 'Accessibility.getFullAXTree', {
-      maxDepth: MAX_TREE_DEPTH + 2,
+      maxDepth: getCurrentLimits().axDepth + 2,
       fetchRelatives: true,
     });
 
@@ -1387,7 +1409,9 @@ async function captureRawSnapshot(tabId, fullPage = true) {
   return domSnapshot;
 }
 
-export async function captureSnapshotForTab(tabId, fullPage = true) {
+export async function captureSnapshotForTab(tabId, fullPage = true, detailLevel = 'medium') {
+  const previousLimits = getCurrentLimits();
+  setSnapshotLimits(detailLevel);
   try {
     const nextSequence = snapshotSequenceByTab.get(tabId) ?? 1;
     currentSnapshotPrefix = `s${nextSequence}`;
@@ -1408,12 +1432,14 @@ export async function captureSnapshotForTab(tabId, fullPage = true) {
     return snapshot;
   } catch (error) {
     throw createErrorResult('Snapshot capture failed', error);
+  } finally {
+    setSnapshotLimits(previousLimits);
   }
 }
 
-export async function captureSnapshotResponse({ tabId, status, details = [], fallbackUrl, fullPage = true }) {
+export async function captureSnapshotResponse({ tabId, status, details = [], fallbackUrl, fullPage = true, detailLevel = 'medium' }) {
   try {
-    const snapshot = await captureSnapshotForTab(tabId, fullPage);
+    const snapshot = await captureSnapshotForTab(tabId, fullPage, detailLevel);
     if (!snapshot) {
       throw new Error('Snapshot returned empty result');
     }

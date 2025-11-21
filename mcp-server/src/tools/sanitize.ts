@@ -5,6 +5,12 @@ const trimString = (value: unknown): string => {
 const UNSAFE_PROTOCOL_PATTERN =
   /^(javascript:|data:|file:|vbscript:|chrome:|edge:|safari-extension:|moz-extension:|opera:)/i;
 
+const normalizeDetailLevel = (value: unknown): "shallow" | "medium" | "deep" => {
+  const s = typeof value === "string" ? value.toLowerCase() : "";
+  if (s === "shallow" || s === "deep" || s === "medium") return s as any;
+  return "deep";
+};
+
 export function sanitizeClickParams(params: any) {
   return {
     target: trimString(params?.target),
@@ -63,11 +69,13 @@ export function sanitizeNavigateParams(params: any) {
 export function sanitizeSnapshotParams(params: any) {
   return {
     fullPage: params?.fullPage !== false,
+    detailLevel: normalizeDetailLevel(params?.detail ?? "deep"),
   };
 }
 
 export function sanitizeScreenshotParams(params: any) {
   return {
     includeRefs: params?.includeRefs !== false,
+    detailLevel: normalizeDetailLevel(params?.detail ?? "deep"),
   };
 }

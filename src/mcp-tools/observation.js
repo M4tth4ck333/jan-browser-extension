@@ -73,6 +73,7 @@ export async function handleScreenshot(params = {}) {
   console.log('[MCP Tools] screenshot called');
 
   const includeRefs = params?.includeRefs === true;
+  const detailLevel = typeof params?.detail === 'string' ? params.detail : 'deep';
   let overlayShown = false;
   let lastTabId = null;
 
@@ -108,6 +109,7 @@ export async function handleScreenshot(params = {}) {
           details: [],
           fallbackUrl: tab?.url,
           fullPage: false, // Only capture viewport for screenshot
+          detailLevel,
         });
 
         console.log(`[MCP Tools] ARIA tree built in ${Date.now() - startTime}ms`);
@@ -261,6 +263,7 @@ export async function handleSnapshot(params = {}) {
     const status = typeof params?.status === 'string' && params.status.trim()
       ? params.status.trim()
       : 'Snapshot captured';
+    const detailLevel = typeof params?.detail === 'string' ? params.detail : 'deep';
 
     // Default to full page capture if not specified
     const fullPage = params?.fullPage !== false;
@@ -273,6 +276,7 @@ export async function handleSnapshot(params = {}) {
       details: Array.isArray(params?.details) ? params.details : [],
       fallbackUrl: params?.url || tab?.url,
       fullPage,
+      detailLevel,
     });
 
     if (!snapshotResult.ok) {
@@ -308,6 +312,7 @@ export async function handleBrowserSnapshotYaml(params = {}) {
     const status = typeof params?.status === 'string' && params.status.trim()
       ? params.status.trim()
       : 'Snapshot captured';
+    const detailLevel = typeof params?.detail === 'string' ? params.detail : 'deep';
 
     await waitForLoadCompletion(tabId);
 
@@ -317,6 +322,7 @@ export async function handleBrowserSnapshotYaml(params = {}) {
       details: Array.isArray(params?.details) ? params.details : [],
       fallbackUrl: params?.url || tab?.url,
       fullPage: params?.fullPage !== false,
+      detailLevel,
     });
 
     if (!snapshotResult.ok) {

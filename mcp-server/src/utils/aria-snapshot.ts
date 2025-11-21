@@ -17,9 +17,10 @@ export async function captureAriaSnapshot(
   targetUrl?: string,
   status: string = "",
   fullPage: boolean = true,
+  detailLevel: string = "deep",
 ): Promise<ToolResult> {
   try {
-    const params = targetUrl ? { url: targetUrl, fullPage } : { fullPage };
+    const params = targetUrl ? { url: targetUrl, fullPage, detail: detailLevel } : { fullPage, detail: detailLevel };
 
     const urlResponse = await callExtension("browser_get_url", params);
     const titleResponse = await callExtension("browser_get_title", params);

@@ -15,6 +15,7 @@ import { sanitizeSnapshotParams, sanitizeScreenshotParams } from "./sanitize.js"
  */
 const SnapshotSchema = z.object({
   fullPage: z.boolean().optional().describe("Capture full page (true) or only viewport-visible content (false). Default: true"),
+  detail: z.enum(["shallow", "medium", "deep"]).optional().describe("Snapshot detail level (depth/limits). Default: medium"),
 });
 
 export const browserSnapshot: Tool = {
@@ -29,8 +30,8 @@ export const browserSnapshot: Tool = {
     }
 
     try {
-      const { fullPage } = sanitizeSnapshotParams(params);
-      return await captureAriaSnapshot(undefined, "", fullPage);
+      const { fullPage, detailLevel } = sanitizeSnapshotParams(params);
+      return await captureAriaSnapshot(undefined, "", fullPage, detailLevel);
     } catch (err: any) {
       return {
         content: [
@@ -54,6 +55,10 @@ const ScreenshotSchema = z.object({
     .boolean()
     .optional()
     .describe("Whether to show snapshot refs inline before capturing the screenshot. Default: false"),
+  detail: z
+    .enum(["shallow", "medium", "deep"])
+    .optional()
+    .describe("Snapshot detail for ref overlay depth/limits. Default: deep"),
 });
 
 export const browserScreenshot: Tool = {
@@ -68,9 +73,10 @@ export const browserScreenshot: Tool = {
     }
 
     try {
-      const { includeRefs } = sanitizeScreenshotParams(params);
+      const { includeRefs, detailLevel } = sanitizeScreenshotParams(params);
       const data = await callExtension("browser_screenshot", {
         includeRefs: includeRefs === true,
+        detail: detailLevel,
       });
 
       const direct = useExtensionResult(data);
