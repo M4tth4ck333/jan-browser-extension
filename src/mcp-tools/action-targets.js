@@ -9,16 +9,17 @@ export function resolveAccessibilityRef(ref, tabId) {
   const isAccessibilityRef = normalized && /^s\d+e\d+$/i.test(normalized);
 
   if (!isAccessibilityRef) {
-    return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: false };
+    return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: false, backendValue: null, cssValue: normalized };
   }
 
   const snapshotAvailable = hasElementRefMap(tabId);
   if (!snapshotAvailable) {
-    return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: false };
+    return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: false, backendValue: null, cssValue: normalized };
   }
 
   const mappedSelector = getElementSelector(tabId, normalized);
   const backendId = getBackendNodeId(tabId, normalized);
+  const backendValue = backendId !== null ? `backend:${backendId}` : null;
 
   if (!mappedSelector && backendId === null) {
     return {
@@ -30,15 +31,23 @@ export function resolveAccessibilityRef(ref, tabId) {
     };
   }
 
-  if (backendId !== null) {
-    return { ok: true, value: `backend:${backendId}`, originalRef: normalized, usedSnapshot: true };
+  // Prefer backend for click durability but carry css fallback
+  if (backendValue) {
+    return {
+      ok: true,
+      value: backendValue,
+      originalRef: normalized,
+      usedSnapshot: true,
+      backendValue,
+      cssValue: mappedSelector || null,
+    };
   }
 
   if (mappedSelector) {
-    return { ok: true, value: mappedSelector, originalRef: normalized, usedSnapshot: true };
+    return { ok: true, value: mappedSelector, originalRef: normalized, usedSnapshot: true, backendValue: null, cssValue: mappedSelector };
   }
 
-  return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: true };
+  return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: true, backendValue: null, cssValue: null };
 }
 
 /**

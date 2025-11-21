@@ -75,7 +75,7 @@ export function sanitizeSnapshotParams(params: any) {
 
 export function sanitizeScreenshotParams(params: any) {
   return {
-    includeRefs: params?.includeRefs !== false,
+    includeRefs: params?.includeRefs === true,
     detailLevel: normalizeDetailLevel(params?.detail ?? "deep"),
   };
 }

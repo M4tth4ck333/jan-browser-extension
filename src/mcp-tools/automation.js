@@ -319,52 +319,8 @@ export async function handleClickElement(params = {}) {
     if (!resolvedRef.ok) {
       return createErrorResult('Click failed', resolvedRef.error);
     }
-
-    // Special handling for backend: references
-    if (resolvedRef.value && resolvedRef.value.startsWith('backend:')) {
-      const backendNodeId = parseInt(resolvedRef.value.slice(8), 10);
-      if (isNaN(backendNodeId)) {
-        return createErrorResult('Click failed', 'Invalid backend node ID');
-      }
-
-      const clickPoint = await resolveBackendNodeToPoint(tabId, backendNodeId);
-
-      if (!clickPoint) {
-        return createErrorResult('Click failed', `Could not resolve backend node ${backendNodeId} to coordinates`);
-      }
-
-      try {
-        await clickPointWithDebugger(tabId, clickPoint);
-      } catch (err) {
-        console.error('[MCP Tools] debugger click failed', err);
-        return createErrorResult('Click failed', err);
-      }
-
-      const meta = {};
-      if (tab?.url) meta.urls = [tab.url];
-      if (typeof tabId === 'number') meta.tabId = tabId;
-
-      return {
-        ok: true,
-        content: [
-          {
-            type: 'text',
-            text: `Clicked element at ${ref} (backend node ${backendNodeId})`,
-          },
-        ],
-        _meta: Object.keys(meta).length ? meta : undefined,
-        data: {
-          url: tab?.url,
-          target: parsedTarget.raw || ref,
-          ref,
-          resolvedRef: resolvedRef.value,
-          clickPoint,
-          backendNodeId,
-          timestamp: new Date().toISOString(),
-          tabId,
-        },
-      };
-    }
+    const backendFallback = resolvedRef.backendValue;
+    const cssFallback = resolvedRef.cssValue;
 
     const preparedTarget = await prepareElementForAction(tabId, {
       ref: resolvedRef.value,
@@ -378,6 +334,127 @@ export async function handleClickElement(params = {}) {
       const errorMessage = preparedTarget?.unsupported
         ? `Element reference ${elementLabel} does not support ${actionDescription} actions`
         : preparedTarget?.error || 'Element not found';
+
+      if (backendFallback && backendFallback.startsWith('backend:')) {
+        const backendNodeId = parseInt(backendFallback.slice(8), 10);
+        if (!isNaN(backendNodeId)) {
+          const clickPoint = await resolveBackendNodeToPoint(tabId, backendNodeId);
+          if (clickPoint) {
+            try {
+              await clickPointWithDebugger(tabId, clickPoint);
+            } catch (err) {
+              console.error('[MCP Tools] debugger click failed', err);
+              return createErrorResult('Click failed', err);
+            }
+
+            const meta = {};
+            if (tab?.url) meta.urls = [tab.url];
+            if (typeof tabId === 'number') meta.tabId = tabId;
+
+            return {
+              ok: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `Clicked ${elementLabel}`,
+                },
+              ],
+              _meta: Object.keys(meta).length ? meta : undefined,
+              data: {
+                url: tab?.url,
+                target: parsedTarget.raw || ref,
+                ref,
+                resolvedRef: backendFallback,
+                clickPoint,
+                backendNodeId,
+                timestamp: new Date().toISOString(),
+                tabId,
+              },
+            };
+          }
+        }
+      }
+
+      // Fallback: try backend first, then CSS selector
+      if (backendFallback && backendFallback.startsWith('backend:')) {
+        const backendNodeId = parseInt(backendFallback.slice(8), 10);
+        if (!isNaN(backendNodeId)) {
+          const clickPoint = await resolveBackendNodeToPoint(tabId, backendNodeId);
+          if (clickPoint) {
+            try {
+              await clickPointWithDebugger(tabId, clickPoint);
+            } catch (err) {
+              console.error('[MCP Tools] debugger click failed', err);
+              return createErrorResult('Click failed', err);
+            }
+
+            const meta = {};
+            if (tab?.url) meta.urls = [tab.url];
+            if (typeof tabId === 'number') meta.tabId = tabId;
+
+            return {
+              ok: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `Clicked ${elementLabel}`,
+                },
+              ],
+              _meta: Object.keys(meta).length ? meta : undefined,
+              data: {
+                url: tab?.url,
+                target: parsedTarget.raw || ref,
+                ref,
+                resolvedRef: backendFallback,
+                clickPoint,
+                backendNodeId,
+                timestamp: new Date().toISOString(),
+                tabId,
+              },
+            };
+          }
+        }
+      }
+
+      if (cssFallback && cssFallback !== resolvedRef.value) {
+        const cssTarget = await prepareElementForAction(tabId, { ref: cssFallback, mode: 'click' });
+        const cssLabel = formatElementLabel(cssTarget?.detectedElement, parsedTarget.label || ref);
+        if (cssTarget?.success && cssTarget.clickPoint) {
+          try {
+            await clickPointWithDebugger(tabId, cssTarget.clickPoint);
+          } catch (err) {
+            console.error('[MCP Tools] debugger click failed', err);
+            return createErrorResult('Click failed', err);
+          }
+
+          const meta = {};
+          if (tab?.url) meta.urls = [tab.url];
+          if (typeof tabId === 'number') meta.tabId = tabId;
+
+          return {
+            ok: true,
+            content: [
+              {
+                type: 'text',
+                text: `Clicked ${cssLabel}`,
+              },
+            ],
+            _meta: Object.keys(meta).length ? meta : undefined,
+            data: {
+              url: tab?.url,
+              target: parsedTarget.raw || ref,
+              ref,
+              resolvedRef: cssFallback,
+              clickPoint: cssTarget.clickPoint,
+              detectedElement: cssTarget.detectedElement,
+              boundingRect: cssTarget.boundingRect || null,
+              timestamp: new Date().toISOString(),
+              tabId,
+            },
+          };
+        }
+      }
+
       return createErrorResult('Click failed', errorMessage);
     }
 
@@ -494,8 +571,10 @@ export async function handleTypeText(params = {}) {
       }
       resolvedRefValue = resolvedRef.value;
 
+      const typingRef = resolvedRef.cssValue || resolvedRef.value;
+
       preparedTarget = await prepareElementForAction(tabId, {
-        ref: resolvedRef.value,
+        ref: typingRef,
         mode: 'type',
       });
 
