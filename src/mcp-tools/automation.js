@@ -332,8 +332,8 @@ export async function handleClickElement(params = {}) {
     if (!preparedTarget?.success || !preparedTarget.clickPoint) {
       const actionDescription = preparedTarget?.actionDescription || 'clicking';
       const errorMessage = preparedTarget?.unsupported
-        ? `Element reference ${elementLabel} does not support ${actionDescription} actions`
-        : preparedTarget?.error || 'Element not found';
+        ? `Element reference ${elementLabel} does not support ${actionDescription} actions (try a different element or refetch snapshot)`
+        : preparedTarget?.error || 'Element not found (ref may be stale; capture a new snapshot and retry)';
 
       if (backendFallback && backendFallback.startsWith('backend:')) {
         const backendNodeId = parseInt(backendFallback.slice(8), 10);
