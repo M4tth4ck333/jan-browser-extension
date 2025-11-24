@@ -1,6 +1,6 @@
 {
   "name": "search-mcp-server",
-  "version": "0.13.2",
+  "version": "0.14.0",
   "description": "MCP server for browser automation via Jan Browser extension - provides tools for web navigation, interaction, and search",
   "type": "module",
   "license": "Apache-2.0",
