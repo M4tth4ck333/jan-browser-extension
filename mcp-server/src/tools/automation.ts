@@ -4,20 +4,27 @@
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { callExtension, waitForBridgeConnection, hasExtensionConnection } from "../utils/bridge.js";
+import {
+  sanitizeClickParams,
+  sanitizeTypeParams,
+  sanitizeInputParams,
+  sanitizeDragParams,
+} from "./sanitize.js";
 import type { Tool } from "./tool.js";
 
-const ElementSchema = z.object({
-  ref: z.string().describe("Exact target element reference from the browser snapshot"),
+const TargetSchema = z
+  .string()
+  .min(1)
+  .describe('Element target: snapshot ref or screen coordinates "x,y" in device pixels (screenshot space).');
+
+const ClickSchema = z.object({
+  target: TargetSchema,
 });
-
-const ClickSchema = ElementSchema;
-
-const RefSchema = ElementSchema;
 
 export const browserClick: Tool = {
   schema: {
     name: "browser_click",
-    description: "Click an element using its browser_snapshot ref with debugger-driven mouse events and return element metadata",
+    description: 'Click an element by ref or screen coords ("x,y" device pixels). Returns target metadata.',
     inputSchema: zodToJsonSchema(ClickSchema) as any,
   },
   handle: async (params) => {
@@ -25,34 +32,40 @@ export const browserClick: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    return await callExtension("browser_click", params);
+    return await callExtension("browser_click", sanitizeClickParams(params));
   },
 };
 
-export const browserRef: Tool = {
-  schema: {
-    name: "browser_ref",
-    description: "Resolve an element reference from a snapshot and return its details",
-    inputSchema: zodToJsonSchema(RefSchema) as any,
-  },
-  handle: async (params) => {
-    if (!hasExtensionConnection()) {
-      await waitForBridgeConnection(4000);
+const TypeSchema = z
+  .object({
+    target: TargetSchema,
+    text: z
+      .string()
+      .optional()
+      .describe(
+        'Text to type. Embed key presses with <kbd>…</kbd> (e.g., "Hello <kbd>Enter</kbd>" or "<kbd>Ctrl+S</kbd>").'
+      ),
+    clear: z.boolean().optional().describe("Whether to clear the existing value before typing. Default: true"),
+    submit: z.boolean().optional().describe("Convenience flag to press Enter after typing"),
+  })
+  .superRefine((value, ctx) => {
+    const rawText = typeof value.text === "string" ? value.text : "";
+    const strippedText = rawText.replace(/<kbd>.*?<\/kbd>/gi, "").trim();
+    const hasText = strippedText.length > 0;
+    const hasKeyTokens = /<kbd>.*?<\/kbd>/i.test(rawText);
+
+    if (!hasText && !hasKeyTokens && value.submit !== true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide text to type or embed key presses in <kbd>…</kbd>",
+      });
     }
-
-    return await callExtension("browser_ref", params);
-  },
-};
-
-const TypeSchema = ElementSchema.extend({
-  text: z.string().describe("Text to type into the element"),
-  submit: z.boolean().optional().describe("Whether to submit entered text (press Enter after)"),
-});
+  });
 
 export const browserType: Tool = {
   schema: {
     name: "browser_type",
-    description: "Click then type text into an editable element found by snapshot ref using debugger keystrokes",
+    description: 'Focus an element (ref or screen coords), type text, and press any keys in <kbd>…</kbd>. submit=true appends Enter.',
     inputSchema: zodToJsonSchema(TypeSchema) as any,
   },
   handle: async (params) => {
@@ -60,82 +73,51 @@ export const browserType: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    return await callExtension("browser_type", { ...params, pressEnter: params.submit === true });
+    return await callExtension("browser_type", sanitizeTypeParams(params));
   },
 };
 
 
-const SelectOptionSchema = ElementSchema.extend({
-  values: z.array(z.string()).min(1).describe("Array of values to select in the dropdown"),
-});
+const InputValueSchema = z
+  .object({
+    target: TargetSchema,
+    value: z.union([z.string(), z.number(), z.boolean()]).optional().describe("Value to set or select for the target element"),
+    values: z.array(z.string()).min(1).optional().describe("Array of values to select when the target supports multiple selections"),
+  })
+  .superRefine((value, ctx) => {
+    if (value.value === undefined && !value.values) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide a value or values to apply to the target element",
+      });
+    }
+  });
 
-export const browserSelectOption: Tool = {
+export const browserInput: Tool = {
   schema: {
-    name: "browser_select_option",
-    description: "Select one or more options in a dropdown identified by snapshot ref",
-    inputSchema: zodToJsonSchema(SelectOptionSchema) as any,
+    name: "browser_input",
+    description: 'Set value(s) on a form control by ref or screen coords: selects, checkboxes/radios, inputs/textareas.',
+    inputSchema: zodToJsonSchema(InputValueSchema) as any,
   },
   handle: async (params) => {
     if (!hasExtensionConnection()) {
       await waitForBridgeConnection(4000);
     }
 
-    return await callExtension("browser_select_option", params);
+    return await callExtension("browser_input", sanitizeInputParams(params));
   },
 };
 
-const FillFormFieldSchema = z.object({
-  ref: z.string().describe("Element reference from browser_snapshot"),
-  value: z.string().describe("Value to set (use 'true'/'false' for checkboxes)"),
-});
-
-const FillFormSchema = z.object({
-  fields: z.array(FillFormFieldSchema).min(1).describe("Array of fields to fill"),
-});
-
-export const browserFillForm: Tool = {
-  schema: {
-    name: "browser_fill_form",
-    description: "Fill multiple form fields (inputs, selects, checkboxes, radios) using snapshot refs and values",
-    inputSchema: zodToJsonSchema(FillFormSchema) as any,
-  },
-  handle: async (params) => {
-    if (!hasExtensionConnection()) {
-      await waitForBridgeConnection(4000);
-    }
-
-    return await callExtension("browser_fill_form", params);
-  },
-};
-
-const PressKeySchema = z.object({
-  key: z.string().describe("Name of the key to press or character to generate (e.g., 'Enter', 'ArrowLeft', 'a')"),
-});
-
-export const browserPressKey: Tool = {
-  schema: {
-    name: "browser_press_key",
-    description: "Press a key on the active element (or page) and report the target element metadata",
-    inputSchema: zodToJsonSchema(PressKeySchema) as any,
-  },
-  handle: async (params) => {
-    if (!hasExtensionConnection()) {
-      await waitForBridgeConnection(4000);
-    }
-
-    return await callExtension("browser_press_key", params);
-  },
-};
-
-const DragSchema = z.object({
-  startRef: z.string().describe("Source element reference from browser_snapshot"),
-  endRef: z.string().describe("Target element reference from browser_snapshot"),
-});
+const DragSchema = z
+  .object({
+    start: TargetSchema.describe('Drag starting point (snapshot ref or "x,y" coordinates)'),
+    end: TargetSchema.describe('Drop target (snapshot ref or "x,y" coordinates)'),
+  });
 
 export const browserDrag: Tool = {
   schema: {
     name: "browser_drag",
-    description: "Perform drag and drop between two elements using start/end snapshot refs",
+    description: 'Drag from start to end targets (refs or screen coords in device pixels). Returns start/end metadata.',
     inputSchema: zodToJsonSchema(DragSchema) as any,
   },
   handle: async (params) => {
@@ -143,6 +125,6 @@ export const browserDrag: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    return await callExtension("browser_drag", params);
+    return await callExtension("browser_drag", sanitizeDragParams(params));
   },
 };

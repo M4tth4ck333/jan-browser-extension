@@ -2,23 +2,26 @@
 // Element resolution and capability checks for automation actions
 
 import { ELEMENT_ACTION_CAPABILITIES } from './element-action-map.js';
-import { getElementSelector, hasElementRefMap } from '../lib/element-ref-map.js';
+import { getElementSelector, hasElementRefMap, getBackendNodeId } from '../lib/element-ref-map.js';
 
 export function resolveAccessibilityRef(ref, tabId) {
   const normalized = typeof ref === 'string' ? ref.trim() : '';
   const isAccessibilityRef = normalized && /^s\d+e\d+$/i.test(normalized);
 
   if (!isAccessibilityRef) {
-    return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: false };
+    return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: false, backendValue: null, cssValue: normalized };
   }
 
   const snapshotAvailable = hasElementRefMap(tabId);
   if (!snapshotAvailable) {
-    return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: false };
+    return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: false, backendValue: null, cssValue: normalized };
   }
 
   const mappedSelector = getElementSelector(tabId, normalized);
-  if (!mappedSelector) {
+  const backendId = getBackendNodeId(tabId, normalized);
+  const backendValue = backendId !== null ? `backend:${backendId}` : null;
+
+  if (!mappedSelector && backendId === null) {
     return {
       ok: false,
       value: null,
@@ -28,7 +31,23 @@ export function resolveAccessibilityRef(ref, tabId) {
     };
   }
 
-  return { ok: true, value: mappedSelector, originalRef: normalized, usedSnapshot: true };
+  // Prefer backend for click durability but carry css fallback
+  if (backendValue) {
+    return {
+      ok: true,
+      value: backendValue,
+      originalRef: normalized,
+      usedSnapshot: true,
+      backendValue,
+      cssValue: mappedSelector || null,
+    };
+  }
+
+  if (mappedSelector) {
+    return { ok: true, value: mappedSelector, originalRef: normalized, usedSnapshot: true, backendValue: null, cssValue: mappedSelector };
+  }
+
+  return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: true, backendValue: null, cssValue: null };
 }
 
 /**
@@ -412,7 +431,7 @@ export async function getElementDetails(tabId, ref) {
         return { success: false, error: 'Element not found' };
       }
 
-      const rect = el.getBoundingClientRect?.();
+      const rect = el?.getBoundingClientRect ? el.getBoundingClientRect() : null;
       const visualViewport = window.visualViewport;
       const viewportX = visualViewport ? visualViewport.offsetLeft : 0;
       const viewportY = visualViewport ? visualViewport.offsetTop : 0;
@@ -432,16 +451,65 @@ export async function getElementDetails(tabId, ref) {
       };
 
       const boundingRect = rect ? { ...rect.toJSON?.(), x: rect.x, y: rect.y } : null;
+      let clickPoint = null;
+      if (rect) {
+        clickPoint = {
+          x: rect.left + viewportX + rect.width / 2,
+          y: rect.top + viewportY + rect.height / 2,
+        };
+      }
+
+      return { success: true, detectedElement, boundingRect, clickPoint };
+    },
+    args: [{ ref }],
+  });
+
+  return result;
+}
+
+export async function getElementDetailsAtPoint(tabId, point) {
+  if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') {
+    return { success: false, error: 'Invalid coordinates' };
+  }
+
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: ({ x, y }) => {
+      const element = document.elementFromPoint(x, y);
+      if (!element) {
+        return { success: false, error: `No element found at coordinates (${x}, ${y})` };
+      }
+
+      const rect = element.getBoundingClientRect?.();
+      const visualViewport = window.visualViewport;
+      const viewportX = visualViewport ? visualViewport.offsetLeft : 0;
+      const viewportY = visualViewport ? visualViewport.offsetTop : 0;
+
+      const detectedElement = {
+        tagName: element.tagName || 'unknown',
+        role: element.getAttribute?.('role') || null,
+        id: element.id || null,
+        className: element.className || null,
+        name: element.getAttribute?.('name') || null,
+        type: element.getAttribute?.('type') || null,
+        ariaLabel: element.getAttribute?.('aria-label') || null,
+        ariaDescription: element.getAttribute?.('aria-description') || null,
+        placeholder: element.getAttribute?.('placeholder') || null,
+        text: (element.textContent || '').trim().slice(0, 500) || null,
+        value: element.value !== undefined ? String(element.value).slice(0, 200) : null,
+      };
+
+      const boundingRect = rect ? { ...rect.toJSON?.(), x: rect.x, y: rect.y } : null;
       const clickPoint = rect
         ? {
             x: rect.left + viewportX + rect.width / 2,
             y: rect.top + viewportY + rect.height / 2,
           }
-        : null;
+        : { x, y };
 
       return { success: true, detectedElement, boundingRect, clickPoint };
     },
-    args: [{ ref }],
+    args: [{ x: Number(point.x), y: Number(point.y) }],
   });
 
   return result;

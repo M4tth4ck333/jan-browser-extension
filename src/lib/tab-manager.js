@@ -91,7 +91,7 @@ async function findTabMatchingUrl(preferredUrl) {
 }
 
 export async function selectTab(options = {}) {
-  const { requireUrl = false, toolName = 'tool', preferredUrl = null } = options;
+  const { requireUrl = false, toolName = 'tool', preferredUrl = null, allowCreate = true } = options;
 
   let targetTabId = null;
   let tab = null;
@@ -121,7 +121,7 @@ export async function selectTab(options = {}) {
       tab = activeTab;
       targetTabId = activeTab.id;
       console.log(`[Tab Manager] ${toolName} - using active tab:`, targetTabId, 'window:', tab.windowId);
-    } else {
+    } else if (allowCreate) {
       console.log(`[Tab Manager] ${toolName} - no active tab found, creating dedicated MCP tab`);
       try {
         tab = await chrome.tabs.create({ url: 'about:blank', active: true });
@@ -135,6 +135,11 @@ export async function selectTab(options = {}) {
           error: 'Unable to create a browser tab for MCP operations. Please open a tab manually and try again.'
         };
       }
+    } else {
+      return {
+        ok: false,
+        error: 'No tab available. Please open a tab and try again.'
+      };
     }
   }
 

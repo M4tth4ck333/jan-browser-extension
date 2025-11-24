@@ -7,6 +7,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { callExtension, waitForBridgeConnection, hasExtensionConnection, setActiveTabId } from "../utils/bridge.js";
 import { captureAriaSnapshot } from "../utils/aria-snapshot.js";
 import type { Tool, ToolResult } from "./tool.js";
+import { sanitizeSnapshotParams, sanitizeScreenshotParams } from "./sanitize.js";
 
 /**
  * Capture a comprehensive snapshot of the CURRENTLY ACTIVE TAB
@@ -14,12 +15,13 @@ import type { Tool, ToolResult } from "./tool.js";
  */
 const SnapshotSchema = z.object({
   fullPage: z.boolean().optional().describe("Capture full page (true) or only viewport-visible content (false). Default: true"),
+  detail: z.enum(["shallow", "medium", "deep"]).optional().describe("Snapshot detail level (depth/limits). Default: deep"),
 });
 
 export const browserSnapshot: Tool = {
   schema: {
     name: "browser_snapshot",
-    description: "Capture accessibility snapshot of the current page. Use this for getting references to elements to interact with. By default captures the entire page, but you can set fullPage=false to capture only viewport-visible content.",
+    description: "Capture an accessibility snapshot of the current tab. Use fullPage=false for viewport-only.",
     inputSchema: zodToJsonSchema(SnapshotSchema) as any,
   },
   handle: async (params) => {
@@ -28,8 +30,8 @@ export const browserSnapshot: Tool = {
     }
 
     try {
-      const fullPage = params?.fullPage !== false; // Default to true
-      return await captureAriaSnapshot(undefined, "", fullPage);
+      const { fullPage, detailLevel } = sanitizeSnapshotParams(params);
+      return await captureAriaSnapshot(undefined, "", fullPage, detailLevel);
     } catch (err: any) {
       return {
         content: [
@@ -48,12 +50,21 @@ export const browserSnapshot: Tool = {
  * Capture a screenshot of the CURRENTLY ACTIVE TAB
  * Operates on whatever tab was opened with browser_navigate
  */
-const ScreenshotSchema = z.object({});
+const ScreenshotSchema = z.object({
+  includeRefs: z
+    .boolean()
+    .optional()
+    .describe("Whether to show snapshot refs inline before capturing the screenshot. Default: false"),
+  detail: z
+    .enum(["shallow", "medium", "deep"])
+    .optional()
+    .describe("Snapshot detail for ref overlay depth/limits. Default: deep"),
+});
 
 export const browserScreenshot: Tool = {
   schema: {
     name: "browser_screenshot",
-    description: "Take a screenshot of the current page",
+    description: "Screenshot the current tab; optionally overlay snapshot refs when includeRefs=true.",
     inputSchema: zodToJsonSchema(ScreenshotSchema) as any,
   },
   handle: async (params) => {
@@ -62,7 +73,11 @@ export const browserScreenshot: Tool = {
     }
 
     try {
-      const data = await callExtension("browser_screenshot", {});
+      const { includeRefs, detailLevel } = sanitizeScreenshotParams(params);
+      const data = await callExtension("browser_screenshot", {
+        includeRefs: includeRefs === true,
+        detail: detailLevel,
+      });
 
       const direct = useExtensionResult(data);
       if (direct) {
@@ -151,4 +166,3 @@ function useExtensionResult(data: any): ToolResult | null {
 
   return null;
 }
-

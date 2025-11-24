@@ -1,13 +1,22 @@
 // reference-overlay.js
 // Visual overlay system for displaying element references (Vimium-style)
 
-const OVERLAY_CONTAINER_ID = 'jan-mcp-reference-overlay-container';
-const OVERLAY_STYLE_ID = 'jan-mcp-reference-overlay-style';
-const MARKER_CLASS = 'jan-mcp-ref-marker';
+(function bootstrapReferenceOverlay() {
+  if (typeof window !== 'undefined' && window.__JAN_REF_OVERLAY_LOADED) {
+    // Already loaded; avoid redeclaring identifiers
+    return;
+  }
+  if (typeof window !== 'undefined') {
+    window.__JAN_REF_OVERLAY_LOADED = true;
+  }
 
-let overlayContainer = null;
-let currentMarkers = [];
-let isOverlayVisible = false;
+  const OVERLAY_CONTAINER_ID = 'jan-mcp-reference-overlay-container';
+  const OVERLAY_STYLE_ID = 'jan-mcp-reference-overlay-style';
+  const MARKER_CLASS = 'jan-mcp-ref-marker';
+
+  let overlayContainer = null;
+  let currentMarkers = [];
+  let isOverlayVisible = false;
 
 /**
  * Inject CSS styles for reference markers (Vimium-inspired design)
@@ -364,3 +373,5 @@ if (typeof window !== 'undefined') {
     }, 100);
   }, { passive: true });
 }
+
+})();

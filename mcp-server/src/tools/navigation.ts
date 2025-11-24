@@ -5,16 +5,17 @@
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { callExtension, waitForBridgeConnection, hasExtensionConnection } from "../utils/bridge.js";
+import { sanitizeNavigateParams } from "./sanitize.js";
 import type { Tool, ToolResult } from "./tool.js";
 
 const NavigateSchema = z.object({
-  url: z.string().describe("The URL to navigate to"),
+  target: z.string().describe('URL to open or navigation command ("back" / "forward") or omit scheme.'),
 });
 
 export const browserNavigate: Tool = {
   schema: {
     name: "browser_navigate",
-    description: "Navigate to a URL",
+    description: 'Open a URL or go history back/forward. Single input "target": URL or "back"/"forward".',
     inputSchema: zodToJsonSchema(NavigateSchema) as any,
   },
   handle: async (params) => {
@@ -22,7 +23,32 @@ export const browserNavigate: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    let url = params.url;
+    const { target, error } = sanitizeNavigateParams(params);
+    if (error) {
+      return {
+        content: [{ type: "text", text: error }],
+        isError: true,
+      };
+    }
+    const rawTarget = target;
+    if (!rawTarget) {
+      return toTextResult("No navigation target provided");
+    }
+
+    const lowered = rawTarget.toLowerCase();
+    if (lowered === "back" || lowered === "backward") {
+      const data = await callExtension("browser_navigate", { direction: "back" });
+      const targetUrl = data?.data?.url;
+      return toTextResult(targetUrl ? `Navigated back to ${targetUrl}` : "Navigated back");
+    }
+
+    if (lowered === "forward") {
+      const data = await callExtension("browser_navigate", { direction: "forward" });
+      const targetUrl = data?.data?.url;
+      return toTextResult(targetUrl ? `Navigated forward to ${targetUrl}` : "Navigated forward");
+    }
+
+    let url = rawTarget;
     if (url && !url.match(/^https?:\/\//i)) {
       url = `https://${url}`;
     }
@@ -30,44 +56,6 @@ export const browserNavigate: Tool = {
     const data = await callExtension("browser_navigate", { url, closeTab: false });
     const targetUrl = data?.data?.url || url;
     return toTextResult(`Navigated to ${targetUrl}`);
-  },
-};
-
-const GoBackSchema = z.object({});
-
-export const browserGoBack: Tool = {
-  schema: {
-    name: "browser_go_back",
-    description: "Go back to the previous page",
-    inputSchema: zodToJsonSchema(GoBackSchema) as any,
-  },
-  handle: async () => {
-    if (!hasExtensionConnection()) {
-      await waitForBridgeConnection(4000);
-    }
-
-    const data = await callExtension("browser_go_back", {});
-    const targetUrl = data?.data?.url;
-    return toTextResult(targetUrl ? `Navigated back to ${targetUrl}` : "Navigated back");
-  },
-};
-
-const GoForwardSchema = z.object({});
-
-export const browserGoForward: Tool = {
-  schema: {
-    name: "browser_go_forward",
-    description: "Go forward to the next page",
-    inputSchema: zodToJsonSchema(GoForwardSchema) as any,
-  },
-  handle: async () => {
-    if (!hasExtensionConnection()) {
-      await waitForBridgeConnection(4000);
-    }
-
-    const data = await callExtension("browser_go_forward", {});
-    const targetUrl = data?.data?.url;
-    return toTextResult(targetUrl ? `Navigated forward to ${targetUrl}` : "Navigated forward");
   },
 };
 
