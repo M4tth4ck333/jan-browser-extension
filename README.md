@@ -11,48 +11,58 @@
 
 ---
 
-## Quick Start (5 minutes)
+## Quick Start
 
-### 1. Download compressed distribution
+### Install from Chrome Web Store (Recommended)
+
+1. Visit the [Jan Browser MCP Extension](https://chromewebstore.google.com/detail/jan-browser-mcp/mkciifcjehgnpaigoiaakdgabbpfppal) on Chrome Web Store
+2. Click **"Add to Chrome"** to install
+3. Pin the extension for quick access
+
+✅ You're ready to use Jan Browser MCP!
+
+---
+
+### Manual Installation (Alternative)
+
+<details>
+<summary>Click to expand manual installation options</summary>
+
+#### Option 1: Download from GitHub Releases
 
 1. Go to [Jan's GitHub releases page](https://github.com/janhq/jan-browser-extension/releases/) → click "dist.zip" under the latest version
-2. Unzip the downloaded file then load it to Chrome (instruction below)
+2. Unzip the downloaded file
+3. Load in Chrome (see instructions below)
 
-### 2. Install manually from code 
-
-#### Install dependencies
+#### Option 2: Build from Source
 
 ```bash
 # Clone the repository
 git clone https://github.com/janhq/jan-browser-extension.git
 cd jan-browser-extension
 
-# Install (npm is sufficient for the minimal build script)
+# Install dependencies
 npm install
-```
 
-#### Build the extension
-
-```bash
 # Build for Chromium-based browsers
 npm run build
 
-# Build a Firefox-compatible bundle
+# Or build a Firefox-compatible bundle
 npm run build:firefox
 ```
 
-### 3. Load in Chrome
+#### Load in Chrome
 
-1. Open `chrome://extensions` or **Open Chrome Settings → Extensions**
+1. Open `chrome://extensions` or **Chrome Settings → Extensions**
 2. Enable **Developer mode** (toggle ON)
-3. Click **Load unpacked** → select the `dist` folder 
+3. Click **Load unpacked** → select the `dist` folder
 4. Pin the extension if you want quick visibility
 
-✅ You're ready to use Jan Browser MCP!
+</details>
 
 ---
 
-### 4. Use with Jan Desktop
+### Use with Jan Desktop
 
 If you have [Jan Desktop](https://jan.ai) installed, you can connect it seamlessly with the browser extension:
 
