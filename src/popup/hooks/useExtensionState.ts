@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { DEFAULT_BRIDGE_PORT } from '../../constants.js';
 import {
@@ -45,6 +45,7 @@ export interface UseExtensionStateResult {
     action: 'connect' | 'disconnect';
     actionLabel: string;
     showSpinner: boolean;
+    tone: 'connected' | 'connecting' | 'disconnected';
   };
   tab: {
     state: TabState;
@@ -88,17 +89,22 @@ function computeBridgeUi(state: BridgeState) {
   const reconnecting = Boolean(state.reconnecting);
   let statusLabel = 'Disconnected';
   let showSpinner = false;
+  let tone: 'connected' | 'connecting' | 'disconnected' = 'disconnected';
 
   if (status === 'connecting') {
     statusLabel = 'Connecting…';
     showSpinner = true;
+    tone = 'connecting';
   } else if (status === 'connected' || status === 'ready') {
     statusLabel = 'Connected';
+    tone = 'connected';
   } else if (status === 'disconnected' || (status === 'error' && reconnecting)) {
     statusLabel = reconnecting ? 'Reconnecting…' : 'Disconnected';
     showSpinner = reconnecting;
+    tone = reconnecting ? 'connecting' : 'disconnected';
   } else if (status === 'error') {
     statusLabel = 'Error';
+    tone = 'disconnected';
   }
 
   const action: 'connect' | 'disconnect' =
@@ -113,7 +119,7 @@ function computeBridgeUi(state: BridgeState) {
   const actionLabel = action === 'disconnect' ? 'Disconnect' : 'Connect';
   const detail = `Port ${state.port}`;
 
-  return { statusLabel, detail, action, actionLabel, showSpinner };
+  return { statusLabel, detail, action, actionLabel, showSpinner, tone };
 }
 
 function buildTabActions(options: {
@@ -166,6 +172,7 @@ export function useExtensionState(): UseExtensionStateResult {
   const [bridgeState, setBridgeState] = useState<BridgeState>(INITIAL_BRIDGE_STATE);
   const [tabState, setTabState] = useState<TabState>(INITIAL_TAB_STATE);
   const [settingsState, setSettingsState] = useState<SettingsState>(INITIAL_SETTINGS_STATE);
+  const autoConnectAttemptedRef = useRef(false);
 
   const refreshBridge = useCallback(async () => {
     const status = await fetchBridgeStatus();
@@ -228,6 +235,13 @@ export function useExtensionState(): UseExtensionStateResult {
     void refreshBridge();
     void refreshTab();
   }, [refreshBridge, refreshTab]);
+
+  useEffect(() => {
+    if (autoConnectAttemptedRef.current) return;
+    autoConnectAttemptedRef.current = true;
+
+    void connectBridge({ auto: true });
+  }, [connectBridge]);
 
   const registerCurrentTab = useCallback(async () => {
     const activeId = tabState.activeTab?.id;
@@ -341,6 +355,10 @@ export function useExtensionState(): UseExtensionStateResult {
 
       setBridgeState((current) => ({ ...current, port: parsed }));
       setSettingsState((current) => ({ ...current, saving: false, open: false, message: '', error: false }));
+      const ok = await connectBridge({ port: parsed });
+      if (!ok) {
+        setBridgeState((current) => ({ ...current, lastError: 'Failed to connect bridge.' }));
+      }
       await refreshBridge();
     },
     [bridgeState.port, closeSettings, refreshBridge],

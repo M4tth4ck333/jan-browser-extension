@@ -1,13 +1,16 @@
-import { Settings } from 'lucide-react';
+import { Loader2, Plug, PlugZap, Settings } from 'lucide-react';
 
-import { BridgeStatusCard } from './components/BridgeStatusCard';
 import { SettingsOverlay } from './components/SettingsOverlay';
 import { TabStatusCard } from './components/TabStatusCard';
 import { Button } from './components/ui/button';
 import { useExtensionState } from './hooks/useExtensionState';
+import { cn } from './lib/utils';
 
 export default function App() {
   const { bridge, tab, settings, actions } = useExtensionState();
+  const ConnectionIcon = bridge.tone === 'connected' ? PlugZap : Plug;
+  const connectionHover =
+    bridge.tone === 'connected' ? 'Connected' : bridge.tone === 'connecting' ? 'Connecting…' : 'Not connected';
 
   const handleSettingsOpenChange = (open: boolean) => {
     if (open) {
@@ -26,28 +29,43 @@ export default function App() {
             Manage the MCP bridge connection and active browser tab.
           </p>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={actions.openSettings}
-          aria-label="Open settings"
-        >
-          <Settings className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            onClick={() => actions.toggleBridge(bridge.action)}
+            disabled={settings.saving}
+            className={cn(
+              'shadow-sm',
+              bridge.tone === 'connected'
+                ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                : bridge.tone === 'connecting'
+                  ? 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
+                  : 'bg-red-100 text-red-700 hover:bg-red-200',
+            )}
+            title={connectionHover}
+            aria-label={connectionHover}
+            size="icon"
+          >
+            {bridge.showSpinner ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ConnectionIcon className="h-4 w-4" />
+            )}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={actions.openSettings}
+            aria-label="Open settings"
+            title="Configure bridge settings"
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
+        </div>
       </header>
 
       <div className="space-y-3">
-        <BridgeStatusCard
-          statusLabel={bridge.statusLabel}
-          detail={bridge.detail}
-          lastError={bridge.state.lastError}
-          actionLabel={bridge.actionLabel}
-          action={bridge.action}
-          showSpinner={bridge.showSpinner}
-          disabled={settings.saving}
-          onToggle={actions.toggleBridge}
-        />
         <TabStatusCard statusLabel={tab.statusLabel} message={tab.message} actions={tab.actions} />
       </div>
 

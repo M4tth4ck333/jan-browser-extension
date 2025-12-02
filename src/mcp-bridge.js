@@ -14,8 +14,10 @@ const DEFAULT_BASE_URL = (() => {
 })();
 
 const DEFAULT_PORT = DEFAULT_BRIDGE_PORT;
-const MAX_RETRY_ATTEMPTS = 10;
-const RETRY_DELAY_MS = 100;
+const MAX_RETRY_ATTEMPTS = 0; // 0 = unlimited retries
+const BASE_RETRY_DELAY_MS = 250;
+const RETRY_DELAY_MAX_MS = 5000;
+const CONNECT_TIMEOUT_MS = 5000;
 
 const connectionState = {
   port: DEFAULT_PORT,
@@ -27,8 +29,11 @@ const connectionState = {
   lastMessageAt: null,
   retryCount: 0,
   retryTimer: null,
+  connectTimer: null,
   allowReconnect: false,
   intentionalClose: false,
+  everConnected: false,
+  sessionAutoReconnectDisabled: false,
 };
 
 let currentContext = {};
@@ -99,8 +104,53 @@ function clearRetryTimer() {
   }
 }
 
+function clearConnectTimer() {
+  if (connectionState.connectTimer) {
+    clearTimeout(connectionState.connectTimer);
+    connectionState.connectTimer = null;
+  }
+}
+
+async function isBridgeReachable() {
+  let url;
+  try {
+    url = new URL(buildConnectionUrl());
+  } catch (_) {
+    return false;
+  }
+
+  url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CONNECT_TIMEOUT_MS);
+  try {
+    await fetch(url.toString(), {
+      method: 'HEAD',
+      cache: 'no-store',
+      mode: 'no-cors',
+      signal: controller.signal,
+    });
+    return true;
+  } catch (_) {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function stopReconnectWithError(message) {
+  connectionState.allowReconnect = false;
+  connectionState.status = 'error';
+  clearRetryTimer();
+  clearConnectTimer();
+  connectionState.lastError =
+    message || connectionState.lastError || 'Bridge server unavailable. Start the MCP bridge, then reconnect.';
+  broadcastBridgeStatus();
+}
+
 function resetForNewSequence() {
   clearRetryTimer();
+  clearConnectTimer();
   connectionState.retryCount = 0;
   connectionState.lastError = null;
   connectionState.lastHandshake = null;
@@ -108,6 +158,11 @@ function resetForNewSequence() {
 }
 
 function handleRetryLimitReached() {
+  if (MAX_RETRY_ATTEMPTS === 0) {
+    // Unlimited retries requested, so keep trying.
+    scheduleRetry();
+    return;
+  }
   connectionState.socket = null;
   connectionState.status = 'error';
   if (!connectionState.lastError) {
@@ -118,24 +173,39 @@ function handleRetryLimitReached() {
   broadcastBridgeStatus();
 }
 
-function attemptConnection() {
+async function attemptConnection() {
   if (!connectionState.allowReconnect) {
     return;
   }
 
-  if (connectionState.retryCount >= MAX_RETRY_ATTEMPTS) {
+  if (MAX_RETRY_ATTEMPTS > 0 && connectionState.retryCount >= MAX_RETRY_ATTEMPTS) {
     handleRetryLimitReached();
     return;
   }
 
   connectionState.retryCount += 1;
 
+  connectionState.status = 'connecting';
+  connectionState.lastError = null;
+  connectionState.intentionalClose = false;
+  broadcastBridgeStatus();
+
+  const reachable = await isBridgeReachable();
+  if (!reachable) {
+    connectionState.status = 'disconnected';
+    connectionState.lastError = 'Bridge server unavailable. Retrying…';
+    broadcastBridgeStatus();
+    scheduleRetry();
+    return;
+  }
+
   const url = buildConnectionUrl();
   let socket;
   try {
     socket = new WebSocket(url);
   } catch (error) {
-    connectionState.lastError = String(error?.message || error);
+    const message = String(error?.message || error);
+    connectionState.lastError = message;
     connectionState.status = 'error';
     broadcastBridgeStatus();
     scheduleRetry();
@@ -143,10 +213,15 @@ function attemptConnection() {
   }
 
   connectionState.socket = socket;
-  connectionState.status = 'connecting';
-  connectionState.lastError = null;
-  connectionState.intentionalClose = false;
-  broadcastBridgeStatus();
+
+  clearConnectTimer();
+  connectionState.connectTimer = setTimeout(() => {
+    if (!socket || socket.readyState !== WebSocket.CONNECTING) return;
+    connectionState.lastError = 'Connection timed out.';
+    try {
+      socket.close();
+    } catch (_) {}
+  }, CONNECT_TIMEOUT_MS);
 
   socket.addEventListener('open', handleSocketOpen);
   socket.addEventListener('message', (event) => handleSocketMessage(event.data));
@@ -160,15 +235,18 @@ function scheduleRetry() {
   }
 
   clearRetryTimer();
+  const attempt = Math.max(connectionState.retryCount, 1);
+  const delay = Math.min(BASE_RETRY_DELAY_MS * 2 ** (attempt - 1), RETRY_DELAY_MAX_MS);
   connectionState.retryTimer = setTimeout(() => {
     connectionState.retryTimer = null;
-    attemptConnection();
-  }, RETRY_DELAY_MS);
+    void attemptConnection();
+  }, delay);
 
   broadcastBridgeStatus();
 }
 
 function handleSocketOpen() {
+  clearConnectTimer();
   connectionState.status = 'connected';
   connectionState.retryCount = 0;
   connectionState.lastError = null;
@@ -177,17 +255,32 @@ function handleSocketOpen() {
 }
 
 function handleSocketError(event) {
+  clearConnectTimer();
   if (!connectionState.lastError) {
     const message = event?.message || 'WebSocket error';
     connectionState.lastError = String(message);
+  }
+  if (!connectionState.everConnected) {
+    stopReconnectWithError(connectionState.lastError);
+    return;
   }
   broadcastBridgeStatus();
 }
 
 function handleSocketClose(event) {
+  clearConnectTimer();
   connectionState.socket = null;
   connectionState.lastMessageAt = Date.now();
   connectionState.lastHandshake = null;
+
+  if (!connectionState.everConnected) {
+    const reason =
+      event?.reason ||
+      connectionState.lastError ||
+      'Bridge server unavailable. Start the MCP bridge, then reconnect.';
+    stopReconnectWithError(reason);
+    return;
+  }
 
   if (connectionState.intentionalClose) {
     connectionState.status = 'idle';
@@ -228,6 +321,7 @@ function handleSocketMessage(rawData) {
   }
 
   if (message.kind === 'hello') {
+    connectionState.everConnected = true;
     connectionState.status = 'ready';
     connectionState.lastHandshake = Date.now();
     connectionState.lastError = null;
@@ -332,6 +426,7 @@ export function getBridgeStatus() {
     maxRetries: MAX_RETRY_ATTEMPTS,
     usingToken: !!(lastBridgeToken && lastUseBridgeToken),
     reconnecting: connectionState.allowReconnect && !!connectionState.retryTimer,
+    autoReconnectDisabled: connectionState.sessionAutoReconnectDisabled,
   };
 }
 
@@ -359,16 +454,26 @@ export async function updateBridgePort(port, options = {}) {
   if (changed) {
     suppressPortDisconnect = true;
     if (disconnectOnChange) {
-      disconnectBridge();
+      disconnectBridge({ preserveAutoReconnect: true });
     }
   }
 }
 
 export async function connectBridge(options = {}) {
-  const { port } = options || {};
+  const { port, auto = false } = options || {};
+
+  if (auto && connectionState.sessionAutoReconnectDisabled) {
+    // User opted out of auto-reconnect this session; skip silently.
+    return;
+  }
 
   if (port !== undefined) {
     await updateBridgePort(port, { disconnectOnChange: false });
+  }
+
+  // A manual connect re-enables reconnecting for this session.
+  if (!auto && connectionState.sessionAutoReconnectDisabled) {
+    connectionState.sessionAutoReconnectDisabled = false;
   }
 
   if (connectionState.socket && connectionState.socket.readyState === WebSocket.OPEN) {
@@ -381,10 +486,15 @@ export async function connectBridge(options = {}) {
   connectionState.allowReconnect = true;
   connectionState.intentionalClose = false;
 
-  attemptConnection();
+  void attemptConnection();
 }
 
-export function disconnectBridge() {
+export function disconnectBridge(options = {}) {
+  const { preserveAutoReconnect = false } = options || {};
+
+  if (!preserveAutoReconnect) {
+    connectionState.sessionAutoReconnectDisabled = true;
+  }
   connectionState.allowReconnect = false;
   connectionState.intentionalClose = true;
   clearRetryTimer();
@@ -482,9 +592,18 @@ async function loadBridgeSettings() {
 export function initializeMcpBridge(context = {}) {
   currentContext = context;
 
-  loadBridgeSettings().catch((error) => {
-    console.warn('[MCP Bridge] Failed to initialize bridge settings:', error);
-  });
+  loadBridgeSettings()
+    .catch((error) => {
+      console.warn('[MCP Bridge] Failed to initialize bridge settings:', error);
+    })
+    .finally(() => {
+      try {
+        // Auto-connect on startup so users don't have to trigger it manually.
+        connectBridge({ auto: true });
+      } catch (error) {
+        console.warn('[MCP Bridge] Failed to auto-connect on init:', error);
+      }
+    });
 
   setupStorageListeners();
 }
