@@ -5,6 +5,7 @@ export interface BridgeStatus {
   reconnecting?: boolean;
   port?: number;
   lastError?: string | null;
+  autoReconnectDisabled?: boolean;
 }
 
 export async function fetchBridgeStatus(): Promise<BridgeStatus | null> {
@@ -19,12 +20,13 @@ export async function fetchBridgeStatus(): Promise<BridgeStatus | null> {
   return null;
 }
 
-export async function connectBridge(options: { port?: number } = {}): Promise<boolean> {
+export async function connectBridge(options: { port?: number; auto?: boolean } = {}): Promise<boolean> {
   const port = typeof options.port === 'number' ? options.port : DEFAULT_BRIDGE_PORT;
+  const auto = options.auto === true;
   try {
     const response = await chrome.runtime.sendMessage({
       type: MessageTypes.CONNECT_BRIDGE,
-      payload: { port },
+      payload: { port, auto },
     });
     return Boolean(response?.ok);
   } catch (error) {
