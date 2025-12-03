@@ -140,7 +140,7 @@ const allTools: Tool[] = [
   automation.browserClick,
   automation.browserType,
   automation.browserInput,
-  automation.browserDrag,
+  // automation.browserDrag, // Drag available but hidden from tool list
 
   // Navigation tools
   navigation.browserNavigate,

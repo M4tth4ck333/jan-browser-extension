@@ -15,7 +15,7 @@ import type { Tool } from "./tool.js";
 const TargetSchema = z
   .string()
   .min(1)
-  .describe('Element target: snapshot ref or screen coordinates "x,y" in device pixels (screenshot space).');
+  .describe('Element target: snapshot ref such as "s1e1" (coordinates are also accepted).');
 
 const ClickSchema = z.object({
   target: TargetSchema,
@@ -24,7 +24,7 @@ const ClickSchema = z.object({
 export const browserClick: Tool = {
   schema: {
     name: "browser_click",
-    description: 'Click an element by ref or screen coords ("x,y" device pixels). Returns target metadata.',
+    description: "Click an element by snapshot ref (for example, 's1e1').",
     inputSchema: zodToJsonSchema(ClickSchema) as any,
   },
   handle: async (params) => {
@@ -65,7 +65,7 @@ const TypeSchema = z
 export const browserType: Tool = {
   schema: {
     name: "browser_type",
-    description: 'Focus an element (ref or screen coords), type text, and press any keys in <kbd>…</kbd>. submit=true appends Enter.',
+    description: "Focus an element by snapshot ref (e.g., 's1e1'), type text, and press keys in <kbd>…</kbd>. submit=true appends Enter.",
     inputSchema: zodToJsonSchema(TypeSchema) as any,
   },
   handle: async (params) => {
@@ -96,7 +96,7 @@ const InputValueSchema = z
 export const browserInput: Tool = {
   schema: {
     name: "browser_input",
-    description: 'Set value(s) on a form control by ref or screen coords: selects, checkboxes/radios, inputs/textareas.',
+    description: "Set value(s) on a form control by snapshot ref (e.g., 's1e1').",
     inputSchema: zodToJsonSchema(InputValueSchema) as any,
   },
   handle: async (params) => {
@@ -110,14 +110,14 @@ export const browserInput: Tool = {
 
 const DragSchema = z
   .object({
-    start: TargetSchema.describe('Drag starting point (snapshot ref or "x,y" coordinates)'),
-    end: TargetSchema.describe('Drop target (snapshot ref or "x,y" coordinates)'),
+    start: TargetSchema.describe('Drag starting point (snapshot ref such as "s1e1"; coordinates accepted).'),
+    end: TargetSchema.describe('Drop target (snapshot ref such as "s1e1"; coordinates accepted).'),
   });
 
 export const browserDrag: Tool = {
   schema: {
     name: "browser_drag",
-    description: 'Drag from start to end targets (refs or screen coords in device pixels). Returns start/end metadata.',
+    description: "Drag from start to end targets identified by snapshot refs.",
     inputSchema: zodToJsonSchema(DragSchema) as any,
   },
   handle: async (params) => {

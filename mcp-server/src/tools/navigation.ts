@@ -9,13 +9,16 @@ import { sanitizeNavigateParams } from "./sanitize.js";
 import type { Tool, ToolResult } from "./tool.js";
 
 const NavigateSchema = z.object({
-  target: z.string().describe('URL to open or navigation command ("back" / "forward") or omit scheme.'),
+  target: z
+    .string()
+    .describe('Where to go: full URL, bare domain (we add https://), or "back"/"forward" for history navigation'),
 });
 
 export const browserNavigate: Tool = {
   schema: {
     name: "browser_navigate",
-    description: 'Open a URL or go history back/forward. Single input "target": URL or "back"/"forward".',
+    description:
+      'Navigate the active tab: open a URL or move browser history. Pass "target" as a URL/domain (https added if missing) or "back"/"forward".',
     inputSchema: zodToJsonSchema(NavigateSchema) as any,
   },
   handle: async (params) => {
@@ -60,14 +63,18 @@ export const browserNavigate: Tool = {
 };
 
 const ScrollSchema = z.object({
-  direction: z.enum(["up", "down", "top", "bottom"]).describe("Scroll direction or position"),
-  amount: z.number().optional().describe("Scroll amount in pixels (for 'up' and 'down' directions, default: 500)"),
+  direction: z.enum(["up", "down", "top", "bottom"]).describe("Scroll direction/position for the current page or element"),
+  amount: z.number().optional().describe("Pixels to scroll for up/down (default 500). Ignored for top/bottom."),
+  target: z
+    .string()
+    .optional()
+    .describe("Optional snapshot ref (e.g., 's1e1') to scroll a specific element instead of the page"),
 });
 
 export const browserScroll: Tool = {
   schema: {
     name: "browser_scroll",
-    description: "Scroll the page",
+    description: "Scroll the current page or a referenced element; directions: up/down/top/bottom. amount controls pixel distance for up/down.",
     inputSchema: zodToJsonSchema(ScrollSchema) as any,
   },
   handle: async (params) => {
