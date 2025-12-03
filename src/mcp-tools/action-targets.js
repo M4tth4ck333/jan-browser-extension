@@ -72,9 +72,26 @@ export async function resolveBackendNodeToPoint(tabId, backendNodeId) {
         const ys = [model.content[1], model.content[3], model.content[5], model.content[7]];
         const centerX = xs.reduce((a, b) => a + b, 0) / 4;
         const centerY = ys.reduce((a, b) => a + b, 0) / 4;
+        const left = Math.min(...xs);
+        const right = Math.max(...xs);
+        const top = Math.min(...ys);
+        const bottom = Math.max(...ys);
 
         await chrome.debugger.detach(target);
-        return { x: Math.round(centerX), y: Math.round(centerY) };
+        return {
+          x: Math.round(centerX),
+          y: Math.round(centerY),
+          boundingRect: {
+            x: left,
+            y: top,
+            left,
+            top,
+            right,
+            bottom,
+            width: right - left,
+            height: bottom - top,
+          },
+        };
       }
 
       await chrome.debugger.detach(target);

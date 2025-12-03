@@ -570,6 +570,8 @@ export async function handleTypeText(params = {}) {
         return createErrorResult('Type text failed', resolvedRef.error);
       }
       resolvedRefValue = resolvedRef.value;
+      const backendFallback = resolvedRef.backendValue;
+      const cssFallback = resolvedRef.cssValue;
 
       const typingRef = resolvedRef.cssValue || resolvedRef.value;
 
@@ -585,24 +587,61 @@ export async function handleTypeText(params = {}) {
         const errorMessage = preparedTarget?.unsupported
           ? `Element reference ${elementLabel} does not support ${actionDescription} actions`
           : preparedTarget?.error || 'Element not found';
-        return createErrorResult('Type text failed', errorMessage);
-      }
+        let backendNodeId = null;
 
-      const tagName = (preparedTarget?.detectedElement?.tagName || '').toLowerCase();
-      if (tagName === 'canvas') {
-        return createErrorResult('Type text failed', 'Canvas elements do not support typing actions');
+        if (backendFallback && backendFallback.startsWith('backend:')) {
+          backendNodeId = parseInt(backendFallback.slice(8), 10);
+          if (!isNaN(backendNodeId)) {
+            const backendPoint = await resolveBackendNodeToPoint(tabId, backendNodeId);
+            if (backendPoint) {
+              try {
+                await clickPointWithDebugger(tabId, backendPoint);
+                clickPoint = { x: backendPoint.x, y: backendPoint.y };
+                boundingRect = backendPoint.boundingRect || null;
+                resolvedRefValue = backendFallback;
+              } catch (err) {
+                console.error('[MCP Tools] debugger click failed via backend', err);
+                return createErrorResult('Type text failed', err);
+              }
+            }
+          }
+        }
+
+        if (!clickPoint && cssFallback && cssFallback !== resolvedRef.value) {
+          const cssTarget = await prepareElementForAction(tabId, { ref: cssFallback, mode: 'type' });
+          const cssLabel = formatElementLabel(cssTarget?.detectedElement, parsedTarget.label || ref);
+          if (cssTarget?.success && cssTarget.clickPoint) {
+            try {
+              await clickPointWithDebugger(tabId, cssTarget.clickPoint);
+              clickPoint = cssTarget.clickPoint;
+              boundingRect = cssTarget.boundingRect || null;
+              elementLabel = cssLabel;
+              preparedTarget = cssTarget;
+              resolvedRefValue = cssFallback;
+            } catch (err) {
+              console.error('[MCP Tools] debugger click failed via css fallback', err);
+              return createErrorResult('Type text failed', err);
+            }
+          }
+        }
+
+        if (!clickPoint) {
+          return createErrorResult('Type text failed', errorMessage);
+        }
       }
 
       try {
-        await clickPointWithDebugger(tabId, preparedTarget.clickPoint);
-        clickPoint = preparedTarget.clickPoint;
+        if (!clickPoint) {
+          await clickPointWithDebugger(tabId, preparedTarget.clickPoint);
+          clickPoint = preparedTarget.clickPoint;
+        }
       } catch (err) {
         console.error('[MCP Tools] debugger click failed', err);
         return createErrorResult('Type text failed', err);
       }
 
-      detectedElement = preparedTarget.detectedElement || null;
-      boundingRect = preparedTarget.boundingRect || null;
+      detectedElement = detectedElement || preparedTarget.detectedElement || null;
+      boundingRect = boundingRect || preparedTarget.boundingRect || null;
     }
 
     // Defensive clear via DOM for stubborn inputs (e.g., some search boxes)

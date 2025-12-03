@@ -1195,8 +1195,6 @@ async function buildRefToSelectorMap(nodes, target) {
     if (!backendNodeId) continue;
 
     nodesToMap.push({ node, refId, backendNodeId });
-
-    if (nodesToMap.length >= 500) break; // Limit for performance
   }
 
   console.log(`[RefMap] Processing ${nodesToMap.length} nodes with refs`);
@@ -1205,6 +1203,10 @@ async function buildRefToSelectorMap(nodes, target) {
   const BATCH_SIZE = 50;
   let cssCount = 0;
   let backendCount = 0;
+
+  if (nodesToMap.length > 1000) {
+    console.warn(`[RefMap] Large ref map (${nodesToMap.length} nodes) – mapping all refs; may take a moment`);
+  }
 
   for (let i = 0; i < nodesToMap.length; i += BATCH_SIZE) {
     const batch = nodesToMap.slice(i, i + BATCH_SIZE);

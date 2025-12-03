@@ -22,7 +22,7 @@ export const ELEMENT_ACTION_CAPABILITIES = {
     frameworkDetection: true
   },
   type: {
-    tagNames: ['INPUT', 'TEXTAREA'],
+    tagNames: ['INPUT', 'TEXTAREA', 'CANVAS'],
     inputTypes: [
       'text',
       'email',
@@ -68,7 +68,8 @@ export const ELEMENT_ACTION_CAPABILITIES = {
       '.DraftEditor-root',
       '.editor',
       '.editable',
-      '.notranslate'
+      '.notranslate',
+      'canvas'
     ],
     allowContentEditable: true
   }
