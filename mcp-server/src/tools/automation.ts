@@ -10,7 +10,7 @@ import {
   sanitizeInputParams,
   sanitizeDragParams,
 } from "./sanitize.js";
-import type { Tool } from "./tool.js";
+import type { Tool, ToolResult } from "./tool.js";
 
 const TargetSchema = z
   .string()
@@ -32,7 +32,12 @@ export const browserClick: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    return await callExtension("browser_click", sanitizeClickParams(params));
+    const { error, target } = sanitizeClickParams(params);
+    if (error) {
+      return toErrorResult(error);
+    }
+
+    return await callExtension("browser_click", { target });
   },
 };
 
@@ -73,7 +78,12 @@ export const browserType: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    return await callExtension("browser_type", sanitizeTypeParams(params));
+    const { error, ...sanitized } = sanitizeTypeParams(params);
+    if (error) {
+      return toErrorResult(error);
+    }
+
+    return await callExtension("browser_type", sanitized);
   },
 };
 
@@ -104,7 +114,12 @@ export const browserInput: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    return await callExtension("browser_input", sanitizeInputParams(params));
+    const { error, ...sanitized } = sanitizeInputParams(params);
+    if (error) {
+      return toErrorResult(error);
+    }
+
+    return await callExtension("browser_input", sanitized);
   },
 };
 
@@ -125,6 +140,18 @@ export const browserDrag: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    return await callExtension("browser_drag", sanitizeDragParams(params));
+    const { error, ...sanitized } = sanitizeDragParams(params);
+    if (error) {
+      return toErrorResult(error);
+    }
+
+    return await callExtension("browser_drag", sanitized);
   },
 };
+
+function toErrorResult(message: string): ToolResult {
+  return {
+    content: [{ type: "text", text: message }],
+    isError: true,
+  };
+}

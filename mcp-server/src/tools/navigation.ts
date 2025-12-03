@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { callExtension, waitForBridgeConnection, hasExtensionConnection } from "../utils/bridge.js";
-import { sanitizeNavigateParams } from "./sanitize.js";
+import { sanitizeNavigateParams, sanitizeScrollParams } from "./sanitize.js";
 import type { Tool, ToolResult } from "./tool.js";
 
 const NavigateSchema = z.object({
@@ -78,12 +78,20 @@ export const browserScroll: Tool = {
     inputSchema: zodToJsonSchema(ScrollSchema) as any,
   },
   handle: async (params) => {
+    const { error, ...sanitized } = sanitizeScrollParams(params);
+    if (error) {
+      return {
+        content: [{ type: "text", text: error }],
+        isError: true,
+      };
+    }
+
     if (!hasExtensionConnection()) {
       await waitForBridgeConnection(4000);
     }
 
-    await callExtension("browser_scroll", params);
-    return toTextResult(`Scrolled ${params.direction}`);
+    await callExtension("browser_scroll", sanitized);
+    return toTextResult(`Scrolled ${sanitized.direction}`);
   },
 };
 
