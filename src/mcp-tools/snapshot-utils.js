@@ -2,6 +2,7 @@
 // Shared helpers for building ARIA snapshot responses that match the MCP server
 
 import { selectTab } from '../lib/tab-manager.js';
+import { isCodeEditorElement, getCodeEditorMeta } from './code-mirror-utils.js';
 import { clearElementRefMap, getElementRefMap, setElementRefMap } from '../lib/element-ref-map.js';
 
 const DEBUGGER_PROTOCOL_VERSION = '1.3';
@@ -356,6 +357,8 @@ async function captureDomSnapshot(tabId, fullPage = true) {
         const explicitRole = element.getAttribute('role');
         if (explicitRole) return explicitRole;
 
+        if (isCodeEditorElement(element)) return 'textbox';
+
         const tag = element.tagName;
         if (tag === 'A') return 'link';
         if (tag === 'BUTTON') return 'button';
@@ -382,6 +385,8 @@ async function captureDomSnapshot(tabId, fullPage = true) {
         if (!element || depth > maxDepth) return null;
 
         const role = inferRole(element);
+        const codeMeta = getCodeEditorMeta(element);
+        const isCodeEditor = Boolean(codeMeta);
         if (!role) {
           const children = [];
 
@@ -415,6 +420,16 @@ async function captureDomSnapshot(tabId, fullPage = true) {
         }
 
         const textContent = element.textContent?.trim() || '';
+        const codeLabel = codeMeta?.label || '';
+        const codeValue = (() => {
+          if (!isCodeEditor) return '';
+          const metaText = (codeMeta?.text || '').trim();
+          if (metaText) return metaText;
+          const inner = typeof element.innerText === 'string' ? element.innerText.trim().replace(/\s+/g, ' ') : '';
+          if (inner) return inner;
+          const text = typeof element.textContent === 'string' ? element.textContent.trim().replace(/\s+/g, ' ') : '';
+          return text;
+        })();
         const ariaLabel =
           element.getAttribute('aria-label') ||
           element.getAttribute('aria-labelledby') ||
@@ -423,7 +438,13 @@ async function captureDomSnapshot(tabId, fullPage = true) {
 
         const node = {
           role,
-          name: ariaLabel || textContent.slice(0, 50) || '',
+          name:
+            (codeValue ? codeValue.slice(0, 120) : '') ||
+            ariaLabel ||
+            codeLabel ||
+            textContent.slice(0, 50) ||
+            (isCodeEditor ? 'Code editor' : '') ||
+            '',
           tag: element.tagName.toLowerCase(),
         };
 
@@ -443,6 +464,19 @@ async function captureDomSnapshot(tabId, fullPage = true) {
         if (attr('aria-disabled')) node.disabled = attr('aria-disabled') === 'true';
         if (attr('aria-level')) node.level = Number.parseInt(attr('aria-level'), 10);
         if (attr('aria-current')) node.current = attr('aria-current');
+        const textValue = codeValue || (isCodeEditor ? textContent : '');
+        if (textValue) {
+          node.value = textValue;
+          node.text = textValue;
+          node.description = textValue;
+        } else if (isCodeEditor && !node.value) {
+          const fallback = textContent || codeLabel;
+          if (fallback) {
+            node.value = fallback;
+            node.text = fallback;
+            node.description = fallback;
+          }
+        }
 
         if (element.id) node.id = element.id;
         if (element.className && typeof element.className === 'string') {
@@ -512,6 +546,52 @@ async function captureDomSnapshot(tabId, fullPage = true) {
               ariaSelected: el.getAttribute('aria-selected') || undefined,
               ref: buildElementRef(el) || undefined,
             };
+
+            if (inShadow) {
+              item.inShadowDOM = true;
+            }
+
+            results.push(item);
+          }
+
+          // Explicitly surface CodeMirror editors that may not match default selectors
+          const codeEditors = Array.from(root.querySelectorAll('.CodeMirror, .cm-editor, .cm-content, [data-codemirror]'));
+          for (const editor of codeEditors) {
+            const target =
+              editor.querySelector?.('.cm-content[contenteditable], .cm-content, .CodeMirror-code, textarea, [contenteditable="true"]') ||
+              editor;
+            if (!target || visited.has(target)) continue;
+            visited.add(target);
+            if (!shouldIncludeElement(target)) continue;
+            if (results.length >= 50) return;
+
+            const meta = getCodeEditorMeta(target);
+            const valuePreview =
+              (meta?.text && meta.text.trim()) ||
+              (typeof target.innerText === 'string' ? target.innerText.trim().replace(/\s+/g, ' ') : '') ||
+              (typeof target.textContent === 'string' ? target.textContent.trim().replace(/\s+/g, ' ') : '') ||
+              '';
+            const label =
+              (valuePreview ? valuePreview.slice(0, 120) : '') ||
+              meta?.label ||
+              target.getAttribute?.('aria-label') ||
+              target.getAttribute?.('placeholder') ||
+              'Code editor';
+
+            const item = {
+              index: results.length,
+              role: 'textbox',
+              tag: target.tagName?.toLowerCase() || 'div',
+              label,
+              id: target.id || undefined,
+              name: target.name || undefined,
+              ref: buildElementRef(target) || undefined,
+              className: typeof target.className === 'string' ? target.className : undefined,
+            };
+
+            if (valuePreview) {
+              item.value = valuePreview;
+            }
 
             if (inShadow) {
               item.inShadowDOM = true;
@@ -825,10 +905,15 @@ function normalizeAxRole(role) {
 
 function shouldFlattenAxNode(node) {
   if (!node) return true;
-  if (node.ignored) return true;
+  const properties = axEntriesToObject(node.properties);
+  const state = axEntriesToObject(node.state);
+  const focusable = properties.focusable === true || properties.focusable === 'true' || state.focused === true;
+  const actionable = properties.clickable === true || (Array.isArray(node.actions) && node.actions.length > 0);
+
+  if (node.ignored && !focusable && !actionable) return true;
 
   const roleKey = getRoleKey(node);
-  if (!roleKey) return true;
+  if (!roleKey && !focusable && !actionable) return true;
 
   if (
     roleKey === 'presentation' ||
@@ -844,6 +929,7 @@ function shouldFlattenAxNode(node) {
     const hasName = node.name?.value && node.name.value.trim().length > 0;
     const hasActions = Array.isArray(node.actions) && node.actions.length > 0;
     const hasValue = node.value?.value !== undefined && node.value.value !== '';
+    if (focusable || actionable) return false;
     if (hasActions || hasValue) return false;
     if (!hasName) return true;
     return false;
@@ -852,6 +938,7 @@ function shouldFlattenAxNode(node) {
   if (roleKey === 'group') {
     const hasActions = Array.isArray(node.actions) && node.actions.length > 0;
     const hasName = node.name?.value && node.name.value.trim().length > 0;
+    if (focusable || actionable) return false;
     if (!hasActions && !hasName) return true;
     return false;
   }
@@ -870,6 +957,40 @@ function serializeAxNode(node, map, depth = 0) {
   const name = getImprovedAccessibleName(node);
   const description = getAccessibleDescription(node);
   const value = axValueToPrimitive(node?.value);
+  const rawProperties = axEntriesToObject(node.properties);
+  const rawState = axEntriesToObject(node.state);
+
+  let effectiveName = name;
+  let effectiveValue = value;
+
+  // For CodeMirror-like textboxes with poor names, fall back to value/placeholder/description
+  if ((role === 'textbox' || role === 'searchbox' || role === 'combobox' || role === 'generic') && (!effectiveName || isUnhelpfulLabel(effectiveName, role))) {
+    const placeholder = rawProperties?.placeholder || rawProperties?.['aria-placeholder'] || rawProperties?.title;
+    const valueFromProps = rawProperties?.value || rawProperties?.text || rawProperties?.label;
+    const candidate = description || placeholder || valueFromProps || value;
+    if (candidate && typeof candidate === 'string' && candidate.trim()) {
+      effectiveName = candidate;
+    } else if (value && typeof value === 'string' && value.trim()) {
+      effectiveName = value;
+    }
+  }
+
+  if (!effectiveValue && typeof rawProperties?.value === 'string' && rawProperties.value.trim()) {
+    effectiveValue = rawProperties.value;
+  }
+
+  // If we have real text in the value, prefer it as the name for text inputs/editors
+  if (
+    effectiveValue &&
+    typeof effectiveValue === 'string' &&
+    (role === 'textbox' || role === 'searchbox' || role === 'combobox' || role === 'generic')
+  ) {
+    effectiveName = effectiveValue;
+  }
+
+  if (!effectiveName && (role === 'textbox' || role === 'generic')) {
+    effectiveName = 'Code editor';
+  }
 
   let serialized = null;
 
@@ -879,20 +1000,25 @@ function serializeAxNode(node, map, depth = 0) {
       ref: formatAccessibleRef(node.nodeId),
       axNodeId: node.nodeId,
       role,
-      name,
-      description,
-      value,
+      name: effectiveName,
+      description: description || effectiveValue,
+      value: effectiveValue,
     });
 
     if (Array.isArray(node.actions) && node.actions.length) {
       serialized.actions = node.actions.slice(0, 6);
     }
 
-    const properties = compactObject(axEntriesToObject(node.properties));
-    const state = compactObject(axEntriesToObject(node.state));
+    const properties = compactObject(rawProperties);
+    const state = compactObject(rawState);
 
     if (Object.keys(properties).length) serialized.properties = properties;
     if (Object.keys(state).length) serialized.state = state;
+
+    // Ensure text surfaces in snapshot output for editors
+    if (effectiveValue && !serialized.text) {
+      serialized.text = effectiveValue;
+    }
 
     if (node.backendDOMNodeId) serialized.backendNodeId = node.backendDOMNodeId;
     if (node.domNodeId) serialized.domNodeId = node.domNodeId;
