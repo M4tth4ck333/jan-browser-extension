@@ -33,6 +33,7 @@ export function setElementRefMap(tabId, refMap, metadata = {}) {
       const entry = {};
       if (value.css) entry.css = value.css;
       if (typeof value.backend === 'number') entry.backend = value.backend;
+      if (value.frameId) entry.frameId = value.frameId; // Store frameId for iframe elements
       if (entry.css || entry.backend !== undefined) {
         normalized.set(refId, entry);
       }
@@ -98,6 +99,28 @@ export function getElementSelector(tabId, refId) {
 export function getBackendNodeId(tabId, refId) {
   const entry = getRefEntry(tabId, refId);
   return typeof entry?.backend === 'number' ? entry.backend : null;
+}
+
+/**
+ * Get frameId for a reference ID in a specific tab
+ * @param {number} tabId - Tab ID
+ * @param {string} refId - Reference ID (e.g., "s1f1e5")
+ * @returns {string|null} Frame ID or null if main frame or not found
+ */
+export function getFrameId(tabId, refId) {
+  const entry = getRefEntry(tabId, refId);
+  return entry?.frameId || null;
+}
+
+/**
+ * Check if a reference exists in the map (even as placeholder)
+ * @param {number} tabId - Tab ID
+ * @param {string} refId - Reference ID
+ * @returns {boolean} True if ref exists
+ */
+export function hasRef(tabId, refId) {
+  const entry = getRefEntry(tabId, refId);
+  return entry !== null;
 }
 
 /**

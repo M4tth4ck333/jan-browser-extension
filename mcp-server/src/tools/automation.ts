@@ -15,7 +15,7 @@ import type { Tool, ToolResult } from "./tool.js";
 const TargetSchema = z
   .string()
   .min(1)
-  .describe('Element target: snapshot ref such as "s1e1" (coordinates are also accepted).');
+  .describe('Element target: snapshot ref such as "s1e1" for main frame or "s1f2e5" for iframe elements (coordinates are also accepted).');
 
 const ClickSchema = z.object({
   target: TargetSchema,
@@ -24,7 +24,7 @@ const ClickSchema = z.object({
 export const browserClick: Tool = {
   schema: {
     name: "browser_click",
-    description: "Click an element by snapshot ref (for example, 's1e1').",
+    description: "Click an element by snapshot ref (e.g., 's1e5' for main frame or 's1f2e10' for iframe elements).",
     inputSchema: zodToJsonSchema(ClickSchema) as any,
   },
   handle: async (params) => {
@@ -70,7 +70,7 @@ const TypeSchema = z
 export const browserType: Tool = {
   schema: {
     name: "browser_type",
-    description: "Focus an element by snapshot ref (e.g., 's1e1'), type text, and press keys in <kbd>…</kbd>. submit=true appends Enter.",
+    description: "Focus an element by snapshot ref (e.g., 's1e5' for main frame or 's1f2e10' for iframe elements), type text, and press keys in <kbd>…</kbd>. submit=true appends Enter.",
     inputSchema: zodToJsonSchema(TypeSchema) as any,
   },
   handle: async (params) => {
@@ -106,7 +106,7 @@ const InputValueSchema = z
 export const browserInput: Tool = {
   schema: {
     name: "browser_input",
-    description: "Set value(s) on a form control by snapshot ref (e.g., 's1e1').",
+    description: "Set value(s) on a form control by snapshot ref (e.g., 's1e5' for main frame or 's1f2e10' for iframe elements).",
     inputSchema: zodToJsonSchema(InputValueSchema) as any,
   },
   handle: async (params) => {
@@ -125,8 +125,8 @@ export const browserInput: Tool = {
 
 const DragSchema = z
   .object({
-    start: TargetSchema.describe('Drag starting point (snapshot ref such as "s1e1"; coordinates accepted).'),
-    end: TargetSchema.describe('Drop target (snapshot ref such as "s1e1"; coordinates accepted).'),
+    start: TargetSchema.describe('Drag starting point (snapshot ref such as "s1e5" for main frame or "s1f2e10" for iframe elements; coordinates accepted).'),
+    end: TargetSchema.describe('Drop target (snapshot ref such as "s1e5" for main frame or "s1f2e10" for iframe elements; coordinates accepted).'),
   });
 
 export const browserDrag: Tool = {

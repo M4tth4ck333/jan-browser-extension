@@ -41,7 +41,7 @@ function formatElementLabel(detectedElement = {}, fallbackRef = '') {
   const baseLabel = `${tag || 'element'}${descriptorSegment}${metaSegment}`.trim();
 
   const trimmedRef = typeof fallbackRef === 'string' ? fallbackRef.trim() : '';
-  const isRefLike = /^s\d+e\d+$/i.test(trimmedRef) || trimmedRef.startsWith('css:');
+  const isRefLike = /^s\d+(?:f\d+)?e\d+$/i.test(trimmedRef) || trimmedRef.startsWith('css:');
   const prefix = trimmedRef ? (isRefLike ? `ref: ${trimmedRef}` : trimmedRef) : '';
 
   return prefix ? `${prefix} - ${baseLabel}` : baseLabel;
@@ -321,10 +321,12 @@ export async function handleClickElement(params = {}) {
     }
     const backendFallback = resolvedRef.backendValue;
     const cssFallback = resolvedRef.cssValue;
+    const frameId = resolvedRef.frameId; // Get frameId for iframe elements
 
     const preparedTarget = await prepareElementForAction(tabId, {
       ref: resolvedRef.value,
       mode: 'click',
+      frameId, // Pass frameId to execute script in correct frame
     });
 
     const elementLabel = formatElementLabel(preparedTarget?.detectedElement, parsedTarget.label || ref);
@@ -542,6 +544,7 @@ export async function handleTypeText(params = {}) {
     let clickPoint = null;
     let preparedTarget = null;
     let resolvedRefValue = null;
+    let frameId = null; // Track frameId for iframe elements
 
     if (coordinates) {
       const { cssPoint, dpr } = await toCssPoint(tabId, coordinates);
@@ -572,12 +575,14 @@ export async function handleTypeText(params = {}) {
       resolvedRefValue = resolvedRef.value;
       const backendFallback = resolvedRef.backendValue;
       const cssFallback = resolvedRef.cssValue;
+      frameId = resolvedRef.frameId; // Get frameId for iframe elements (assigned to outer scope)
 
       const typingRef = resolvedRef.cssValue || resolvedRef.value;
 
       preparedTarget = await prepareElementForAction(tabId, {
         ref: typingRef,
         mode: 'type',
+        frameId, // Pass frameId to execute script in correct frame
       });
 
       elementLabel = formatElementLabel(preparedTarget?.detectedElement, parsedTarget.label || ref);
@@ -647,8 +652,12 @@ export async function handleTypeText(params = {}) {
     // Defensive clear via DOM for stubborn inputs (e.g., some search boxes)
     if (clear) {
       try {
+        const clearTarget = { tabId };
+        if (frameId) {
+          clearTarget.allFrames = true; // Execute in all frames for iframe elements
+        }
         await chrome.scripting.executeScript({
-          target: { tabId },
+          target: clearTarget,
           func: () => {
             const el = document.activeElement;
             if (!el) return;

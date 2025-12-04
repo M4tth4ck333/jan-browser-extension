@@ -11,7 +11,7 @@ const normalizeDetailLevel = (value: unknown): "shallow" | "medium" | "deep" => 
   return "deep";
 };
 
-const VALID_SNAPSHOT_REF_PATTERN = /^s\d+e\d+$/i;
+const VALID_SNAPSHOT_REF_PATTERN = /^s\d+(?:f\d+)?e\d+$/i;
 const BACKEND_REF_PATTERN = /^backend:\d+$/i;
 
 const refFormatError = (ref: string, label?: string): string | undefined => {
@@ -20,7 +20,7 @@ const refFormatError = (ref: string, label?: string): string | undefined => {
   if (BACKEND_REF_PATTERN.test(ref)) return undefined;
 
   const prefix = label ? `${label}: ` : "";
-  return `${prefix}Invalid element reference "${ref}". Use format s{snapshot}e{element}, e.g., "s1e1".`;
+  return `${prefix}Invalid element reference "${ref}". Use format s{snapshot}e{element} or s{snapshot}f{frame}e{element}, e.g., "s1e1" or "s1f1e5".`;
 };
 
 export function sanitizeClickParams(params: any) {

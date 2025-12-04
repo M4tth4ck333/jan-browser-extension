@@ -2,32 +2,52 @@
 // Element resolution and capability checks for automation actions
 
 import { ELEMENT_ACTION_CAPABILITIES } from './element-action-map.js';
-import { getElementSelector, hasElementRefMap, getBackendNodeId } from '../lib/element-ref-map.js';
+import { getElementSelector, hasElementRefMap, getBackendNodeId, getFrameId, hasRef } from '../lib/element-ref-map.js';
 
 export function resolveAccessibilityRef(ref, tabId) {
   const normalized = typeof ref === 'string' ? ref.trim() : '';
-  const isAccessibilityRef = normalized && /^s\d+e\d+$/i.test(normalized);
+  // Updated pattern to match iframe refs: s1e1 or s1f1e5
+  const isAccessibilityRef = normalized && /^s\d+(?:f\d+)?e\d+$/i.test(normalized);
 
   if (!isAccessibilityRef) {
-    return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: false, backendValue: null, cssValue: normalized };
+    return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: false, backendValue: null, cssValue: normalized, frameId: null };
   }
 
   const snapshotAvailable = hasElementRefMap(tabId);
   if (!snapshotAvailable) {
-    return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: false, backendValue: null, cssValue: normalized };
+    return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: false, backendValue: null, cssValue: normalized, frameId: null };
   }
 
   const mappedSelector = getElementSelector(tabId, normalized);
   const backendId = getBackendNodeId(tabId, normalized);
+  const frameId = getFrameId(tabId, normalized);
   const backendValue = backendId !== null ? `backend:${backendId}` : null;
+  const refExists = hasRef(tabId, normalized);
 
-  if (!mappedSelector && backendId === null) {
+  // Check if ref exists at all (including placeholder refs)
+  if (!refExists) {
     return {
       ok: false,
       value: null,
       originalRef: normalized,
       usedSnapshot: true,
+      frameId: null,
       error: `Reference ${normalized} was not found in the latest snapshot. Capture a fresh snapshot and try again.`,
+    };
+  }
+
+  // If ref exists but has no selector/backend, it's a placeholder - still allow it with frameId
+  if (!mappedSelector && backendId === null) {
+    console.warn(`[action-targets] Ref ${normalized} is a placeholder (no selector/backend) - will use allFrames search`);
+    return {
+      ok: true,
+      value: normalized, // Return the ref itself for allFrames search
+      originalRef: normalized,
+      usedSnapshot: true,
+      backendValue: null,
+      cssValue: null,
+      frameId, // Include frameId so allFrames can be used
+      isPlaceholder: true,
     };
   }
 
@@ -40,14 +60,15 @@ export function resolveAccessibilityRef(ref, tabId) {
       usedSnapshot: true,
       backendValue,
       cssValue: mappedSelector || null,
+      frameId, // Include frameId for iframe elements
     };
   }
 
   if (mappedSelector) {
-    return { ok: true, value: mappedSelector, originalRef: normalized, usedSnapshot: true, backendValue: null, cssValue: mappedSelector };
+    return { ok: true, value: mappedSelector, originalRef: normalized, usedSnapshot: true, backendValue: null, cssValue: mappedSelector, frameId };
   }
 
-  return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: true, backendValue: null, cssValue: null };
+  return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: true, backendValue: null, cssValue: null, frameId };
 }
 
 /**
@@ -106,9 +127,16 @@ export async function resolveBackendNodeToPoint(tabId, backendNodeId) {
   }
 }
 
-export async function prepareElementForAction(tabId, { ref, mode }) {
+export async function prepareElementForAction(tabId, { ref, mode, frameId }) {
+  // Build target - if this is an iframe element, execute in all frames
+  const target = { tabId };
+  if (frameId) {
+    // Use allFrames to execute in all frames (main + iframes)
+    target.allFrames = true;
+  }
+
   const [{ result }] = await chrome.scripting.executeScript({
-    target: { tabId },
+    target,
     func: async ({ ref, mode, capabilityMap }) => {
       const resolveElementFromRef = (reference) => {
         if (typeof reference !== 'string' || reference.length === 0) {

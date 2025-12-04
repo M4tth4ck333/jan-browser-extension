@@ -68,7 +68,7 @@ const ScrollSchema = z.object({
   target: z
     .string()
     .optional()
-    .describe("Optional snapshot ref (e.g., 's1e1') to scroll a specific element instead of the page"),
+    .describe("Optional snapshot ref (e.g., 's1e5' for main frame or 's1f2e10' for iframe elements) to scroll a specific element instead of the page"),
 });
 
 export const browserScroll: Tool = {
