@@ -16,9 +16,12 @@ import type { RawData } from "ws";
 
 // Bridge utilities
 import {
-  setExtensionSocket,
+  registerExtensionConnection,
   handleExtensionMessage,
   cleanupPendingCalls,
+  removeExtensionConnection,
+  getProfileState,
+  closeAllConnections,
 } from "./utils/bridge.js";
 
 // Tool imports - organized by category
@@ -33,6 +36,9 @@ let bridgePort = Number(process.env.BRIDGE_PORT || 17389);
 let bridgeToken = process.env.BRIDGE_TOKEN || undefined;
 const SERVER_VERSION = "0.13.2";
 const SERVER_NAME = "jan-browser-mcp";
+
+let stdioTransport: StdioServerTransport | null = null;
+let shuttingDown = false;
 
 // CLI arguments
 const args = process.argv.slice(2);
@@ -189,15 +195,52 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 // WebSocket bridge setup
 const wss = new WebSocketServer({ host: bridgeHost, port: bridgePort });
 
+function shutdown(code = 0) {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+
+  try {
+    closeAllConnections();
+  } catch (error) {
+    logErrorToFile("Error closing bridge connections during shutdown", error);
+  }
+
+  try {
+    wss.close();
+  } catch (error) {
+    logErrorToFile("Error closing WebSocket server during shutdown", error);
+  }
+  if (stdioTransport && typeof stdioTransport.close === "function") {
+    try {
+      void stdioTransport.close();
+    } catch (error) {
+      logErrorToFile("Error closing stdio transport", error);
+    }
+  }
+  cleanupPendingCalls();
+  process.exit(code);
+}
+
+const handleSignal = (signal: string) => {
+  logToFile(`Received ${signal}, shutting down MCP server`);
+  shutdown(0);
+};
+
+process.on("SIGINT", handleSignal);
+process.on("SIGTERM", handleSignal);
+
 wss.on("listening", () => {
   logToFile(`Bridge listening on ws://${bridgeHost}:${bridgePort}`);
 });
 
 wss.on("connection", (ws: WebSocket, req) => {
+  const requestUrl = new URL(req.url || "/", `http://${req.headers.host}`);
+
   // Token authentication
   if (bridgeToken) {
-    const url = new URL(req.url || "/", `http://${req.headers.host}`);
-    const token = url.searchParams.get("t");
+    const token = requestUrl.searchParams.get("t");
     if (token !== bridgeToken) {
       logToFile("Bridge rejected connection: invalid token");
       ws.close(1008, "Invalid token");
@@ -205,13 +248,20 @@ wss.on("connection", (ws: WebSocket, req) => {
     }
   }
 
-  logToFile("Browser extension connected to MCP bridge");
-  setExtensionSocket(ws);
+  const profileId = requestUrl.searchParams.get("pid") || "default";
+  const profileLabel = requestUrl.searchParams.get("pl");
+
+  logToFile(`Browser extension connected to MCP bridge (profile: ${profileId})`);
+  registerExtensionConnection(profileId, profileLabel, ws);
 
   try {
+    const profileState = getProfileState();
     const handshake = {
       kind: "hello",
       serverVersion: SERVER_VERSION,
+      activeProfileId: profileState.activeProfileId,
+      profileCount: profileState.profileCount,
+      profiles: profileState.profiles,
     };
     ws.send(JSON.stringify(handshake));
   } catch (error) {
@@ -219,32 +269,36 @@ wss.on("connection", (ws: WebSocket, req) => {
   }
 
   ws.on("pong", () => {
-    logToFile("Native WebSocket pong received");
+    logToFile(`Native WebSocket pong received for profile ${profileId}`);
   });
 
   ws.on("message", (data: RawData) => {
-    handleExtensionMessage(data);
+    handleExtensionMessage(profileId, data);
   });
 
   ws.on("close", () => {
-    logToFile("Browser extension disconnected from MCP bridge");
-    setExtensionSocket(null);
-    cleanupPendingCalls();
+    logToFile(`Browser extension disconnected from MCP bridge (profile: ${profileId})`);
+    removeExtensionConnection(profileId);
   });
 
   ws.on("error", (err) => {
-    logToFile(`WebSocket error: ${err.message}`);
+    logToFile(`WebSocket error for profile ${profileId}: ${err.message}`);
   });
 });
 
 wss.on("error", (err) => {
   logErrorToFile("Failed to start WebSocket server", err);
-  process.exit(1);
+  shutdown(1);
 });
 
 // Main function
 async function main() {
   const transport = new StdioServerTransport();
+  stdioTransport = transport;
+  transport.onclose = () => {
+    logToFile("Stdio transport closed; shutting down MCP server");
+    shutdown(0);
+  };
   await server.connect(transport);
   logToFile("MCP server ready, exposing tools via stdio");
 }

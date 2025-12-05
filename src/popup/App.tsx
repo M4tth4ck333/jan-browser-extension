@@ -1,13 +1,14 @@
 import { Loader2, Plug, PlugZap, Settings } from 'lucide-react';
 
 import { SettingsOverlay } from './components/SettingsOverlay';
+import { ProfileStatusCard } from './components/ProfileStatusCard';
 import { TabStatusCard } from './components/TabStatusCard';
 import { Button } from './components/ui/button';
 import { useExtensionState } from './hooks/useExtensionState';
 import { cn } from './lib/utils';
 
 export default function App() {
-  const { bridge, tab, settings, actions } = useExtensionState();
+  const { bridge, tab, profile, settings, actions } = useExtensionState();
   const ConnectionIcon = bridge.tone === 'connected' ? PlugZap : Plug;
   const connectionHover =
     bridge.tone === 'connected' ? 'Connected' : bridge.tone === 'connecting' ? 'Connecting…' : 'Not connected';
@@ -65,9 +66,23 @@ export default function App() {
         </div>
       </header>
 
-      <div className="space-y-3">
-        <TabStatusCard statusLabel={tab.statusLabel} message={tab.message} actions={tab.actions} />
-      </div>
+      {profile.showSelector ? (
+        <div className="space-y-3">
+          <ProfileStatusCard
+            label={profile.label}
+            statusLabel={profile.statusLabel}
+            isActive={profile.isActive}
+            actionLabel={profile.actionLabel}
+            onActivate={profile.isActive ? undefined : actions.activateProfile}
+          />
+        </div>
+      ) : null}
+
+      {!profile.hideTabSection ? (
+        <div className="space-y-3">
+          <TabStatusCard statusLabel={tab.statusLabel} message={tab.message} actions={tab.actions} />
+        </div>
+      ) : null}
 
       <SettingsOverlay
         open={settings.open}

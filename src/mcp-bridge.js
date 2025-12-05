@@ -34,12 +34,19 @@ const connectionState = {
   intentionalClose: false,
   everConnected: false,
   sessionAutoReconnectDisabled: false,
+  profileId: null,
+  profileLabel: null,
+  activeProfileId: null,
+  profileCount: 1,
+  isActiveProfile: true,
 };
 
 let currentContext = {};
 let lastBridgeToken = null;
 let lastUseBridgeToken = false;
 let suppressPortDisconnect = false;
+let profileIdentity = { id: null, label: null };
+let profileIdentityPromise = null;
 
 function buildBaseUrl(port) {
   const url = new URL(DEFAULT_BASE_URL.href);
@@ -49,6 +56,65 @@ function buildBaseUrl(port) {
     url.port = DEFAULT_BASE_URL.port;
   }
   return url.toString();
+}
+
+function generateProfileId() {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+  } catch (_) {}
+  return `${Math.random().toString(16).slice(2, 10)}-${Date.now().toString(16)}`;
+}
+
+function applyProfileIdentity(identity) {
+  if (!identity) return;
+  profileIdentity = identity;
+  connectionState.profileId = identity.id;
+  connectionState.profileLabel = identity.label;
+  connectionState.activeProfileId = connectionState.activeProfileId || identity.id;
+  connectionState.isActiveProfile =
+    !connectionState.activeProfileId || connectionState.activeProfileId === identity.id;
+  connectionState.profileCount = Math.max(connectionState.profileCount || 1, 1);
+}
+
+async function ensureProfileIdentity() {
+  if (profileIdentity?.id) {
+    return profileIdentity;
+  }
+
+  if (!profileIdentityPromise) {
+    profileIdentityPromise = (async () => {
+      try {
+        const data = await chrome.storage.local.get(['profileId', 'profileLabel']);
+        let id = typeof data.profileId === 'string' && data.profileId ? data.profileId : null;
+        let label = typeof data.profileLabel === 'string' && data.profileLabel ? data.profileLabel : null;
+
+        if (!id) {
+          id = generateProfileId();
+          label = label || `Profile ${id.slice(0, 6).toUpperCase()}`;
+          await chrome.storage.local.set({ profileId: id, profileLabel: label });
+        } else if (!label) {
+          label = `Profile ${id.slice(0, 6).toUpperCase()}`;
+          await chrome.storage.local.set({ profileLabel: label });
+        }
+
+        const identity = { id, label };
+        applyProfileIdentity(identity);
+        broadcastBridgeStatus();
+        return identity;
+      } catch (error) {
+        console.warn('[MCP Bridge] Failed to load profile identity:', error);
+        const id = generateProfileId();
+        const identity = { id, label: `Profile ${id.slice(0, 6).toUpperCase()}` };
+        applyProfileIdentity(identity);
+        broadcastBridgeStatus();
+        return identity;
+      }
+    })();
+  }
+
+  return profileIdentityPromise;
 }
 
 function sanitizePort(value) {
@@ -83,17 +149,22 @@ function applyPort(port) {
 }
 
 function buildConnectionUrl() {
-  const base = connectionState.baseUrl || buildBaseUrl(connectionState.port);
-  if (!lastBridgeToken || !lastUseBridgeToken) {
-    return base;
-  }
-
   try {
+    const identity = profileIdentity?.id ? profileIdentity : null;
+    const base = connectionState.baseUrl || buildBaseUrl(connectionState.port);
     const url = new URL(base);
-    url.searchParams.set('t', lastBridgeToken);
+    if (lastBridgeToken && lastUseBridgeToken) {
+      url.searchParams.set('t', lastBridgeToken);
+    }
+    if (identity?.id) {
+      url.searchParams.set('pid', identity.id);
+      if (identity.label) {
+        url.searchParams.set('pl', identity.label);
+      }
+    }
     return url.toString();
   } catch (_) {
-    return base;
+    return connectionState.baseUrl || buildBaseUrl(connectionState.port);
   }
 }
 
@@ -109,6 +180,29 @@ function clearConnectTimer() {
     clearTimeout(connectionState.connectTimer);
     connectionState.connectTimer = null;
   }
+}
+
+function updateProfileStateFromServer(payload = {}) {
+  const identity = profileIdentity?.id ? profileIdentity : null;
+
+  if (typeof payload.profileCount === 'number') {
+    connectionState.profileCount = Math.max(1, Math.trunc(payload.profileCount));
+  }
+
+  if (typeof payload.activeProfileId === 'string' || payload.activeProfileId === null) {
+    connectionState.activeProfileId = payload.activeProfileId;
+  }
+
+  if (Array.isArray(payload.profiles) && identity?.id) {
+    const matching = payload.profiles.find((profile) => profile?.id === identity.id);
+    if (matching?.label) {
+      connectionState.profileLabel = matching.label;
+      profileIdentity = { ...identity, label: matching.label };
+    }
+  }
+
+  connectionState.isActiveProfile =
+    !connectionState.activeProfileId || connectionState.activeProfileId === connectionState.profileId;
 }
 
 async function isBridgeReachable() {
@@ -177,6 +271,8 @@ async function attemptConnection() {
   if (!connectionState.allowReconnect) {
     return;
   }
+
+  await ensureProfileIdentity();
 
   if (MAX_RETRY_ATTEMPTS > 0 && connectionState.retryCount >= MAX_RETRY_ATTEMPTS) {
     handleRetryLimitReached();
@@ -272,6 +368,9 @@ function handleSocketClose(event) {
   connectionState.socket = null;
   connectionState.lastMessageAt = Date.now();
   connectionState.lastHandshake = null;
+  connectionState.profileCount = 1;
+  connectionState.activeProfileId = connectionState.profileId;
+  connectionState.isActiveProfile = true;
 
   if (!connectionState.everConnected) {
     const reason =
@@ -325,17 +424,25 @@ function handleSocketMessage(rawData) {
     connectionState.status = 'ready';
     connectionState.lastHandshake = Date.now();
     connectionState.lastError = null;
+    updateProfileStateFromServer(message);
     broadcastBridgeStatus();
 
     // Send ready acknowledgment to MCP server
     const socket = connectionState.socket;
     if (socket && socket.readyState === WebSocket.OPEN) {
       try {
-        socket.send(JSON.stringify({ kind: 'ready' }));
+        const identity = profileIdentity?.id ? profileIdentity : null;
+        socket.send(JSON.stringify({ kind: 'ready', profileId: identity?.id, profileLabel: identity?.label }));
       } catch (error) {
         console.error('[MCP Bridge] Failed to send ready acknowledgment:', error);
       }
     }
+    return;
+  }
+
+  if (message.kind === 'profile_state') {
+    updateProfileStateFromServer(message);
+    broadcastBridgeStatus();
     return;
   }
 
@@ -427,6 +534,11 @@ export function getBridgeStatus() {
     usingToken: !!(lastBridgeToken && lastUseBridgeToken),
     reconnecting: connectionState.allowReconnect && !!connectionState.retryTimer,
     autoReconnectDisabled: connectionState.sessionAutoReconnectDisabled,
+    profileId: connectionState.profileId,
+    profileLabel: connectionState.profileLabel,
+    activeProfileId: connectionState.activeProfileId,
+    profileCount: connectionState.profileCount,
+    isActiveProfile: connectionState.isActiveProfile,
   };
 }
 
@@ -466,6 +578,9 @@ export async function connectBridge(options = {}) {
     // User opted out of auto-reconnect this session; skip silently.
     return;
   }
+
+  await ensureProfileIdentity();
+  applyProfileIdentity(profileIdentity);
 
   if (port !== undefined) {
     await updateBridgePort(port, { disconnectOnChange: false });
@@ -515,6 +630,27 @@ export function disconnectBridge(options = {}) {
 
 export function closeBridge() {
   disconnectBridge();
+}
+
+export async function activateBridgeProfile() {
+  const identity = await ensureProfileIdentity();
+  const socket = connectionState.socket;
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    throw new Error('Bridge is not connected.');
+  }
+
+  try {
+    socket.send(
+      JSON.stringify({ kind: 'activate_profile', profileId: identity.id, profileLabel: identity.label }),
+    );
+    connectionState.activeProfileId = identity.id;
+    connectionState.isActiveProfile = true;
+    broadcastBridgeStatus();
+    return true;
+  } catch (error) {
+    console.error('[MCP Bridge] Failed to activate profile:', error);
+    throw error;
+  }
 }
 
 function setupStorageListeners() {
@@ -591,6 +727,10 @@ async function loadBridgeSettings() {
 
 export function initializeMcpBridge(context = {}) {
   currentContext = context;
+
+  ensureProfileIdentity().catch((error) => {
+    console.warn('[MCP Bridge] Failed to initialize profile identity:', error);
+  });
 
   loadBridgeSettings()
     .catch((error) => {
