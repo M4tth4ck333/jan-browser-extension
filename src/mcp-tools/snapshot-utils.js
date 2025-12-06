@@ -8,9 +8,17 @@ import { clearElementRefMap, getElementRefMap, setElementRefMap } from '../lib/e
 const DEBUGGER_PROTOCOL_VERSION = '1.3';
 
 const SNAPSHOT_PRESETS = {
-  shallow: { domDepth: 8, axDepth: 8, maxChildren: 24, maxInteractive: 120, maxLandmarks: 40, maxPerFrame: 50 },
-  medium: { domDepth: 16, axDepth: 16, maxChildren: 32, maxInteractive: 200, maxLandmarks: 80, maxPerFrame: 100 },
-  deep: { domDepth: 48, axDepth: 48, maxChildren: 80, maxInteractive: 600, maxLandmarks: 200, maxPerFrame: 150 },
+  shallow: { domDepth: 8, axDepth: 8, maxChildren: 80, maxInteractive: 120, maxLandmarks: 40, maxPerFrame: 100 },
+  medium: { domDepth: 16, axDepth: 16, maxChildren: 160, maxInteractive: 300, maxLandmarks: 120, maxPerFrame: 200 },
+  deep: { domDepth: 64, axDepth: 64, maxChildren: 240, maxInteractive: 800, maxLandmarks: 240, maxPerFrame: 300 },
+  all: {
+    domDepth: Number.POSITIVE_INFINITY,
+    axDepth: Number.POSITIVE_INFINITY,
+    maxChildren: Number.POSITIVE_INFINITY,
+    maxInteractive: Number.POSITIVE_INFINITY,
+    maxLandmarks: Number.POSITIVE_INFINITY,
+    maxPerFrame: Number.POSITIVE_INFINITY,
+  },
 };
 
 function getSnapshotLimits(detailLevel = 'medium') {
@@ -362,6 +370,9 @@ async function captureDomSnapshot(tabId, fullPage = true) {
         const tag = element.tagName;
         if (tag === 'A') return 'link';
         if (tag === 'BUTTON') return 'button';
+        if (tag === 'SELECT') return 'listbox';
+        if (tag === 'OPTION') return 'option';
+        if (tag === 'LI') return 'listitem';
         if (tag === 'INPUT') {
           if (element.type === 'checkbox') return 'checkbox';
           if (element.type === 'radio') return 'radio';
@@ -1319,6 +1330,18 @@ async function buildRefToSelectorMap(nodes, target, frameResults = []) {
 
   console.log(`[RefMap] Building mapping for ${nodes.length} total accessibility nodes across ${frameResults.length || 1} frames`);
 
+  // Map child index and parent ref for each node for better targeting (e.g., virtualized lists)
+  const childIndexByNodeId = new Map();
+  const parentRefByNodeId = new Map();
+  for (const node of nodes) {
+    if (Array.isArray(node.childIds)) {
+      node.childIds.forEach((childId, idx) => {
+        childIndexByNodeId.set(childId, idx);
+        parentRefByNodeId.set(childId, currentAxRefMap.get(node.nodeId) || null);
+      });
+    }
+  }
+
   // Create a map of node to frameId for iframe nodes
   const nodeToFrameId = new Map();
   if (frameResults.length > 0) {
@@ -1343,12 +1366,14 @@ async function buildRefToSelectorMap(nodes, target, frameResults = []) {
 
     const backendNodeId = node.backendDOMNodeId || node.domNodeId;
     const frameId = nodeToFrameId.get(node.nodeId);
+    const childIndex = childIndexByNodeId.get(node.nodeId);
+    const parentRef = parentRefByNodeId.get(node.nodeId) || null;
 
     if (backendNodeId) {
-      nodesToMap.push({ node, refId, backendNodeId, frameId });
+      nodesToMap.push({ node, refId, backendNodeId, frameId, childIndex, parentRef });
     } else {
       // Store ref even without backendNodeId - it won't have CSS selector but can still be referenced
-      nodesWithoutBackendId.push({ refId, frameId });
+      nodesWithoutBackendId.push({ refId, frameId, childIndex, parentRef });
     }
   }
 
@@ -1379,13 +1404,15 @@ async function buildRefToSelectorMap(nodes, target, frameResults = []) {
 
     // Process results
     descriptions.forEach((result, idx) => {
-      const { refId, backendNodeId, frameId } = batch[idx];
+      const { refId, backendNodeId, frameId, childIndex, parentRef } = batch[idx];
 
       if (result.status === 'rejected' || !result.value?.node) {
         refMap[refId] = { backend: backendNodeId };
         if (frameId) {
           refMap[refId].frameId = frameId;
         }
+        if (parentRef) refMap[refId].parentRef = parentRef;
+        if (childIndex !== undefined) refMap[refId].childIndex = childIndex;
         backendCount++;
         return;
       }
@@ -1398,23 +1425,29 @@ async function buildRefToSelectorMap(nodes, target, frameResults = []) {
         if (frameId) {
           refMap[refId].frameId = frameId;
         }
+        if (parentRef) refMap[refId].parentRef = parentRef;
+        if (childIndex !== undefined) refMap[refId].childIndex = childIndex;
         cssCount++;
       } else {
         refMap[refId] = { backend: backendNodeId };
         if (frameId) {
           refMap[refId].frameId = frameId;
         }
+        if (parentRef) refMap[refId].parentRef = parentRef;
+        if (childIndex !== undefined) refMap[refId].childIndex = childIndex;
         backendCount++;
       }
     });
   }
 
   // Add refs without backend IDs (won't have selectors, but still referenceable)
-  for (const { refId, frameId } of nodesWithoutBackendId) {
+  for (const { refId, frameId, childIndex, parentRef } of nodesWithoutBackendId) {
     refMap[refId] = { placeholder: true }; // Mark as placeholder - no selector available
     if (frameId) {
       refMap[refId].frameId = frameId;
     }
+    if (parentRef) refMap[refId].parentRef = parentRef;
+    if (childIndex !== undefined) refMap[refId].childIndex = childIndex;
   }
 
   const totalRefs = cssCount + backendCount + nodesWithoutBackendId.length;

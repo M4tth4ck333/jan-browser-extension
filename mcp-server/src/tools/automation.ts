@@ -7,7 +7,6 @@ import { callExtension, waitForBridgeConnection, hasExtensionConnection } from "
 import {
   sanitizeClickParams,
   sanitizeTypeParams,
-  sanitizeInputParams,
   sanitizeDragParams,
 } from "./sanitize.js";
 import type { Tool, ToolResult } from "./tool.js";
@@ -87,41 +86,6 @@ export const browserType: Tool = {
   },
 };
 
-
-const InputValueSchema = z
-  .object({
-    target: TargetSchema,
-    value: z.union([z.string(), z.number(), z.boolean()]).optional().describe("Value to set or select for the target element"),
-    values: z.array(z.string()).min(1).optional().describe("Array of values to select when the target supports multiple selections"),
-  })
-  .superRefine((value, ctx) => {
-    if (value.value === undefined && !value.values) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Provide a value or values to apply to the target element",
-      });
-    }
-  });
-
-export const browserInput: Tool = {
-  schema: {
-    name: "browser_input",
-    description: "Set value(s) on a form control by snapshot ref (e.g., 's1e5' for main frame or 's1f2e10' for iframe elements).",
-    inputSchema: zodToJsonSchema(InputValueSchema) as any,
-  },
-  handle: async (params) => {
-    if (!hasExtensionConnection()) {
-      await waitForBridgeConnection(4000);
-    }
-
-    const { error, ...sanitized } = sanitizeInputParams(params);
-    if (error) {
-      return toErrorResult(error);
-    }
-
-    return await callExtension("browser_input", sanitized);
-  },
-};
 
 const DragSchema = z
   .object({
