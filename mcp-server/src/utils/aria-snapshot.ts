@@ -60,10 +60,7 @@ export async function captureAriaSnapshot(
     const statusLine = status ? `${status}\n` : "";
     const text = `${statusLine}- Page URL: ${pageUrl}
 - Page Title: ${pageTitle}
-- Page Snapshot
-\`\`\`yaml
 ${yaml}
-\`\`\`
 `;
 
     const meta: Record<string, unknown> = {};

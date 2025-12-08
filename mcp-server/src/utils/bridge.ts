@@ -7,7 +7,6 @@ import { appendFileSync } from "fs";
 
 const LOG_FILE = process.env.MCP_LOG_FILE;
 const MAX_BRIDGE_RETRIES = 10;
-const BRIDGE_RETRY_DELAY_MS = 100;
 
 function logToFile(message: string) {
   if (LOG_FILE) {
@@ -40,21 +39,30 @@ function logError(message: string, error?: unknown) {
   }
 }
 
-let extSocket: WebSocket | null = null;
 const pendingCalls = new Map<string, { resolve: (val: any) => void; reject: (err: any) => void }>();
 let activeTabId: number | null = null;
-let isExtensionReady: boolean = false;
+
+interface ProfileConnection {
+  id: string;
+  label: string;
+  socket: WebSocket;
+  ready: boolean;
+  lastPongTime: number;
+  pingInterval: NodeJS.Timeout | null;
+  pongTimeout: NodeJS.Timeout | null;
+}
+
+const connections = new Map<string, ProfileConnection>();
+let activeProfileId: string | null = null;
+let shuttingDown = false;
 
 // Ping/Pong heartbeat configuration
 const PING_INTERVAL_MS = 15000; // Send ping every 15 seconds
 const PONG_TIMEOUT_MS = 5000; // Expect pong within 5 seconds
-let pingInterval: NodeJS.Timeout | null = null;
-let pongTimeout: NodeJS.Timeout | null = null;
-let lastPongTime: number = Date.now();
 
 // Exponential backoff retry configuration
 const INITIAL_RETRY_DELAY_MS = 1000; // Start with 1s delay
-const MAX_RETRY_DELAY_MS = 10000;    // Cap at 10s delay
+const MAX_RETRY_DELAY_MS = 10000; // Cap at 10s delay
 
 export function setActiveTabId(tabId: number | null) {
   activeTabId = tabId;
@@ -69,32 +77,92 @@ export function hasActiveTab(): boolean {
   return activeTabId !== null;
 }
 
-export function setExtensionSocket(socket: WebSocket | null) {
-  extSocket = socket;
-
-  // Reset ready state when socket changes
-  if (!socket) {
-    isExtensionReady = false;
+function stopHeartbeat(connection: ProfileConnection) {
+  if (connection.pingInterval) {
+    clearInterval(connection.pingInterval);
+    connection.pingInterval = null;
   }
+  if (connection.pongTimeout) {
+    clearTimeout(connection.pongTimeout);
+    connection.pongTimeout = null;
+  }
+  logToFile(`Heartbeat: Stopped for profile ${connection.id}`);
+}
 
-  // Start heartbeat when socket is set
-  if (socket) {
-    startHeartbeat();
-  } else {
-    stopHeartbeat();
+function closeConnection(connection: ProfileConnection, code = 1001, reason = "Shutting down") {
+  stopHeartbeat(connection);
+  try {
+    if (
+      connection.socket.readyState === WebSocket.OPEN ||
+      connection.socket.readyState === WebSocket.CONNECTING
+    ) {
+      connection.socket.close(code, reason);
+    }
+  } catch (error) {
+    logError(`Error closing socket for profile ${connection.id}`, error);
   }
 }
 
-export function getExtensionSocket(): WebSocket | null {
-  return extSocket;
+function startHeartbeat(profileId: string) {
+  const connection = connections.get(profileId);
+  if (!connection) return;
+
+  stopHeartbeat(connection);
+  connection.lastPongTime = Date.now();
+
+  connection.pingInterval = setInterval(() => {
+    if (!connections.has(profileId)) {
+      stopHeartbeat(connection);
+      return;
+    }
+
+    if (connection.socket.readyState !== WebSocket.OPEN) {
+      logToFile(`Heartbeat: Socket not open for profile ${profileId}, stopping`);
+      stopHeartbeat(connection);
+      return;
+    }
+
+    const timeSinceLastPong = Date.now() - connection.lastPongTime;
+    if (timeSinceLastPong > PING_INTERVAL_MS + PONG_TIMEOUT_MS) {
+      logToFile(
+        `Heartbeat: No pong received for ${timeSinceLastPong}ms on profile ${profileId}, connection may be stale`,
+      );
+      try {
+        connection.socket.close();
+      } catch (e) {
+        logToFile(`Heartbeat: Error closing stale socket for profile ${profileId}: ${e}`);
+      }
+      stopHeartbeat(connection);
+      return;
+    }
+
+    try {
+      logToFile(`Heartbeat: Sending ping to profile ${profileId}`);
+      connection.socket.send(JSON.stringify({ kind: "ping" }));
+
+      if (connection.pongTimeout) clearTimeout(connection.pongTimeout);
+      connection.pongTimeout = setTimeout(() => {
+        logToFile(`Heartbeat: Pong timeout for profile ${profileId}, connection may be unhealthy`);
+      }, PONG_TIMEOUT_MS);
+    } catch (e) {
+      logToFile(`Heartbeat: Error sending ping to profile ${profileId}: ${e}`);
+      stopHeartbeat(connection);
+    }
+  }, PING_INTERVAL_MS);
+
+  logToFile(`Heartbeat: Started for profile ${profileId}`);
 }
 
-export function hasExtensionConnection(): boolean {
-  return extSocket !== null && extSocket.readyState === WebSocket.OPEN && isExtensionReady;
-}
+function handlePong(profileId: string) {
+  const connection = connections.get(profileId);
+  if (!connection) return;
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  connection.lastPongTime = Date.now();
+  if (connection.pongTimeout) {
+    clearTimeout(connection.pongTimeout);
+    connection.pongTimeout = null;
+  }
+  logToFile(`Heartbeat: Received pong from profile ${profileId}`);
 }
 
 function normalizeError(error: unknown): Error {
@@ -114,78 +182,141 @@ function isRetriableBridgeError(error: Error): boolean {
   );
 }
 
-/**
- * Start ping/pong heartbeat to keep connection alive
- */
-function startHeartbeat() {
-  stopHeartbeat(); // Clear any existing intervals
-  lastPongTime = Date.now();
-
-  pingInterval = setInterval(() => {
-    if (!extSocket || extSocket.readyState !== WebSocket.OPEN) {
-      logToFile("Heartbeat: Socket not open, stopping");
-      stopHeartbeat();
-      return;
+function getActiveConnection(): ProfileConnection | null {
+  if (activeProfileId) {
+    const connection = connections.get(activeProfileId);
+    if (connection && connection.ready && connection.socket.readyState === WebSocket.OPEN) {
+      return connection;
     }
+  }
 
-    // Check if we received a pong recently
-    const timeSinceLastPong = Date.now() - lastPongTime;
-    if (timeSinceLastPong > PING_INTERVAL_MS + PONG_TIMEOUT_MS) {
-      logToFile(`Heartbeat: No pong received for ${timeSinceLastPong}ms, connection may be stale`);
-      // Connection appears stale, close and let reconnection logic handle it
+  for (const connection of connections.values()) {
+    if (connection.ready && connection.socket.readyState === WebSocket.OPEN) {
+      activeProfileId = connection.id;
+      return connection;
+    }
+  }
+
+  return null;
+}
+
+export function getProfileState() {
+  return {
+    activeProfileId,
+    profileCount: connections.size,
+    profiles: Array.from(connections.values()).map((connection) => ({
+      id: connection.id,
+      label: connection.label,
+      ready: connection.ready,
+    })),
+  };
+}
+
+function broadcastProfileState() {
+  const snapshot = getProfileState();
+  const payload = JSON.stringify({
+    kind: "profile_state",
+    activeProfileId: snapshot.activeProfileId,
+    profileCount: snapshot.profileCount,
+    profiles: snapshot.profiles,
+  });
+
+  for (const connection of connections.values()) {
+    if (connection.socket.readyState === WebSocket.OPEN) {
       try {
-        extSocket.close();
-      } catch (e) {
-        logToFile(`Heartbeat: Error closing stale socket: ${e}`);
+        connection.socket.send(payload);
+      } catch (error) {
+        logError(`Failed to broadcast profile state to profile ${connection.id}`, error);
       }
-      stopHeartbeat();
-      return;
     }
+  }
+}
 
-    // Send ping
+function setActiveProfile(profileId: string | null) {
+  if (profileId && !connections.has(profileId)) {
+    logToFile(`Attempted to activate unknown profile: ${profileId}`);
+    return;
+  }
+
+  if (activeProfileId === profileId) {
+    return;
+  }
+
+  activeProfileId = profileId;
+  cleanupPendingCalls();
+  logToFile(`Active profile set to: ${profileId ?? "none"}`);
+  broadcastProfileState();
+}
+
+export function registerExtensionConnection(profileId: string, label: string | null, socket: WebSocket) {
+  if (shuttingDown) {
     try {
-      logToFile("Heartbeat: Sending ping");
-      extSocket.send(JSON.stringify({ kind: "ping" }));
+      socket.close(1012, "Server restarting");
+    } catch {}
+    return;
+  }
 
-      // Set timeout to check for pong
-      if (pongTimeout) clearTimeout(pongTimeout);
-      pongTimeout = setTimeout(() => {
-        logToFile("Heartbeat: Pong timeout, connection may be unhealthy");
-      }, PONG_TIMEOUT_MS);
-    } catch (e) {
-      logToFile(`Heartbeat: Error sending ping: ${e}`);
-      stopHeartbeat();
+  const normalizedLabel = label?.trim() || `Profile ${profileId.slice(0, 8)}`;
+
+  if (connections.has(profileId)) {
+    try {
+      connections.get(profileId)?.socket?.close();
+    } catch (error) {
+      logError(`Error closing existing socket for profile ${profileId}`, error);
     }
-  }, PING_INTERVAL_MS);
+  }
 
-  logToFile("Heartbeat: Started");
+  const connection: ProfileConnection = {
+    id: profileId,
+    label: normalizedLabel,
+    socket,
+    ready: false,
+    lastPongTime: Date.now(),
+    pingInterval: null,
+    pongTimeout: null,
+  };
+
+  connections.set(profileId, connection);
+  if (!activeProfileId) {
+    activeProfileId = profileId;
+  }
+
+  startHeartbeat(profileId);
+  broadcastProfileState();
 }
 
-/**
- * Stop ping/pong heartbeat
- */
-function stopHeartbeat() {
-  if (pingInterval) {
-    clearInterval(pingInterval);
-    pingInterval = null;
+export function removeExtensionConnection(profileId: string) {
+  const connection = connections.get(profileId);
+  if (!connection) return;
+
+  closeConnection(connection, 1001, "Extension disconnected");
+  connections.delete(profileId);
+
+  if (activeProfileId === profileId) {
+    const firstProfile = connections.values().next();
+    setActiveProfile(firstProfile.done ? null : firstProfile.value.id);
+  } else {
+    broadcastProfileState();
   }
-  if (pongTimeout) {
-    clearTimeout(pongTimeout);
-    pongTimeout = null;
-  }
-  logToFile("Heartbeat: Stopped");
 }
 
-/**
- * Handle pong response from extension
- */
-export function handlePong() {
-  lastPongTime = Date.now();
-  if (pongTimeout) {
-    clearTimeout(pongTimeout);
-    pongTimeout = null;
+export function closeAllConnections() {
+  shuttingDown = true;
+  for (const connection of connections.values()) {
+    closeConnection(connection, 1012, "Server shutting down");
   }
-  logToFile("Heartbeat: Received pong");
+  connections.clear();
+  activeProfileId = null;
+  cleanupPendingCalls();
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function hasExtensionConnection(): boolean {
+  const connection = getActiveConnection();
+  return connection !== null && connection.socket.readyState === WebSocket.OPEN && connection.ready;
 }
 
 /**
@@ -218,10 +349,9 @@ export async function callExtension(tool: string, params: any): Promise<any> {
       attempts++;
       lastError = new Error("Browser extension not connected to bridge");
 
-      // Use exponential backoff for reconnection waits
       const delayMs = Math.min(
         INITIAL_RETRY_DELAY_MS * Math.pow(2, attempts - 1),
-        MAX_RETRY_DELAY_MS
+        MAX_RETRY_DELAY_MS,
       );
       logToFile(`Retry ${attempts}/${MAX_BRIDGE_RETRIES}: Bridge not connected, waiting ${delayMs}ms...`);
       await delay(delayMs);
@@ -244,10 +374,9 @@ export async function callExtension(tool: string, params: any): Promise<any> {
 
       attempts++;
 
-      // Use exponential backoff for retryable errors
       const delayMs = Math.min(
         INITIAL_RETRY_DELAY_MS * Math.pow(2, attempts - 1),
-        MAX_RETRY_DELAY_MS
+        MAX_RETRY_DELAY_MS,
       );
       logToFile(`Retry ${attempts}/${MAX_BRIDGE_RETRIES} for ${tool} after ${delayMs}ms (error: ${normalized.message})`);
       await delay(delayMs);
@@ -265,13 +394,13 @@ export async function callExtension(tool: string, params: any): Promise<any> {
 
 function sendToolCall(tool: string, params: any): Promise<any> {
   return new Promise((resolve, reject) => {
-    if (!hasExtensionConnection()) {
+    const connection = getActiveConnection();
+    if (!connection) {
       reject(new Error("Browser extension not connected to bridge"));
       return;
     }
 
     const callId = uuidv4();
-    // Increased timeout for long-running operations
     const timeoutMs = tool === "screenshot" ? 10000 : 60000; // Increased from 30s to 60s
     const timeout = setTimeout(() => {
       pendingCalls.delete(callId);
@@ -283,12 +412,12 @@ function sendToolCall(tool: string, params: any): Promise<any> {
     pendingCalls.set(callId, {
       resolve: (val) => {
         clearTimeout(timeout);
-        logToFile(`Tool call resolved: ${tool} (${callId})`);
+        logToFile(`Tool call resolved: ${tool} (${callId}) [profile ${connection.id}]`);
         resolve(val);
       },
       reject: (err) => {
         clearTimeout(timeout);
-        logToFile(`Tool call rejected: ${tool} (${callId}) - ${err}`);
+        logToFile(`Tool call rejected: ${tool} (${callId}) [profile ${connection.id}] - ${err}`);
         reject(err);
       },
     });
@@ -300,10 +429,10 @@ function sendToolCall(tool: string, params: any): Promise<any> {
       params: params,
     };
 
-    logToFile(`Sending to extension: ${tool} (${callId})`);
+    logToFile(`Sending to extension: ${tool} (${callId}) [profile ${connection.id}]`);
 
     try {
-      extSocket!.send(JSON.stringify(message));
+      connection.socket.send(JSON.stringify(message));
     } catch (error) {
       clearTimeout(timeout);
       pendingCalls.delete(callId);
@@ -318,7 +447,7 @@ function sendToolCall(tool: string, params: any): Promise<any> {
  * Handle incoming message from browser extension
  * Extension sends: {id, kind: "result", ok, data?, error?} or {kind: "pong"} or {kind: "ready"}
  */
-export function handleExtensionMessage(data: any) {
+export function handleExtensionMessage(profileId: string, data: any) {
   try {
     let msg: any;
     if (data && data.type === "Buffer" && Array.isArray(data.data)) {
@@ -331,16 +460,30 @@ export function handleExtensionMessage(data: any) {
     } else {
       msg = data;
     }
-    logToFile(`Received from extension: ${JSON.stringify(msg)}`);
+    logToFile(`Received from extension (${profileId}): ${JSON.stringify(msg)}`);
 
     if (msg.kind === "pong") {
-      handlePong();
+      handlePong(profileId);
       return;
     }
 
     if (msg.kind === "ready") {
-      isExtensionReady = true;
-      logToFile("Extension handshake complete - bridge is ready");
+      const connection = connections.get(profileId);
+      if (connection) {
+        connection.ready = true;
+        connection.lastPongTime = Date.now();
+        if (!activeProfileId) {
+          activeProfileId = profileId;
+        }
+      }
+      broadcastProfileState();
+      logToFile(`Extension handshake complete for profile ${profileId} - bridge is ready`);
+      return;
+    }
+
+    if (msg.kind === "activate_profile") {
+      const requestedProfileId = typeof msg.profileId === "string" ? msg.profileId : profileId;
+      setActiveProfile(requestedProfileId);
       return;
     }
 

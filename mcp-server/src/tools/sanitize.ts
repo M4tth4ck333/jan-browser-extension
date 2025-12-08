@@ -11,40 +11,63 @@ const normalizeDetailLevel = (value: unknown): "shallow" | "medium" | "deep" => 
   return "deep";
 };
 
+const VALID_SNAPSHOT_REF_PATTERN = /^s\d+(?:f\d+)?e\d+$/i;
+const BACKEND_REF_PATTERN = /^backend:\d+$/i;
+
+const refFormatError = (ref: string, label?: string): string | undefined => {
+  if (!ref) return undefined;
+  if (VALID_SNAPSHOT_REF_PATTERN.test(ref)) return undefined;
+  if (BACKEND_REF_PATTERN.test(ref)) return undefined;
+
+  const prefix = label ? `${label}: ` : "";
+  return `${prefix}Invalid element reference "${ref}". Use format s{snapshot}e{element} or s{snapshot}f{frame}e{element}, e.g., "s1e1" or "s1f1e5".`;
+};
+
 export function sanitizeClickParams(params: any) {
+  const target = trimString(params?.target);
   return {
-    target: trimString(params?.target),
+    target,
+    error: refFormatError(target),
   };
 }
 
 export function sanitizeTypeParams(params: any) {
+  const target = trimString(params?.target);
   return {
-    target: trimString(params?.target),
+    target,
     text:
       typeof params?.text === "string"
         ? params.text
         : params?.text !== undefined && params?.text !== null
           ? String(params.text)
-          : undefined,
+        : undefined,
     clear: params?.clear !== false,
     submit: params?.submit === true,
+    error: refFormatError(target),
   };
 }
 
 export function sanitizeInputParams(params: any) {
+  const target = trimString(params?.target);
   return {
-    target: trimString(params?.target),
+    target,
     value: params?.value,
     values: Array.isArray(params?.values)
       ? params.values.map((v: unknown) => String(v))
       : undefined,
+    error: refFormatError(target),
   };
 }
 
 export function sanitizeDragParams(params: any) {
+  const start = trimString(params?.start);
+  const end = trimString(params?.end);
+  const startError = refFormatError(start, "Start target");
+  const endError = startError ? undefined : refFormatError(end, "End target");
   return {
-    start: trimString(params?.start),
-    end: trimString(params?.end),
+    start,
+    end,
+    error: startError || endError,
   };
 }
 
@@ -64,6 +87,16 @@ export function sanitizeNavigateParams(params: any) {
   }
 
   return { target };
+}
+
+export function sanitizeScrollParams(params: any) {
+  const target = trimString(params?.target);
+  return {
+    direction: params?.direction,
+    amount: params?.amount,
+    target,
+    error: refFormatError(target),
+  };
 }
 
 export function sanitizeSnapshotParams(params: any) {

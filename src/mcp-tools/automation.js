@@ -41,7 +41,7 @@ function formatElementLabel(detectedElement = {}, fallbackRef = '') {
   const baseLabel = `${tag || 'element'}${descriptorSegment}${metaSegment}`.trim();
 
   const trimmedRef = typeof fallbackRef === 'string' ? fallbackRef.trim() : '';
-  const isRefLike = /^s\d+e\d+$/i.test(trimmedRef) || trimmedRef.startsWith('css:');
+  const isRefLike = /^s\d+(?:f\d+)?e\d+$/i.test(trimmedRef) || trimmedRef.startsWith('css:');
   const prefix = trimmedRef ? (isRefLike ? `ref: ${trimmedRef}` : trimmedRef) : '';
 
   return prefix ? `${prefix} - ${baseLabel}` : baseLabel;
@@ -321,10 +321,54 @@ export async function handleClickElement(params = {}) {
     }
     const backendFallback = resolvedRef.backendValue;
     const cssFallback = resolvedRef.cssValue;
+    const frameId = resolvedRef.frameId; // Get frameId for iframe elements
+
+    // If we have parent/index metadata (e.g., listbox options), try to scroll and target by index
+    if (resolvedRef.parentRef && typeof resolvedRef.childIndex === 'number') {
+      const located = await scrollOptionAndLocate(tabId, resolvedRef.parentRef, resolvedRef.childIndex);
+      if (located?.success && located.clickPoint) {
+        try {
+          await clickPointWithDebugger(tabId, located.clickPoint);
+        } catch (err) {
+          console.error('[MCP Tools] debugger click failed via indexed scroll', err);
+          return createErrorResult('Click failed', err);
+        }
+
+        const meta = {};
+        if (tab?.url) meta.urls = [tab.url];
+        if (typeof tabId === 'number') meta.tabId = tabId;
+
+        const elementLabel = formatElementLabel(located.detectedElement, parsedTarget.label || ref);
+
+        return {
+          ok: true,
+          content: [
+            {
+              type: 'text',
+              text: `Clicked ${elementLabel}`,
+            },
+          ],
+          _meta: Object.keys(meta).length ? meta : undefined,
+          data: {
+            url: tab?.url,
+            target: parsedTarget.raw || ref,
+            ref,
+            resolvedRef: resolvedRef.value,
+            resolvedRefOriginal: resolvedRef.originalRef || ref,
+            clickPoint: located.clickPoint,
+            detectedElement: located.detectedElement,
+            boundingRect: located.boundingRect || null,
+            timestamp: new Date().toISOString(),
+            tabId,
+          },
+        };
+      }
+    }
 
     const preparedTarget = await prepareElementForAction(tabId, {
       ref: resolvedRef.value,
       mode: 'click',
+      frameId, // Pass frameId to execute script in correct frame
     });
 
     const elementLabel = formatElementLabel(preparedTarget?.detectedElement, parsedTarget.label || ref);
@@ -496,6 +540,136 @@ export async function handleClickElement(params = {}) {
   }
 }
 
+async function scrollOptionAndLocate(tabId, parentRef, childIndex) {
+  if (typeof childIndex !== 'number' || !parentRef) return null;
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: ({ parentRef, childIndex }) => {
+      const resolveElementFromRef = (reference) => {
+        if (typeof reference !== 'string' || reference.length === 0) return null;
+        if (reference.includes('##')) {
+          const parts = reference.split('##');
+          let current = null;
+          if (parts[0].startsWith('css:')) {
+            const hostSelector = parts[0].slice(4);
+            try {
+              current = document.querySelector(hostSelector);
+            } catch (_) {
+              return null;
+            }
+          }
+          if (!current) return null;
+          for (let i = 1; i < parts.length; i++) {
+            if (!current.shadowRoot) return null;
+            try {
+              current = current.shadowRoot.querySelector(parts[i]);
+            } catch (_) {
+              return null;
+            }
+            if (!current) return null;
+          }
+          return current;
+        }
+        if (reference.startsWith('css:')) {
+          const selectorText = reference.slice(4);
+          if (!selectorText) return null;
+          try {
+            return document.querySelector(selectorText);
+          } catch (_) {
+            return null;
+          }
+        }
+        try {
+          let element = document.querySelector(`[data-aria-id="${reference}"]`);
+          if (element) return element;
+          element = document.getElementById(reference);
+          if (element) return element;
+          element = document.querySelector(reference);
+          if (element) return element;
+        } catch (_) {
+          // ignore
+        }
+        return null;
+      };
+
+      const parent = resolveElementFromRef(parentRef);
+      if (!parent) {
+        return { success: false, error: 'Parent element not found' };
+      }
+
+      const optionSelector = '[role="option"], option, li, div, span';
+      const scrollOnce = () => {
+        const first = parent.querySelector(optionSelector);
+        const itemHeight = first?.getBoundingClientRect?.().height || 32;
+        if (itemHeight && parent.scrollHeight > parent.clientHeight) {
+          parent.scrollTop = Math.min(
+            childIndex * itemHeight,
+            Math.max(0, parent.scrollHeight - parent.clientHeight),
+          );
+        }
+      };
+
+      scrollOnce();
+
+      const options = Array.from(parent.querySelectorAll(optionSelector));
+      const target =
+        options.find((opt) => {
+          const idx =
+            Number(opt.getAttribute?.('data-index')) ||
+            Number(opt.getAttribute?.('data-idx')) ||
+            Number(opt.dataset?.index);
+          return Number.isFinite(idx) && idx === childIndex;
+        }) || options[childIndex] || null;
+
+      if (!target) {
+        return { success: false, error: 'Option not found after scroll' };
+      }
+
+      try {
+        target.scrollIntoView?.({ block: 'center', inline: 'nearest', behavior: 'instant' });
+      } catch (_) {
+        try {
+          target.scrollIntoView();
+        } catch (_) {}
+      }
+
+      const rect = target.getBoundingClientRect?.();
+      const visualViewport = window.visualViewport;
+      const viewportX = visualViewport ? visualViewport.offsetLeft : 0;
+      const viewportY = visualViewport ? visualViewport.offsetTop : 0;
+      const clickPoint = rect
+        ? { x: rect.left + viewportX + rect.width / 2, y: rect.top + viewportY + rect.height / 2 }
+        : null;
+
+      const detectedElement = (() => {
+        if (!target) return null;
+        return {
+          tagName: target.tagName || 'unknown',
+          role: target.getAttribute?.('role') || null,
+          id: target.id || null,
+          className: target.className || null,
+          name: target.getAttribute?.('name') || null,
+          type: target.getAttribute?.('type') || null,
+          ariaLabel: target.getAttribute?.('aria-label') || null,
+          ariaDescription: target.getAttribute?.('aria-description') || null,
+          placeholder: target.getAttribute?.('placeholder') || null,
+          text: (target.textContent || '').trim().slice(0, 500) || null,
+          value: target.value !== undefined ? String(target.value).slice(0, 200) : null,
+        };
+      })();
+
+      return {
+        success: true,
+        clickPoint,
+        boundingRect: rect ? { ...rect.toJSON?.(), x: rect.x, y: rect.y } : null,
+        detectedElement,
+      };
+    },
+    args: [{ parentRef, childIndex }],
+  });
+
+  return result || null;
+}
 /**
  * Types text and/or presses keys within an element
  */
@@ -542,6 +716,7 @@ export async function handleTypeText(params = {}) {
     let clickPoint = null;
     let preparedTarget = null;
     let resolvedRefValue = null;
+    let frameId = null; // Track frameId for iframe elements
 
     if (coordinates) {
       const { cssPoint, dpr } = await toCssPoint(tabId, coordinates);
@@ -570,12 +745,16 @@ export async function handleTypeText(params = {}) {
         return createErrorResult('Type text failed', resolvedRef.error);
       }
       resolvedRefValue = resolvedRef.value;
+      const backendFallback = resolvedRef.backendValue;
+      const cssFallback = resolvedRef.cssValue;
+      frameId = resolvedRef.frameId; // Get frameId for iframe elements (assigned to outer scope)
 
       const typingRef = resolvedRef.cssValue || resolvedRef.value;
 
       preparedTarget = await prepareElementForAction(tabId, {
         ref: typingRef,
         mode: 'type',
+        frameId, // Pass frameId to execute script in correct frame
       });
 
       elementLabel = formatElementLabel(preparedTarget?.detectedElement, parsedTarget.label || ref);
@@ -585,31 +764,72 @@ export async function handleTypeText(params = {}) {
         const errorMessage = preparedTarget?.unsupported
           ? `Element reference ${elementLabel} does not support ${actionDescription} actions`
           : preparedTarget?.error || 'Element not found';
-        return createErrorResult('Type text failed', errorMessage);
-      }
+        let backendNodeId = null;
 
-      const tagName = (preparedTarget?.detectedElement?.tagName || '').toLowerCase();
-      if (tagName === 'canvas') {
-        return createErrorResult('Type text failed', 'Canvas elements do not support typing actions');
+        if (backendFallback && backendFallback.startsWith('backend:')) {
+          backendNodeId = parseInt(backendFallback.slice(8), 10);
+          if (!isNaN(backendNodeId)) {
+            const backendPoint = await resolveBackendNodeToPoint(tabId, backendNodeId);
+            if (backendPoint) {
+              try {
+                await clickPointWithDebugger(tabId, backendPoint);
+                clickPoint = { x: backendPoint.x, y: backendPoint.y };
+                boundingRect = backendPoint.boundingRect || null;
+                resolvedRefValue = backendFallback;
+              } catch (err) {
+                console.error('[MCP Tools] debugger click failed via backend', err);
+                return createErrorResult('Type text failed', err);
+              }
+            }
+          }
+        }
+
+        if (!clickPoint && cssFallback && cssFallback !== resolvedRef.value) {
+          const cssTarget = await prepareElementForAction(tabId, { ref: cssFallback, mode: 'type' });
+          const cssLabel = formatElementLabel(cssTarget?.detectedElement, parsedTarget.label || ref);
+          if (cssTarget?.success && cssTarget.clickPoint) {
+            try {
+              await clickPointWithDebugger(tabId, cssTarget.clickPoint);
+              clickPoint = cssTarget.clickPoint;
+              boundingRect = cssTarget.boundingRect || null;
+              elementLabel = cssLabel;
+              preparedTarget = cssTarget;
+              resolvedRefValue = cssFallback;
+            } catch (err) {
+              console.error('[MCP Tools] debugger click failed via css fallback', err);
+              return createErrorResult('Type text failed', err);
+            }
+          }
+        }
+
+        if (!clickPoint) {
+          return createErrorResult('Type text failed', errorMessage);
+        }
       }
 
       try {
-        await clickPointWithDebugger(tabId, preparedTarget.clickPoint);
-        clickPoint = preparedTarget.clickPoint;
+        if (!clickPoint) {
+          await clickPointWithDebugger(tabId, preparedTarget.clickPoint);
+          clickPoint = preparedTarget.clickPoint;
+        }
       } catch (err) {
         console.error('[MCP Tools] debugger click failed', err);
         return createErrorResult('Type text failed', err);
       }
 
-      detectedElement = preparedTarget.detectedElement || null;
-      boundingRect = preparedTarget.boundingRect || null;
+      detectedElement = detectedElement || preparedTarget.detectedElement || null;
+      boundingRect = boundingRect || preparedTarget.boundingRect || null;
     }
 
     // Defensive clear via DOM for stubborn inputs (e.g., some search boxes)
     if (clear) {
       try {
+        const clearTarget = { tabId };
+        if (frameId) {
+          clearTarget.allFrames = true; // Execute in all frames for iframe elements
+        }
         await chrome.scripting.executeScript({
-          target: { tabId },
+          target: clearTarget,
           func: () => {
             const el = document.activeElement;
             if (!el) return;
@@ -821,194 +1041,6 @@ export async function handleHoverElement(params) {
   } catch (e) {
     console.error('[MCP Tools] hover_element error:', e);
     return createErrorResult('Hover failed', e);
-  }
-}
-
-/**
- * Directly sets values on form controls (selects, checkboxes, radios, inputs)
- */
-export async function handleInputValue(params = {}) {
-  const parsedTarget = parseTargetInput(params?.target ?? params?.ref ?? params?.coordinates ?? '');
-  const ref = parsedTarget.ref || (typeof params?.ref === 'string' ? params.ref.trim() : '');
-  const coordinates = parsedTarget.coordinates;
-  const values = Array.isArray(params?.values) ? params.values.map((val) => String(val)) : [];
-  const hasSingleValue = params?.value !== undefined && params?.value !== null;
-  const singleValue = hasSingleValue ? params.value : values[0];
-
-  if ((!ref && !coordinates) || (!hasSingleValue && values.length === 0)) {
-    return createErrorResult('Input failed', 'Missing target or value to apply');
-  }
-
-  try {
-    const selection = await selectTab({ toolName: 'browser_input' });
-    if (!selection.ok) {
-      return createErrorResult('Input failed', selection.error);
-    }
-
-    const { tabId, tab } = selection;
-
-    const resolvedRef = ref ? resolveAccessibilityRef(ref, tabId) : { ok: true, value: '' };
-    if (ref && !resolvedRef.ok) {
-      return createErrorResult('Input failed', resolvedRef.error);
-    }
-
-    let cssCoords = null;
-    if (coordinates) {
-      const { cssPoint, dpr } = await toCssPoint(tabId, coordinates);
-      if (!cssPoint) {
-        return createErrorResult('Input failed', 'Invalid coordinate target');
-      }
-      cssCoords = { point: cssPoint, dpr };
-    }
-
-    const elementDetails = cssCoords
-      ? await getElementDetailsAtPoint(tabId, cssCoords.point)
-      : await getElementDetails(tabId, resolvedRef.value);
-    if (!elementDetails?.success) {
-      return createErrorResult('Input failed', elementDetails?.error || 'Element not found');
-    }
-
-    const elementLabel = formatElementLabel(
-      elementDetails.detectedElement,
-      parsedTarget.label || ref,
-    );
-
-    const [{ result: updated }] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: ({ ref, coords, vals, single }) => {
-        const resolveElementFromRef = (reference) => {
-          if (typeof reference !== 'string' || reference.length === 0) return null;
-
-          if (reference.includes('##')) {
-            const parts = reference.split('##');
-            let current = null;
-            if (parts[0].startsWith('css:')) {
-              const hostSelector = parts[0].slice(4);
-              try {
-                current = document.querySelector(hostSelector);
-              } catch (_) {
-                return null;
-              }
-            }
-            if (!current) return null;
-            for (let i = 1; i < parts.length; i++) {
-              if (!current.shadowRoot) return null;
-              try {
-                current = current.shadowRoot.querySelector(parts[i]);
-              } catch (_) {
-                return null;
-              }
-              if (!current) return null;
-            }
-            return current;
-          }
-
-          if (reference.startsWith('css:')) {
-            const selectorText = reference.slice(4);
-            if (!selectorText) return null;
-            try {
-              return document.querySelector(selectorText);
-            } catch (_) {
-              return null;
-            }
-          }
-          return null;
-        };
-
-        const resolveFromCoordinates = (point) => {
-          if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') return null;
-          return document.elementFromPoint(point.x, point.y);
-        };
-
-        const el = coords ? resolveFromCoordinates(coords) : resolveElementFromRef(ref);
-        if (!el) return { success: false, error: 'Target element not found' };
-
-        const normalizeBoolean = (raw) => {
-          if (typeof raw === 'boolean') return raw;
-          if (typeof raw === 'string') {
-            const lowered = raw.trim().toLowerCase();
-            if (['true', '1', 'yes', 'on', 'checked'].includes(lowered)) return true;
-            if (['false', '0', 'no', 'off', 'unchecked'].includes(lowered)) return false;
-          }
-          return null;
-        };
-
-        const normalizedValues = Array.isArray(vals) && vals.length ? vals.map(String) : [];
-        const primaryValue = single !== undefined && single !== null ? String(single) : (normalizedValues[0] ?? null);
-        const booleanValue = normalizeBoolean(single);
-
-        if (el.tagName === 'SELECT') {
-          if (el.multiple) {
-            const valueSet = new Set(normalizedValues);
-            Array.from(el.options).forEach((option) => {
-              option.selected = valueSet.has(option.value) || valueSet.has(option.textContent || '');
-            });
-          } else if (primaryValue !== null) {
-            el.value = primaryValue;
-          }
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-          return { success: true, selectedValues: normalizedValues, finalValue: el.value };
-        }
-
-        if (el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio')) {
-          const shouldCheck = booleanValue !== null ? booleanValue : true;
-          el.checked = shouldCheck;
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-          return { success: true, checked: el.checked };
-        }
-
-        if (primaryValue !== null) {
-          el.value = primaryValue;
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-          return { success: true, finalValue: el.value };
-        }
-
-        return { success: false, error: 'No applicable value provided' };
-      },
-      args: [{ ref: resolvedRef.value, coords: cssCoords?.point, vals: values, single: singleValue }],
-    });
-
-    if (!updated?.success) {
-      return createErrorResult('Input failed', updated?.error || 'Unable to apply value');
-    }
-
-    const meta = {};
-    if (tab?.url) meta.urls = [tab.url];
-    if (typeof tabId === 'number') meta.tabId = tabId;
-
-    const appliedValue = hasSingleValue ? singleValue : values;
-
-    return {
-      ok: true,
-      content: [
-        {
-          type: 'text',
-          text: `Updated ${elementLabel} via ${parsedTarget.label || ref}`,
-        },
-      ],
-      _meta: Object.keys(meta).length ? meta : undefined,
-      data: {
-        url: tab.url,
-        target: parsedTarget.raw || ref,
-        ref,
-        coordinatesDevice: coordinates,
-        coordinates: cssCoords?.point || null,
-        devicePixelRatio: cssCoords?.dpr || null,
-        resolvedRef: resolvedRef.value,
-        value: appliedValue,
-        result: updated,
-        detectedElement: elementDetails.detectedElement,
-        boundingRect: elementDetails.boundingRect,
-        elementLabel,
-        timestamp: new Date().toISOString(),
-        tabId,
-      },
-    };
-  } catch (e) {
-    console.error('[MCP Tools] browser_input error:', e);
-    return createErrorResult('Input failed', e);
   }
 }
 

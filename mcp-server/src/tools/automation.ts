@@ -7,15 +7,14 @@ import { callExtension, waitForBridgeConnection, hasExtensionConnection } from "
 import {
   sanitizeClickParams,
   sanitizeTypeParams,
-  sanitizeInputParams,
   sanitizeDragParams,
 } from "./sanitize.js";
-import type { Tool } from "./tool.js";
+import type { Tool, ToolResult } from "./tool.js";
 
 const TargetSchema = z
   .string()
   .min(1)
-  .describe('Element target: snapshot ref or screen coordinates "x,y" in device pixels (screenshot space).');
+  .describe('Element target: snapshot ref such as "s1e1" for main frame or "s1f2e5" for iframe elements (coordinates are also accepted).');
 
 const ClickSchema = z.object({
   target: TargetSchema,
@@ -24,7 +23,7 @@ const ClickSchema = z.object({
 export const browserClick: Tool = {
   schema: {
     name: "browser_click",
-    description: 'Click an element by ref or screen coords ("x,y" device pixels). Returns target metadata.',
+    description: "Click an element by snapshot ref (e.g., 's1e5' for main frame or 's1f2e10' for iframe elements).",
     inputSchema: zodToJsonSchema(ClickSchema) as any,
   },
   handle: async (params) => {
@@ -32,7 +31,12 @@ export const browserClick: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    return await callExtension("browser_click", sanitizeClickParams(params));
+    const { error, target } = sanitizeClickParams(params);
+    if (error) {
+      return toErrorResult(error);
+    }
+
+    return await callExtension("browser_click", { target });
   },
 };
 
@@ -65,7 +69,7 @@ const TypeSchema = z
 export const browserType: Tool = {
   schema: {
     name: "browser_type",
-    description: 'Focus an element (ref or screen coords), type text, and press any keys in <kbd>…</kbd>. submit=true appends Enter.',
+    description: "Focus an element by snapshot ref (e.g., 's1e5' for main frame or 's1f2e10' for iframe elements), type text, and press keys in <kbd>…</kbd>. submit=true appends Enter.",
     inputSchema: zodToJsonSchema(TypeSchema) as any,
   },
   handle: async (params) => {
@@ -73,51 +77,26 @@ export const browserType: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    return await callExtension("browser_type", sanitizeTypeParams(params));
+    const { error, ...sanitized } = sanitizeTypeParams(params);
+    if (error) {
+      return toErrorResult(error);
+    }
+
+    return await callExtension("browser_type", sanitized);
   },
 };
 
-
-const InputValueSchema = z
-  .object({
-    target: TargetSchema,
-    value: z.union([z.string(), z.number(), z.boolean()]).optional().describe("Value to set or select for the target element"),
-    values: z.array(z.string()).min(1).optional().describe("Array of values to select when the target supports multiple selections"),
-  })
-  .superRefine((value, ctx) => {
-    if (value.value === undefined && !value.values) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Provide a value or values to apply to the target element",
-      });
-    }
-  });
-
-export const browserInput: Tool = {
-  schema: {
-    name: "browser_input",
-    description: 'Set value(s) on a form control by ref or screen coords: selects, checkboxes/radios, inputs/textareas.',
-    inputSchema: zodToJsonSchema(InputValueSchema) as any,
-  },
-  handle: async (params) => {
-    if (!hasExtensionConnection()) {
-      await waitForBridgeConnection(4000);
-    }
-
-    return await callExtension("browser_input", sanitizeInputParams(params));
-  },
-};
 
 const DragSchema = z
   .object({
-    start: TargetSchema.describe('Drag starting point (snapshot ref or "x,y" coordinates)'),
-    end: TargetSchema.describe('Drop target (snapshot ref or "x,y" coordinates)'),
+    start: TargetSchema.describe('Drag starting point (snapshot ref such as "s1e5" for main frame or "s1f2e10" for iframe elements; coordinates accepted).'),
+    end: TargetSchema.describe('Drop target (snapshot ref such as "s1e5" for main frame or "s1f2e10" for iframe elements; coordinates accepted).'),
   });
 
 export const browserDrag: Tool = {
   schema: {
     name: "browser_drag",
-    description: 'Drag from start to end targets (refs or screen coords in device pixels). Returns start/end metadata.',
+    description: "Drag from start to end targets identified by snapshot refs.",
     inputSchema: zodToJsonSchema(DragSchema) as any,
   },
   handle: async (params) => {
@@ -125,6 +104,18 @@ export const browserDrag: Tool = {
       await waitForBridgeConnection(4000);
     }
 
-    return await callExtension("browser_drag", sanitizeDragParams(params));
+    const { error, ...sanitized } = sanitizeDragParams(params);
+    if (error) {
+      return toErrorResult(error);
+    }
+
+    return await callExtension("browser_drag", sanitized);
   },
 };
+
+function toErrorResult(message: string): ToolResult {
+  return {
+    content: [{ type: "text", text: message }],
+    isError: true,
+  };
+}

@@ -2,32 +2,53 @@
 // Element resolution and capability checks for automation actions
 
 import { ELEMENT_ACTION_CAPABILITIES } from './element-action-map.js';
-import { getElementSelector, hasElementRefMap, getBackendNodeId } from '../lib/element-ref-map.js';
+import { getElementSelector, hasElementRefMap, getBackendNodeId, getFrameId, hasRef, getRefMetadata } from '../lib/element-ref-map.js';
 
 export function resolveAccessibilityRef(ref, tabId) {
   const normalized = typeof ref === 'string' ? ref.trim() : '';
-  const isAccessibilityRef = normalized && /^s\d+e\d+$/i.test(normalized);
+  // Updated pattern to match iframe refs: s1e1 or s1f1e5
+  const isAccessibilityRef = normalized && /^s\d+(?:f\d+)?e\d+$/i.test(normalized);
 
   if (!isAccessibilityRef) {
-    return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: false, backendValue: null, cssValue: normalized };
+    return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: false, backendValue: null, cssValue: normalized, frameId: null };
   }
 
   const snapshotAvailable = hasElementRefMap(tabId);
   if (!snapshotAvailable) {
-    return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: false, backendValue: null, cssValue: normalized };
+    return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: false, backendValue: null, cssValue: normalized, frameId: null };
   }
 
   const mappedSelector = getElementSelector(tabId, normalized);
   const backendId = getBackendNodeId(tabId, normalized);
+  const frameId = getFrameId(tabId, normalized);
   const backendValue = backendId !== null ? `backend:${backendId}` : null;
+  const refExists = hasRef(tabId, normalized);
+  const { parentRef, childIndex } = getRefMetadata(tabId, normalized);
 
-  if (!mappedSelector && backendId === null) {
+  // Check if ref exists at all (including placeholder refs)
+  if (!refExists) {
     return {
       ok: false,
       value: null,
       originalRef: normalized,
       usedSnapshot: true,
+      frameId: null,
       error: `Reference ${normalized} was not found in the latest snapshot. Capture a fresh snapshot and try again.`,
+    };
+  }
+
+  // If ref exists but has no selector/backend, it's a placeholder - still allow it with frameId
+  if (!mappedSelector && backendId === null) {
+    console.warn(`[action-targets] Ref ${normalized} is a placeholder (no selector/backend) - will use allFrames search`);
+    return {
+      ok: true,
+      value: normalized, // Return the ref itself for allFrames search
+      originalRef: normalized,
+      usedSnapshot: true,
+      backendValue: null,
+      cssValue: null,
+      frameId, // Include frameId so allFrames can be used
+      isPlaceholder: true,
     };
   }
 
@@ -40,14 +61,37 @@ export function resolveAccessibilityRef(ref, tabId) {
       usedSnapshot: true,
       backendValue,
       cssValue: mappedSelector || null,
+      frameId, // Include frameId for iframe elements
+      parentRef,
+      childIndex,
     };
   }
 
   if (mappedSelector) {
-    return { ok: true, value: mappedSelector, originalRef: normalized, usedSnapshot: true, backendValue: null, cssValue: mappedSelector };
+    return {
+      ok: true,
+      value: mappedSelector,
+      originalRef: normalized,
+      usedSnapshot: true,
+      backendValue: null,
+      cssValue: mappedSelector,
+      frameId,
+      parentRef,
+      childIndex,
+    };
   }
 
-  return { ok: true, value: normalized, originalRef: normalized, usedSnapshot: true, backendValue: null, cssValue: null };
+  return {
+    ok: true,
+    value: normalized,
+    originalRef: normalized,
+    usedSnapshot: true,
+    backendValue: null,
+    cssValue: null,
+    frameId,
+    parentRef,
+    childIndex,
+  };
 }
 
 /**
@@ -62,6 +106,14 @@ export async function resolveBackendNodeToPoint(tabId, backendNodeId) {
     await chrome.debugger.attach(target, '1.3');
 
     try {
+      try {
+        await chrome.debugger.sendCommand(target, 'DOM.scrollIntoViewIfNeeded', {
+          backendNodeId,
+        });
+      } catch (err) {
+        console.warn('[Action Targets] scrollIntoViewIfNeeded failed:', err);
+      }
+
       const { model } = await chrome.debugger.sendCommand(target, 'DOM.getBoxModel', {
         backendNodeId,
       });
@@ -72,9 +124,26 @@ export async function resolveBackendNodeToPoint(tabId, backendNodeId) {
         const ys = [model.content[1], model.content[3], model.content[5], model.content[7]];
         const centerX = xs.reduce((a, b) => a + b, 0) / 4;
         const centerY = ys.reduce((a, b) => a + b, 0) / 4;
+        const left = Math.min(...xs);
+        const right = Math.max(...xs);
+        const top = Math.min(...ys);
+        const bottom = Math.max(...ys);
 
         await chrome.debugger.detach(target);
-        return { x: Math.round(centerX), y: Math.round(centerY) };
+        return {
+          x: Math.round(centerX),
+          y: Math.round(centerY),
+          boundingRect: {
+            x: left,
+            y: top,
+            left,
+            top,
+            right,
+            bottom,
+            width: right - left,
+            height: bottom - top,
+          },
+        };
       }
 
       await chrome.debugger.detach(target);
@@ -89,9 +158,16 @@ export async function resolveBackendNodeToPoint(tabId, backendNodeId) {
   }
 }
 
-export async function prepareElementForAction(tabId, { ref, mode }) {
+export async function prepareElementForAction(tabId, { ref, mode, frameId }) {
+  // Build target - if this is an iframe element, execute in all frames
+  const target = { tabId };
+  if (frameId) {
+    // Use allFrames to execute in all frames (main + iframes)
+    target.allFrames = true;
+  }
+
   const [{ result }] = await chrome.scripting.executeScript({
-    target: { tabId },
+    target,
     func: async ({ ref, mode, capabilityMap }) => {
       const resolveElementFromRef = (reference) => {
         if (typeof reference !== 'string' || reference.length === 0) {
@@ -339,6 +415,19 @@ export async function prepareElementForAction(tabId, { ref, mode }) {
 
       const waitForLayout = () =>
         new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+      // Try to bring the element (or its option) into view before measuring/clicking
+      try {
+        if (typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+        }
+      } catch (err) {
+        try {
+          el.scrollIntoView();
+        } catch (_) {
+          // ignore
+        }
+      }
 
       await waitForLayout();
 

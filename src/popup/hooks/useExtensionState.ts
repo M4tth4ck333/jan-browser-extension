@@ -7,6 +7,7 @@ import {
   fetchBridgeStatus,
   persistBridgePort,
   subscribeToBridgeUpdates,
+  activateCurrentProfile,
   type BridgeStatus,
 } from '../logic/bridge';
 import {
@@ -53,6 +54,14 @@ export interface UseExtensionStateResult {
     message: string;
     actions: TabAction[];
   };
+  profile: {
+    showSelector: boolean;
+    isActive: boolean;
+    label: string;
+    statusLabel: string;
+    actionLabel?: string;
+    hideTabSection: boolean;
+  };
   settings: SettingsState;
   actions: {
     refresh: () => Promise<void>;
@@ -61,6 +70,7 @@ export interface UseExtensionStateResult {
     closeSettings: () => void;
     resetSettingsMessage: () => void;
     savePort: (value: string) => Promise<void>;
+    activateProfile: () => Promise<void>;
   };
 }
 
@@ -69,6 +79,11 @@ const INITIAL_BRIDGE_STATE: BridgeState = {
   reconnecting: false,
   port: DEFAULT_BRIDGE_PORT,
   lastError: null,
+  profileId: null,
+  profileLabel: null,
+  activeProfileId: null,
+  profileCount: 1,
+  isActiveProfile: true,
 };
 
 const INITIAL_TAB_STATE: TabState = {
@@ -117,7 +132,8 @@ function computeBridgeUi(state: BridgeState) {
       : 'connect';
 
   const actionLabel = action === 'disconnect' ? 'Disconnect' : 'Connect';
-  const detail = `Port ${state.port}`;
+  const detailParts = [`Port ${state.port}`];
+  const detail = detailParts.join(' • ');
 
   return { statusLabel, detail, action, actionLabel, showSpinner, tone };
 }
@@ -279,6 +295,14 @@ export function useExtensionState(): UseExtensionStateResult {
     await refreshTab();
   }, [refreshTab]);
 
+  const activateProfile = useCallback(async () => {
+    const ok = await activateCurrentProfile();
+    if (!ok) {
+      setBridgeState((current) => ({ ...current, lastError: 'Failed to activate this profile.' }));
+    }
+    await refreshBridge();
+  }, [refreshBridge]);
+
   const toggleBridge = useCallback(
     async (action: 'connect' | 'disconnect') => {
       if (action === 'disconnect') {
@@ -390,9 +414,22 @@ export function useExtensionState(): UseExtensionStateResult {
     return { state: tabState, statusLabel, message, actions };
   }, [tabState, registerCurrentTab, clearRegistered, focusRegistered]);
 
+  const profileUi = useMemo(() => {
+    const profileCount = bridgeState.profileCount ?? 1;
+    const isActive = bridgeState.isActiveProfile !== false;
+    const label = 'User Profile';
+    const showSelector = profileCount > 1;
+    const hideTabSection = showSelector && !isActive;
+    const statusLabel = isActive ? 'Status: Active' : 'Status: Not Active';
+    const actionLabel = !isActive ? 'Use this Profile' : undefined;
+
+    return { showSelector, isActive, label, statusLabel, actionLabel, hideTabSection };
+  }, [bridgeState.profileCount, bridgeState.isActiveProfile]);
+
   return {
     bridge: { state: bridgeState, ...bridgeUi },
     tab: tabUi,
+    profile: profileUi,
     settings: settingsState,
     actions: {
       refresh: async () => {
@@ -403,6 +440,7 @@ export function useExtensionState(): UseExtensionStateResult {
       closeSettings,
       resetSettingsMessage,
       savePort,
+      activateProfile,
     },
   };
 }

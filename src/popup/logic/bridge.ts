@@ -6,6 +6,11 @@ export interface BridgeStatus {
   port?: number;
   lastError?: string | null;
   autoReconnectDisabled?: boolean;
+  profileId?: string | null;
+  profileLabel?: string | null;
+  activeProfileId?: string | null;
+  profileCount?: number;
+  isActiveProfile?: boolean;
 }
 
 export async function fetchBridgeStatus(): Promise<BridgeStatus | null> {
@@ -75,4 +80,14 @@ export function subscribeToBridgeUpdates(listener: BridgeStatusListener) {
   return () => {
     chrome.runtime.onMessage.removeListener(handler);
   };
+}
+
+export async function activateCurrentProfile(): Promise<boolean> {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: MessageTypes.MCP_ACTIVATE_PROFILE });
+    return Boolean(response?.ok);
+  } catch (error) {
+    console.warn('[Popup] Failed to activate profile:', error);
+    return false;
+  }
 }
