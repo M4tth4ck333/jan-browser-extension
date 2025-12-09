@@ -48,6 +48,7 @@
     "zod-to-json-schema": "^3.24.1"
   },
   "devDependencies": {
+    "@janhq/mcp-shared": "file:../mcp-shared",
     "@types/node": "^20.14.10",
     "@types/ws": "^8.18.1",
     "@vitest/ui": "^4.0.7",
