@@ -23,28 +23,29 @@
     "ai-tools",
     "model-context-protocol"
   ],
-  "main": "dist/src/index.js",
+  "main": "dist/index.js",
   "bin": {
-    "search-mcp-server": "dist/src/index.js"
+    "search-mcp-server": "dist/index.js"
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && chmod +x dist/src/index.js",
+    "build": "vite build && chmod +x dist/index.js",
     "dev": "tsx watch src/index.ts",
-    "start": "node dist/src/index.js",
+    "start": "node dist/index.js",
     "test": "vitest",
     "test:run": "vitest run",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@janhq/mcp-shared": "^0.14.2",
     "@modelcontextprotocol/sdk": "^1.4.2",
     "@types/uuid": "^10.0.0",
     "uuid": "^9.0.1",
-    "ws": "^8.18.3"
+    "ws": "^8.18.3",
+    "zod": "^3.24.1",
+    "zod-to-json-schema": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",
@@ -52,6 +53,7 @@
     "@vitest/ui": "^4.0.7",
     "tsx": "^4.19.1",
     "typescript": "^5.5.4",
+    "vite": "^5.0.0",
     "vitest": "^4.0.7"
   }
 }

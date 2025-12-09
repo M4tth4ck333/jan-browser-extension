@@ -20,17 +20,22 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "vite build && npm run build:types",
+    "build:types": "rollup -c rollup.dts.config.mjs",
     "dev": "tsc --watch",
     "clean": "rm -rf dist"
   },
   "dependencies": {
-
+    "zod": "^3.24.1",
+    "zod-to-json-schema": "^3.24.1"
   },
   "devDependencies": {
-    "@janhq/mcp-shared": "file:../mcp-shared",
+    "@rollup/plugin-alias": "^5.0.0",
     "@types/chrome": "^0.0.268",
-    "typescript": "^5.3.3"
+    "rollup": "^4.0.0",
+    "rollup-plugin-dts": "^6.0.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.0"
   },
   "exports": {
     ".": {
