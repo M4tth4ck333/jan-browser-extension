@@ -8,7 +8,10 @@ import {
   persistBridgePort,
   subscribeToBridgeUpdates,
   activateCurrentProfile,
+  fetchWebStatus,
+  subscribeToWebUpdates,
   type BridgeStatus,
+  type WebStatus,
 } from '../logic/bridge';
 import {
   clearRegisteredTab,
@@ -47,6 +50,10 @@ export interface UseExtensionStateResult {
     actionLabel: string;
     showSpinner: boolean;
     tone: 'connected' | 'connecting' | 'disconnected';
+  };
+  web: {
+    connected: boolean;
+    count: number;
   };
   tab: {
     state: TabState;
@@ -97,6 +104,11 @@ const INITIAL_SETTINGS_STATE: SettingsState = {
   saving: false,
   message: '',
   error: false,
+};
+
+const INITIAL_WEB_STATUS: WebStatus = {
+  connected: false,
+  count: 0,
 };
 
 function computeBridgeUi(state: BridgeState) {
@@ -186,6 +198,7 @@ function buildTabActions(options: {
 
 export function useExtensionState(): UseExtensionStateResult {
   const [bridgeState, setBridgeState] = useState<BridgeState>(INITIAL_BRIDGE_STATE);
+  const [webStatus, setWebStatus] = useState<WebStatus>(INITIAL_WEB_STATUS);
   const [tabState, setTabState] = useState<TabState>(INITIAL_TAB_STATE);
   const [settingsState, setSettingsState] = useState<SettingsState>(INITIAL_SETTINGS_STATE);
   const autoConnectAttemptedRef = useRef(false);
@@ -212,6 +225,11 @@ export function useExtensionState(): UseExtensionStateResult {
     });
   }, []);
 
+  const refreshWeb = useCallback(async () => {
+    const status = await fetchWebStatus();
+    setWebStatus(status);
+  }, []);
+
   const refreshTab = useCallback(async () => {
     const [active, registered] = await Promise.all([fetchActiveTab(), fetchRegisteredTabId()]);
     setTabState((current) => ({
@@ -222,6 +240,7 @@ export function useExtensionState(): UseExtensionStateResult {
     }));
   }, []);
 
+  // Subscribe to bridge status updates
   useEffect(() => {
     const unsubscribe = subscribeToBridgeUpdates((update) => {
       setBridgeState((current) => {
@@ -247,17 +266,28 @@ export function useExtensionState(): UseExtensionStateResult {
     return unsubscribe;
   }, []);
 
+  // Subscribe to web status updates
+  useEffect(() => {
+    const unsubscribe = subscribeToWebUpdates((update) => {
+      setWebStatus(update);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  // Initial fetch
   useEffect(() => {
     void refreshBridge();
+    void refreshWeb();
     void refreshTab();
-  }, [refreshBridge, refreshTab]);
+  }, [refreshBridge, refreshWeb, refreshTab]);
 
+  // Auto-connect to bridge on mount
   useEffect(() => {
     if (autoConnectAttemptedRef.current) return;
     autoConnectAttemptedRef.current = true;
-
     void connectBridge({ auto: true });
-  }, [connectBridge]);
+  }, []);
 
   const registerCurrentTab = useCallback(async () => {
     const activeId = tabState.activeTab?.id;
@@ -428,12 +458,13 @@ export function useExtensionState(): UseExtensionStateResult {
 
   return {
     bridge: { state: bridgeState, ...bridgeUi },
+    web: webStatus,
     tab: tabUi,
     profile: profileUi,
     settings: settingsState,
     actions: {
       refresh: async () => {
-        await Promise.all([refreshBridge(), refreshTab()]);
+        await Promise.all([refreshBridge(), refreshWeb(), refreshTab()]);
       },
       toggleBridge,
       openSettings,

@@ -273,10 +273,61 @@ function buildSnapshotText(snapshot, status, details = []) {
   );
 }
 
-async function captureDomSnapshot(tabId, fullPage = true) {
+async function captureDomSnapshot(tabId, fullPage = true, limits = null) {
+  const snapshotLimits = limits || getSnapshotLimits('deep');
   const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId },
-    func: (fullPage) => {
+    func: (fullPage, limits) => {
+      // Helper function to get snapshot limits (passed as argument)
+      const getCurrentLimits = () => limits;
+
+      // CodeMirror detection helpers (must be defined inside injected script)
+      const isCodeEditorElement = (element) => {
+        if (!element) return false;
+        const className = typeof element.className === 'string' ? element.className : '';
+        if (className && /(codemirror|cm-editor|cm-content)/i.test(className)) {
+          return true;
+        }
+        try {
+          return Boolean(element.closest?.('.CodeMirror, .cm-editor, [data-codemirror]'));
+        } catch (_) {
+          return false;
+        }
+      };
+
+      const getCodeEditorMeta = (element) => {
+        if (!isCodeEditorElement(element)) return null;
+
+        let root = element;
+        try {
+          root = element.closest?.('.CodeMirror, .cm-editor, [data-codemirror]') || element;
+        } catch (_) {
+          // ignore
+        }
+
+        const textarea = root?.querySelector?.(
+          'textarea[aria-label], textarea[placeholder], textarea[name], textarea[id]',
+        );
+
+        const label =
+          root?.getAttribute?.('aria-label') ||
+          root?.getAttribute?.('data-placeholder') ||
+          root?.getAttribute?.('placeholder') ||
+          textarea?.getAttribute?.('aria-label') ||
+          textarea?.getAttribute?.('placeholder') ||
+          textarea?.name ||
+          textarea?.id ||
+          '';
+
+        const content =
+          root?.querySelector?.('.cm-content') ||
+          root?.querySelector?.('.CodeMirror-code') ||
+          root?.querySelector?.('[contenteditable="true"]');
+        const text = (content?.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 240);
+
+        return { label, text };
+      };
+
       const buildElementRef = (element, shadowPath = []) => {
         if (!element || element.nodeType !== Node.ELEMENT_NODE) return null;
 
@@ -734,7 +785,7 @@ async function captureDomSnapshot(tabId, fullPage = true) {
 
       return snapshot;
     },
-    args: [fullPage],
+    args: [fullPage, snapshotLimits],
   });
 
   return result || null;
@@ -1865,9 +1916,8 @@ async function captureRawSnapshot(tabId, fullPage = true) {
   const accessibility = await captureAccessibilityTree(tabId);
 
   if (accessibility) {
-    // Prefer DOM tree over accessibility tree because DOM tree has usable CSS refs
-    // Accessibility tree has abstract refs like s1e199 which can't be used for automation
-    const tree = fallbackAria.tree || accessibility.tree || null;
+    // Use accessibility tree with abstract refs (s1e2, s1f1e1) for consistent automation
+    const tree = accessibility.tree || fallbackAria.tree || null;
     const interactive = mergeInteractiveLists(accessibility.interactive, fallbackAria.interactive);
     const landmarks = mergeLandmarks(accessibility.landmarks, fallbackAria.landmarks);
 
@@ -1964,6 +2014,46 @@ export async function captureSnapshotResponse({ tabId, status, details = [], fal
     }
     return createErrorResult('Snapshot failed', error);
   }
+}
+
+export function mergeResponseMeta(baseMeta, nextMeta) {
+  const merged = { ...(baseMeta || {}) };
+
+  if (nextMeta?.urls?.length) {
+    merged.urls = Array.from(new Set([...(baseMeta?.urls || []), ...nextMeta.urls]));
+  }
+
+  if (Object.prototype.hasOwnProperty.call(nextMeta || {}, 'tabId')) {
+    merged.tabId = nextMeta.tabId;
+  }
+
+  return Object.keys(merged).length ? merged : undefined;
+}
+
+export function combineResultWithSnapshot(baseResult, snapshotResult, tabId) {
+  if (!snapshotResult?.ok) {
+    console.warn('[snapshot] Snapshot failed, returning base result only:', snapshotResult?.error || 'unknown error');
+    return baseResult;
+  }
+
+  const mergedContent = [...(baseResult.content || []), ...(snapshotResult.content || [])];
+  const mergedMeta = mergeResponseMeta(baseResult._meta, snapshotResult._meta);
+  const mergedData = { ...(baseResult.data || {}) };
+
+  if (snapshotResult.snapshot) {
+    mergedData.snapshot = snapshotResult.snapshot;
+  }
+
+  if (typeof tabId === 'number' && mergedData.tabId === undefined) {
+    mergedData.tabId = tabId;
+  }
+
+  return {
+    ...baseResult,
+    content: mergedContent,
+    _meta: mergedMeta,
+    data: mergedData,
+  };
 }
 
 export async function ensureTabForSnapshot(params = {}) {

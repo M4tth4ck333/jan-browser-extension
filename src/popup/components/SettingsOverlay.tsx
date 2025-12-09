@@ -36,6 +36,7 @@ export function SettingsOverlay({
 }: SettingsOverlayProps) {
   const [value, setValue] = React.useState('');
 
+  // Load port when dialog opens
   React.useEffect(() => {
     if (open) {
       setValue(String(currentPort ?? ''));
@@ -72,7 +73,7 @@ export function SettingsOverlay({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[80vh] overflow-y-auto">
         <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
             <DialogTitle>Settings</DialogTitle>
@@ -93,6 +94,7 @@ export function SettingsOverlay({
               required
             />
           </div>
+
           {message ? (
             <p className={`text-sm ${isError ? 'text-destructive' : 'text-muted-foreground'}`}>{message}</p>
           ) : null}

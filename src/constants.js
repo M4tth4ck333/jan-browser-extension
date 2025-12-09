@@ -52,15 +52,20 @@ export const VisitOutputModes = {
 // Runtime message types handled by background.js
 // -----------------------------------------------------------------------------
 export const MessageTypes = {
+  // MCP Server (WebSocket bridge)
   GET_BRIDGE_STATUS: 'GET_BRIDGE_STATUS',
   CONNECT_BRIDGE: 'CONNECT_BRIDGE',
   DISCONNECT_BRIDGE: 'DISCONNECT_BRIDGE',
   UPDATE_BRIDGE_PORT: 'UPDATE_BRIDGE_PORT',
+  BRIDGE_STATUS_UPDATED: 'BRIDGE_STATUS_UPDATED',
+  // Web clients (chrome.runtime)
+  GET_WEB_STATUS: 'GET_WEB_STATUS',
+  WEB_STATUS_UPDATED: 'WEB_STATUS_UPDATED',
+  // Tab management
   MCP_REGISTER_TAB: 'MCP_REGISTER_TAB',
   MCP_GET_REGISTERED_TAB: 'MCP_GET_REGISTERED_TAB',
   MCP_FOCUS_REGISTERED_TAB: 'MCP_FOCUS_REGISTERED_TAB',
   MCP_ACTIVATE_PROFILE: 'MCP_ACTIVATE_PROFILE',
-  BRIDGE_STATUS_UPDATED: 'BRIDGE_STATUS_UPDATED',
 };
 
 // -----------------------------------------------------------------------------

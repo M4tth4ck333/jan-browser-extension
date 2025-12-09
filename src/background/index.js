@@ -4,6 +4,9 @@
 import {
   MessageTypes,
 } from '../constants.js';
+
+// Initialize external handler for website connections
+import { getWebStatus } from './external-handler.js';
 import {
   initializeMcpBridge,
   getBridgeStatus,
@@ -63,6 +66,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   switch (message?.type) {
     case MessageTypes.GET_BRIDGE_STATUS: {
       sendResponse(getBridgeStatus());
+      return true;
+    }
+
+    case MessageTypes.GET_WEB_STATUS: {
+      sendResponse(getWebStatus());
       return true;
     }
 

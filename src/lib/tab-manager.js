@@ -38,60 +38,39 @@ export function clearMcpRegisteredTab() {
   } catch (_) {}
 }
 
-/**
- * Selects a tab using the standard strategy:
- * 1. Try registered tab (if valid)
- * 2. Fall back to currently active tab
- * 3. Return error if no tab available
- *
- * @param {object} options - Options for tab selection
- * @param {boolean} options.requireUrl - If true, reject chrome:// and about: URLs
- * @param {string} options.toolName - Name of tool for error messages
- * @returns {Promise<{ok: boolean, tab?: object, tabId?: number, error?: string}>}
- */
-function normalizeUrlForMatching(url) {
-  if (!url) return '';
+function getSafeCreateUrl(preferredUrl) {
+  if (!preferredUrl) return null;
+
   try {
-    const parsed = new URL(url);
-    parsed.hash = '';
+    const parsed = new URL(preferredUrl);
+    const protocol = parsed.protocol.toLowerCase();
 
-    // Remove default ports to avoid mismatches (e.g. https://example.com:443)
-    if ((parsed.protocol === 'http:' && parsed.port === '80') ||
-        (parsed.protocol === 'https:' && parsed.port === '443')) {
-      parsed.port = '';
+    // Only allow navigable URLs we expect to use
+    if (protocol === 'http:' || protocol === 'https:' || protocol === 'about:') {
+      return parsed.toString();
     }
-
-    // Remove trailing slashes for consistency
-    let normalized = parsed.toString();
-    if (normalized.endsWith('/')) {
-      normalized = normalized.slice(0, -1);
-    }
-    return normalized;
   } catch (_) {
-    return String(url || '');
+    // Ignore invalid URLs
   }
+
+  return null;
 }
 
-function urlsMatch(a, b) {
-  if (!a || !b) return false;
-  return normalizeUrlForMatching(a) === normalizeUrlForMatching(b);
-}
-
-async function findTabMatchingUrl(preferredUrl) {
-  const normalizedPreferred = normalizeUrlForMatching(preferredUrl);
-  if (!normalizedPreferred) return null;
-
-  try {
-    const tabs = await chrome.tabs.query({});
-    return tabs.find((candidate) => urlsMatch(candidate.url, normalizedPreferred)) || null;
-  } catch (error) {
-    console.warn('[Tab Manager] Failed to query tabs while matching URL:', error);
-    return null;
-  }
-}
-
+/**
+ * Selects a tab for MCP operations. The default behavior is:
+ * 1) Use the registered MCP tab if available
+ * 2) Otherwise create a new background tab (if allowed)
+ * 3) Only fall back to the user's active tab when explicitly allowed
+ */
 export async function selectTab(options = {}) {
-  const { requireUrl = false, toolName = 'tool', preferredUrl = null, allowCreate = true } = options;
+  const {
+    requireUrl = false,
+    toolName = 'tool',
+    preferredUrl = null,
+    allowCreate = true,
+    allowActiveTab = false,
+    allowExistingMatchingTab = false,
+  } = options;
 
   let targetTabId = null;
   let tab = null;
@@ -107,59 +86,62 @@ export async function selectTab(options = {}) {
     } catch (e) {
       // Tab was closed, clear registration
       mcpRegisteredTabId = null;
-      console.log(`[Tab Manager] Registered tab no longer exists, falling back to active tab`);
+      console.log('[Tab Manager] Registered tab no longer exists, clearing registration');
     }
   }
 
-  // Strategy 2: Fall back to currently active tab
-  if (!targetTabId) {
-    console.log(`[Tab Manager] ${toolName} - querying for active tab`);
-    // Use lastFocusedWindow instead of currentWindow
-    // Service workers have no concept of "current window"
+  // Optional: explicitly allow using the user's active tab
+  if (!targetTabId && allowActiveTab) {
+    console.log(`[Tab Manager] ${toolName} - querying for active tab (explicitly allowed)`);
     const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     if (activeTab) {
       tab = activeTab;
       targetTabId = activeTab.id;
       console.log(`[Tab Manager] ${toolName} - using active tab:`, targetTabId, 'window:', tab.windowId);
-    } else if (allowCreate) {
-      console.log(`[Tab Manager] ${toolName} - no active tab found, creating dedicated MCP tab`);
-      try {
-        tab = await chrome.tabs.create({ url: 'about:blank', active: true });
-        targetTabId = tab.id;
-        createdNewTab = true;
-        console.log(`[Tab Manager] ${toolName} - created new MCP tab:`, targetTabId);
-      } catch (error) {
-        console.error('[Tab Manager] Failed to create MCP tab:', error);
-        return {
-          ok: false,
-          error: 'Unable to create a browser tab for MCP operations. Please open a tab manually and try again.'
-        };
-      }
-    } else {
-      return {
-        ok: false,
-        error: 'No tab available. Please open a tab and try again.'
-      };
     }
   }
 
-  // Strategy 3: If a preferred URL was provided, try to match it
-  if (preferredUrl) {
-    const normalizedPreferred = normalizeUrlForMatching(preferredUrl);
-    if (normalizedPreferred) {
-      const currentUrl = tab?.url ? normalizeUrlForMatching(tab.url) : '';
-      if (!tab || !urlsMatch(currentUrl, normalizedPreferred)) {
-        const matchingTab = await findTabMatchingUrl(preferredUrl);
+  // Optional: reuse an existing tab that matches a preferred URL (opt-in)
+  if (!targetTabId && allowExistingMatchingTab && preferredUrl) {
+    const safePreferred = getSafeCreateUrl(preferredUrl);
+    if (safePreferred) {
+      try {
+        const tabs = await chrome.tabs.query({});
+        const matchingTab = tabs.find((candidate) => candidate?.url === safePreferred);
         if (matchingTab) {
           tab = matchingTab;
           targetTabId = matchingTab.id;
-          createdNewTab = false;
-          if (typeof targetTabId === 'number') {
-            setMcpRegisteredTab(targetTabId);
-          }
-          console.log(`[Tab Manager] ${toolName} - matched preferred URL to tab:`, targetTabId);
+          console.log(`[Tab Manager] ${toolName} - using matching tab for preferred URL:`, targetTabId);
         }
+      } catch (error) {
+        console.warn('[Tab Manager] Failed to query tabs while matching preferred URL:', error);
       }
+    }
+  }
+
+  // Default: create a dedicated background tab for MCP if none is registered/selected
+  if (!targetTabId) {
+    if (!allowCreate) {
+      return {
+        ok: false,
+        error: 'No MCP tab is registered. Assign a tab from the extension popup or run a navigation tool to create one.',
+      };
+    }
+
+    const createUrl = getSafeCreateUrl(preferredUrl) || 'about:blank';
+    console.log(`[Tab Manager] ${toolName} - creating dedicated MCP tab`, { url: createUrl });
+
+    try {
+      tab = await chrome.tabs.create({ url: createUrl, active: false });
+      targetTabId = tab.id;
+      createdNewTab = true;
+      console.log(`[Tab Manager] ${toolName} - created new MCP tab:`, targetTabId);
+    } catch (error) {
+      console.error('[Tab Manager] Failed to create MCP tab:', error);
+      return {
+        ok: false,
+        error: 'Unable to create a browser tab for MCP operations. Please open a tab manually and try again.'
+      };
     }
   }
 

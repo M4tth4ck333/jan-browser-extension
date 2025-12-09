@@ -91,3 +91,45 @@ export async function activateCurrentProfile(): Promise<boolean> {
     return false;
   }
 }
+
+// -----------------------------------------------------------------------------
+// Web status (chrome.runtime connections from web apps)
+// -----------------------------------------------------------------------------
+
+export interface WebStatus {
+  connected: boolean;
+  count: number;
+}
+
+export async function fetchWebStatus(): Promise<WebStatus> {
+  try {
+    const status = await chrome.runtime.sendMessage({ type: MessageTypes.GET_WEB_STATUS });
+    if (status && typeof status === 'object') {
+      return {
+        connected: Boolean(status.connected),
+        count: typeof status.count === 'number' ? status.count : 0,
+      };
+    }
+  } catch (error) {
+    console.warn('[Popup] Failed to fetch web status:', error);
+  }
+  return { connected: false, count: 0 };
+}
+
+export type WebStatusListener = (update: WebStatus) => void;
+
+export function subscribeToWebUpdates(listener: WebStatusListener) {
+  const handler = (message: unknown) => {
+    if (typeof message !== 'object' || !message) return;
+    const typed = message as { type?: string; payload?: WebStatus };
+    if (typed.type === MessageTypes.WEB_STATUS_UPDATED && typed.payload) {
+      listener(typed.payload);
+    }
+  };
+
+  chrome.runtime.onMessage.addListener(handler);
+  return () => {
+    chrome.runtime.onMessage.removeListener(handler);
+  };
+}
+

@@ -33,37 +33,53 @@ async function captureWithDebugger(tabId) {
   }
 }
 
-const waitForLoadCompletion = async (tabId, timeoutMs = 10000) => {
+export const waitForLoadCompletion = async (tabId, timeoutMs = 5000) => {
   const start = Date.now();
+  const pollInterval = 200;
+
   while (Date.now() - start < timeoutMs) {
     try {
       const [{ result }] = await chrome.scripting.executeScript({
         target: { tabId },
         func: () => {
           const ready = document.readyState;
-          const hasMain = !!document.querySelector('main, [role="main"], #contents');
-          const hasFeed = !!document.querySelector('ytd-rich-grid-renderer, ytd-rich-item-renderer, ytd-video-renderer');
-          const pendingNetwork = window.performance?.getEntriesByType('resource')?.some((entry) => entry.initiatorType === 'xmlhttprequest' && !entry.responseEnd);
-          return { ready, hasMain, hasFeed, pendingNetwork };
+          // Check for pending XHR/fetch requests
+          const pendingXhr = window.performance
+            ?.getEntriesByType('resource')
+            ?.some((entry) =>
+              (entry.initiatorType === 'xmlhttprequest' || entry.initiatorType === 'fetch') &&
+              !entry.responseEnd
+            ) || false;
+          // Check if body has content (basic page rendered)
+          const hasContent = document.body && document.body.children.length > 0;
+          return { ready, pendingXhr, hasContent };
         },
       });
 
+      // Page is ready when:
+      // 1. Document is complete OR interactive
+      // 2. No pending XHR/fetch requests
+      // 3. Body has some content
       if (
         result &&
         (result.ready === 'complete' || result.ready === 'interactive') &&
-        result.hasMain &&
-        (result.hasFeed || result.pendingNetwork === false)
+        !result.pendingXhr &&
+        result.hasContent
       ) {
+        // Small extra delay for any final rendering
+        await new Promise((resolve) => setTimeout(resolve, 100));
         return true;
       }
     } catch (error) {
       console.warn('[MCP Tools] waitForLoadCompletion check failed', error);
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await new Promise((resolve) => setTimeout(resolve, pollInterval));
   }
 
-  return false;
+  // Timeout reached - return true anyway to not block (page may still be usable)
+  console.warn('[MCP Tools] waitForLoadCompletion timed out after', timeoutMs, 'ms');
+  return true;
 };
 
 /**
@@ -300,7 +316,7 @@ export async function handleSnapshot(params = {}) {
 
 export async function handleBrowserSnapshotYaml(params = {}) {
   try {
-    const selection = await ensureTabForSnapshot({ toolName: 'browser_snapshot', preferredUrl: params?.url });
+    const selection = await ensureTabForSnapshot({ toolName: 'browser_snapshot', preferredUrl: params?.url, allowCreate: false });
     if (selection?.ok === false && selection.content) {
       return selection;
     }
@@ -346,7 +362,7 @@ export async function handleBrowserSnapshotYaml(params = {}) {
 
 export async function handleGetUrl(params = {}) {
   try {
-    const selection = await ensureTabForSnapshot({ toolName: 'getUrl', preferredUrl: params?.url });
+    const selection = await ensureTabForSnapshot({ toolName: 'getUrl', preferredUrl: params?.url, allowCreate: false });
     if (selection?.ok === false && selection.content) {
       return selection;
     }
@@ -381,7 +397,7 @@ export async function handleGetUrl(params = {}) {
 
 export async function handleGetTitle(params = {}) {
   try {
-    const selection = await ensureTabForSnapshot({ toolName: 'getTitle', preferredUrl: params?.url });
+    const selection = await ensureTabForSnapshot({ toolName: 'getTitle', preferredUrl: params?.url, allowCreate: false });
     if (selection?.ok === false && selection.content) {
       return selection;
     }

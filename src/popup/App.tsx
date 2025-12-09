@@ -1,4 +1,4 @@
-import { Loader2, Plug, PlugZap, Settings } from 'lucide-react';
+import { Globe, Loader2, Plug, PlugZap, Server, Settings } from 'lucide-react';
 
 import { SettingsOverlay } from './components/SettingsOverlay';
 import { ProfileStatusCard } from './components/ProfileStatusCard';
@@ -8,10 +8,14 @@ import { useExtensionState } from './hooks/useExtensionState';
 import { cn } from './lib/utils';
 
 export default function App() {
-  const { bridge, tab, profile, settings, actions } = useExtensionState();
-  const ConnectionIcon = bridge.tone === 'connected' ? PlugZap : Plug;
-  const connectionHover =
-    bridge.tone === 'connected' ? 'Connected' : bridge.tone === 'connecting' ? 'Connecting…' : 'Not connected';
+  const { bridge, web, tab, profile, settings, actions } = useExtensionState();
+  const BridgeIcon = bridge.tone === 'connected' ? PlugZap : Plug;
+  const bridgeHover =
+    bridge.tone === 'connected' ? 'MCP Server: Connected' : bridge.tone === 'connecting' ? 'MCP Server: Connecting…' : 'MCP Server: Not connected';
+
+  const webHover = web.connected
+    ? `Web: ${web.count} client${web.count !== 1 ? 's' : ''} connected`
+    : 'Web: No clients connected';
 
   const handleSettingsOpenChange = (open: boolean) => {
     if (open) {
@@ -31,6 +35,20 @@ export default function App() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Web status indicator (passive - no button) */}
+          <div
+            className={cn(
+              'flex h-9 w-9 items-center justify-center rounded-md border shadow-sm',
+              web.connected
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : 'bg-neutral-50 text-neutral-400 border-neutral-200',
+            )}
+            title={webHover}
+            aria-label={webHover}
+          >
+            <Globe className="h-4 w-4" />
+          </div>
+          {/* MCP Server status button */}
           <Button
             type="button"
             onClick={() => actions.toggleBridge(bridge.action)}
@@ -43,14 +61,14 @@ export default function App() {
                   ? 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
                   : 'bg-red-100 text-red-700 hover:bg-red-200',
             )}
-            title={connectionHover}
-            aria-label={connectionHover}
+            title={bridgeHover}
+            aria-label={bridgeHover}
             size="icon"
           >
             {bridge.showSpinner ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <ConnectionIcon className="h-4 w-4" />
+              <Server className="h-4 w-4" />
             )}
           </Button>
           <Button

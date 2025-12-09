@@ -1,0 +1,37 @@
+{
+  "name": "mcp-web-client",
+  "version": "0.1.0",
+  "description": "TypeScript client library for websites to communicate with the Jan Browser MCP extension",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@janhq/mcp-shared": "file:../mcp-shared"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "typescript": "^5.3.3"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "keywords": [
+    "mcp",
+    "browser-extension",
+    "chrome-extension",
+    "browser-automation"
+  ],
+  "license": "MIT"
+}

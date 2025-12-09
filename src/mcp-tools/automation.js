@@ -2,7 +2,8 @@
 // MCP Bridge automation tools: click, type/keys, input values, drag
 
 import { selectTab } from '../lib/tab-manager.js';
-import { createErrorResult } from './snapshot-utils.js';
+import { captureSnapshotResponse, combineResultWithSnapshot, createErrorResult } from './snapshot-utils.js';
+import { waitForLoadCompletion } from './observation.js';
 import {
   getElementDetails,
   getElementDetailsAtPoint,
@@ -261,12 +262,25 @@ export async function handleClickElement(params = {}) {
   }
 
   try {
-    const selection = await selectTab({ toolName: 'browser_click' });
+    const selection = await selectTab({ toolName: 'browser_click', allowCreate: false });
     if (!selection.ok) {
       return createErrorResult('Click failed', selection.error);
     }
 
     const { tabId, tab } = selection;
+
+    const withSnapshot = async (baseResult, detailText) => {
+      // Wait for page to settle (same as snapshot tool)
+      await waitForLoadCompletion(tabId);
+
+      const snapshotResult = await captureSnapshotResponse({
+        tabId,
+        status: 'Snapshot after click',
+        details: detailText ? [detailText] : [],
+        fallbackUrl: tab?.url,
+      });
+      return combineResultWithSnapshot(baseResult, snapshotResult, tabId);
+    };
 
     if (coordinates) {
       const { cssPoint, dpr } = await toCssPoint(tabId, coordinates);
@@ -292,7 +306,7 @@ export async function handleClickElement(params = {}) {
 
       const elementLabel = formatElementLabel(pointDetails.detectedElement, parsedTarget.label || formatCoordinatesLabel(coordinates));
 
-      return {
+      const baseResult = {
         ok: true,
         content: [
           {
@@ -313,6 +327,8 @@ export async function handleClickElement(params = {}) {
           tabId,
         },
       };
+
+      return withSnapshot(baseResult, `Target: ${elementLabel}`);
     }
 
     const resolvedRef = resolveAccessibilityRef(ref, tabId);
@@ -340,7 +356,7 @@ export async function handleClickElement(params = {}) {
 
         const elementLabel = formatElementLabel(located.detectedElement, parsedTarget.label || ref);
 
-        return {
+        const baseResult = {
           ok: true,
           content: [
             {
@@ -362,6 +378,8 @@ export async function handleClickElement(params = {}) {
             tabId,
           },
         };
+
+        return withSnapshot(baseResult, `Target: ${elementLabel}`);
       }
     }
 
@@ -395,7 +413,7 @@ export async function handleClickElement(params = {}) {
             if (tab?.url) meta.urls = [tab.url];
             if (typeof tabId === 'number') meta.tabId = tabId;
 
-            return {
+            const baseResult = {
               ok: true,
               content: [
                 {
@@ -415,6 +433,8 @@ export async function handleClickElement(params = {}) {
                 tabId,
               },
             };
+
+            return withSnapshot(baseResult, `Target: ${elementLabel}`);
           }
         }
       }
@@ -436,7 +456,7 @@ export async function handleClickElement(params = {}) {
             if (tab?.url) meta.urls = [tab.url];
             if (typeof tabId === 'number') meta.tabId = tabId;
 
-            return {
+            const baseResult = {
               ok: true,
               content: [
                 {
@@ -456,6 +476,8 @@ export async function handleClickElement(params = {}) {
                 tabId,
               },
             };
+
+            return withSnapshot(baseResult, `Target: ${elementLabel}`);
           }
         }
       }
@@ -475,7 +497,7 @@ export async function handleClickElement(params = {}) {
           if (tab?.url) meta.urls = [tab.url];
           if (typeof tabId === 'number') meta.tabId = tabId;
 
-          return {
+          const baseResult = {
             ok: true,
             content: [
               {
@@ -496,6 +518,8 @@ export async function handleClickElement(params = {}) {
               tabId,
             },
           };
+
+          return withSnapshot(baseResult, `Target: ${cssLabel}`);
         }
       }
 
@@ -513,7 +537,7 @@ export async function handleClickElement(params = {}) {
     if (tab?.url) meta.urls = [tab.url];
     if (typeof tabId === 'number') meta.tabId = tabId;
 
-    return {
+    const baseResult = {
       ok: true,
       content: [
         {
@@ -534,6 +558,8 @@ export async function handleClickElement(params = {}) {
         tabId,
       },
     };
+
+    return withSnapshot(baseResult, `Target: ${elementLabel}`);
   } catch (e) {
     console.error('[MCP Tools] browser_click error:', e);
     return createErrorResult('Click failed', e);
@@ -703,12 +729,25 @@ export async function handleTypeText(params = {}) {
   }
 
   try {
-    const selection = await selectTab({ toolName: 'browser_type' });
+    const selection = await selectTab({ toolName: 'browser_type', allowCreate: false });
     if (!selection.ok) {
       return createErrorResult('Type text failed', selection.error);
     }
 
     const { tabId, tab } = selection;
+
+    const withSnapshot = async (baseResult, detailText) => {
+      // Wait for page to settle (same as snapshot tool)
+      await waitForLoadCompletion(tabId);
+
+      const snapshotResult = await captureSnapshotResponse({
+        tabId,
+        status: 'Snapshot after type',
+        details: detailText ? [detailText] : [],
+        fallbackUrl: tab?.url,
+      });
+      return combineResultWithSnapshot(baseResult, snapshotResult, tabId);
+    };
 
     let elementLabel = '';
     let detectedElement = null;
@@ -889,7 +928,7 @@ export async function handleTypeText(params = {}) {
     if (tab?.url) meta.urls = [tab.url];
     if (typeof tabId === 'number') meta.tabId = tabId;
 
-    return {
+    const baseResult = {
       ok: true,
       content: [
         {
@@ -918,6 +957,8 @@ export async function handleTypeText(params = {}) {
         tabId,
       },
     };
+
+    return withSnapshot(baseResult, status);
   } catch (e) {
     console.error('[MCP Tools] type_text error:', e);
     return createErrorResult('Type text failed', e);
@@ -935,7 +976,7 @@ export async function handleHoverElement(params) {
   }
 
   try {
-    const selection = await selectTab({ toolName: 'hover_element' });
+    const selection = await selectTab({ toolName: 'hover_element', allowCreate: false });
     if (!selection.ok) {
       return createErrorResult('Hover failed', selection.error);
     }
@@ -1065,7 +1106,7 @@ export async function handleDragElement(params = {}) {
   }
 
   try {
-    const selection = await selectTab({ toolName: 'browser_drag' });
+    const selection = await selectTab({ toolName: 'browser_drag', allowCreate: false });
     if (!selection.ok) {
       return createErrorResult('Drag failed', selection.error);
     }
