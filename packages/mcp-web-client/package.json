@@ -1,7 +1,17 @@
 {
-  "name": "mcp-web-client",
-  "version": "0.1.0",
+  "name": "@janhq/mcp-web-client",
+  "version": "0.14.2",
   "description": "TypeScript client library for websites to communicate with the Jan Browser MCP extension",
+  "author": "Jan",
+  "homepage": "https://github.com/janhq/jan-browser-extension",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/janhq/jan-browser-extension.git",
+    "directory": "packages/mcp-web-client"
+  },
+  "bugs": {
+    "url": "https://github.com/janhq/jan-browser-extension/issues"
+  },
   "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.js",
@@ -10,16 +20,23 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "vite build && npm run build:types",
+    "build:types": "rollup -c rollup.dts.config.mjs",
     "dev": "tsc --watch",
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@janhq/mcp-shared": "file:../mcp-shared"
+    "zod": "^3.24.1",
+    "zod-to-json-schema": "^3.24.1"
   },
   "devDependencies": {
+    "@janhq/mcp-shared": "file:../mcp-shared",
+    "@rollup/plugin-alias": "^5.0.0",
     "@types/chrome": "^0.0.268",
-    "typescript": "^5.3.3"
+    "rollup": "^4.0.0",
+    "rollup-plugin-dts": "^6.0.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.0"
   },
   "exports": {
     ".": {

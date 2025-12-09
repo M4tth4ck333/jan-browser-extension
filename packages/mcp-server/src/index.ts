@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * Jan Browser MCP Server
  * Modular architecture inspired by browsermcp
