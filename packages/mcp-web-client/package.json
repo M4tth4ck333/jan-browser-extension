@@ -1,7 +1,17 @@
 {
-  "name": "mcp-web-client",
-  "version": "0.1.0",
+  "name": "@janhq/mcp-web-client",
+  "version": "0.14.2",
   "description": "TypeScript client library for websites to communicate with the Jan Browser MCP extension",
+  "author": "Jan",
+  "homepage": "https://github.com/janhq/jan-browser-extension",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/janhq/jan-browser-extension.git",
+    "directory": "packages/mcp-web-client"
+  },
+  "bugs": {
+    "url": "https://github.com/janhq/jan-browser-extension/issues"
+  },
   "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.js",
@@ -15,9 +25,10 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@janhq/mcp-shared": "file:../mcp-shared"
+
   },
   "devDependencies": {
+    "@janhq/mcp-shared": "file:../mcp-shared",
     "@types/chrome": "^0.0.268",
     "typescript": "^5.3.3"
   },

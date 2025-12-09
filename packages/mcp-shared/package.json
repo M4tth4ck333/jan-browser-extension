@@ -1,7 +1,17 @@
 {
-  "name": "mcp-shared",
-  "version": "0.1.0",
+  "name": "@janhq/mcp-shared",
+  "version": "0.14.2",
   "description": "Shared types and utilities for MCP packages",
+  "author": "Jan",
+  "homepage": "https://github.com/janhq/jan-browser-extension",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/janhq/jan-browser-extension.git",
+    "directory": "packages/mcp-shared"
+  },
+  "bugs": {
+    "url": "https://github.com/janhq/jan-browser-extension/issues"
+  },
   "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.js",

@@ -1,6 +1,6 @@
 {
   "name": "search-mcp-server",
-  "version": "0.14.0",
+  "version": "0.14.2-fix.1",
   "description": "MCP server for browser automation via Jan Browser extension - provides tools for web navigation, interaction, and search",
   "type": "module",
   "license": "Apache-2.0",
@@ -40,7 +40,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@janhq/mcp-shared": "file:../mcp-shared",
+    "@janhq/mcp-shared": "^0.14.2",
     "@modelcontextprotocol/sdk": "^1.4.2",
     "@types/uuid": "^10.0.0",
     "uuid": "^9.0.1",
