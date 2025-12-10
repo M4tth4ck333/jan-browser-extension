@@ -3,7 +3,7 @@
 
 import { selectTab } from '../lib/tab-manager.js';
 import { captureSnapshotResponse, combineResultWithSnapshot, createErrorResult } from './snapshot-utils.js';
-import { waitForLoadCompletion } from './observation.js';
+import { waitForLoadCompletion, waitForDomIdle } from './observation.js';
 import {
   getElementDetails,
   getElementDetailsAtPoint,
@@ -272,12 +272,16 @@ export async function handleClickElement(params = {}) {
     const withSnapshot = async (baseResult, detailText) => {
       // Wait for page to settle (same as snapshot tool)
       await waitForLoadCompletion(tabId);
+      await waitForDomIdle(tabId);
+      // Small buffer to allow post-action DOM updates (e.g., animations/render)
+      await waitMs(200);
 
       const snapshotResult = await captureSnapshotResponse({
         tabId,
         status: 'Snapshot after click',
         details: detailText ? [detailText] : [],
         fallbackUrl: tab?.url,
+        detailLevel: 'deep',
       });
       return combineResultWithSnapshot(baseResult, snapshotResult, tabId);
     };
@@ -660,11 +664,8 @@ async function scrollOptionAndLocate(tabId, parentRef, childIndex) {
       }
 
       const rect = target.getBoundingClientRect?.();
-      const visualViewport = window.visualViewport;
-      const viewportX = visualViewport ? visualViewport.offsetLeft : 0;
-      const viewportY = visualViewport ? visualViewport.offsetTop : 0;
       const clickPoint = rect
-        ? { x: rect.left + viewportX + rect.width / 2, y: rect.top + viewportY + rect.height / 2 }
+        ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
         : null;
 
       const detectedElement = (() => {
@@ -739,12 +740,16 @@ export async function handleTypeText(params = {}) {
     const withSnapshot = async (baseResult, detailText) => {
       // Wait for page to settle (same as snapshot tool)
       await waitForLoadCompletion(tabId);
+      await waitForDomIdle(tabId);
+      // Allow UI updates triggered by typing to render before snapshot
+      await waitMs(200);
 
       const snapshotResult = await captureSnapshotResponse({
         tabId,
         status: 'Snapshot after type',
         details: detailText ? [detailText] : [],
         fallbackUrl: tab?.url,
+        detailLevel: 'deep',
       });
       return combineResultWithSnapshot(baseResult, snapshotResult, tabId);
     };

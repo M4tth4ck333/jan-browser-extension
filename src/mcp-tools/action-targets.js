@@ -110,6 +110,8 @@ export async function resolveBackendNodeToPoint(tabId, backendNodeId) {
         await chrome.debugger.sendCommand(target, 'DOM.scrollIntoViewIfNeeded', {
           backendNodeId,
         });
+        // Wait for scroll to complete and layout to stabilize
+        await new Promise((resolve) => setTimeout(resolve, 100));
       } catch (err) {
         console.warn('[Action Targets] scrollIntoViewIfNeeded failed:', err);
       }
@@ -128,6 +130,12 @@ export async function resolveBackendNodeToPoint(tabId, backendNodeId) {
         const right = Math.max(...xs);
         const top = Math.min(...ys);
         const bottom = Math.max(...ys);
+
+        console.log(`[Action Targets] Backend node ${backendNodeId} box model:`, {
+          content: model.content,
+          center: { x: Math.round(centerX), y: Math.round(centerY) },
+          bounds: { left, top, right, bottom, width: right - left, height: bottom - top },
+        });
 
         await chrome.debugger.detach(target);
         return {
@@ -432,13 +440,13 @@ export async function prepareElementForAction(tabId, { ref, mode, frameId }) {
       await waitForLayout();
 
       const targetRect = el.getBoundingClientRect();
-      const visualViewport = window.visualViewport;
-      const viewportX = visualViewport ? visualViewport.offsetLeft : 0;
-      const viewportY = visualViewport ? visualViewport.offsetTop : 0;
 
+      // getBoundingClientRect() returns coordinates relative to the viewport
+      // Input.dispatchMouseEvent expects viewport-relative coordinates
+      // No additional offset needed - visualViewport.offset* only applies for pinch-zoom scenarios
       const clickPoint = {
-        x: targetRect.left + viewportX + targetRect.width / 2,
-        y: targetRect.top + viewportY + targetRect.height / 2,
+        x: targetRect.left + targetRect.width / 2,
+        y: targetRect.top + targetRect.height / 2,
       };
 
       const detectedElement = buildDetectedElement(el);
@@ -521,9 +529,6 @@ export async function getElementDetails(tabId, ref) {
       }
 
       const rect = el?.getBoundingClientRect ? el.getBoundingClientRect() : null;
-      const visualViewport = window.visualViewport;
-      const viewportX = visualViewport ? visualViewport.offsetLeft : 0;
-      const viewportY = visualViewport ? visualViewport.offsetTop : 0;
 
       const detectedElement = {
         tagName: el.tagName || 'unknown',
@@ -570,9 +575,6 @@ export async function getElementDetailsAtPoint(tabId, point) {
       }
 
       const rect = element.getBoundingClientRect?.();
-      const visualViewport = window.visualViewport;
-      const viewportX = visualViewport ? visualViewport.offsetLeft : 0;
-      const viewportY = visualViewport ? visualViewport.offsetTop : 0;
 
       const detectedElement = {
         tagName: element.tagName || 'unknown',

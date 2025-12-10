@@ -4,7 +4,7 @@
 import { selectTab, setMcpRegisteredTab, getMcpRegisteredTab } from '../lib/tab-manager.js';
 import { CONTENT_LOAD_TIMEOUT, TAB_REGISTRATION_DELAY, VisitOutputModes } from '../constants.js';
 import { captureSnapshotResponse, clearSnapshotsForTab, combineResultWithSnapshot, createErrorResult } from './snapshot-utils.js';
-import { waitForLoadCompletion } from './observation.js';
+import { waitForLoadCompletion, waitForDomIdle } from './observation.js';
 import { resolveAccessibilityRef, resolveBackendNodeToPoint } from './action-targets.js';
 
 export async function handleNavigate(params = {}) {
@@ -230,6 +230,9 @@ export async function handleGoBack(params) {
 
     await chrome.tabs.goBack(tabId);
     await new Promise((resolve) => setTimeout(resolve, TAB_REGISTRATION_DELAY));
+    await waitForLoadCompletion(tabId);
+    await waitForDomIdle(tabId);
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     const finalTab = await chrome.tabs.get(tabId);
     clearSnapshotsForTab(tabId);
@@ -282,6 +285,9 @@ export async function handleGoForward(params) {
 
     await chrome.tabs.goForward(tabId);
     await new Promise((resolve) => setTimeout(resolve, TAB_REGISTRATION_DELAY));
+    await waitForLoadCompletion(tabId);
+    await waitForDomIdle(tabId);
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     const finalTab = await chrome.tabs.get(tabId);
     clearSnapshotsForTab(tabId);

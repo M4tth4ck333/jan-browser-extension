@@ -10,9 +10,10 @@ const trimString = (value: unknown): string => {
 const UNSAFE_PROTOCOL_PATTERN =
   /^(javascript:|data:|file:|vbscript:|chrome:|edge:|safari-extension:|moz-extension:|opera:)/i;
 
-const normalizeDetailLevel = (value: unknown): "shallow" | "medium" | "deep" => {
+const normalizeDetailLevel = (value: unknown): "shallow" | "medium" | "deep" | "all" => {
   const s = typeof value === "string" ? value.toLowerCase() : "";
-  if (s === "shallow" || s === "deep" || s === "medium") return s as "shallow" | "medium" | "deep";
+  if (s === "shallow" || s === "deep" || s === "medium" || s === "all")
+    return s as "shallow" | "medium" | "deep" | "all";
   return "deep";
 };
 

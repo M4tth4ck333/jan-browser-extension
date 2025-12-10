@@ -83,6 +83,59 @@ export const waitForLoadCompletion = async (tabId, timeoutMs = 5000) => {
 };
 
 /**
+ * Wait for DOM mutations to quiet down to improve snapshot stability.
+ * Resolves when there have been no mutations for idleMs, or after timeoutMs.
+ */
+export const waitForDomIdle = async (tabId, { idleMs = 300, timeoutMs = 2000 } = {}) => {
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (idle, timeout) =>
+        new Promise((resolve) => {
+          const start = Date.now();
+          let idleTimer = null;
+          let timeoutTimer = null;
+          let observer = null;
+
+          const finish = (reason) => {
+            if (observer) observer.disconnect();
+            if (idleTimer) clearTimeout(idleTimer);
+            if (timeoutTimer) clearTimeout(timeoutTimer);
+            resolve({ ok: true, reason, waited: Date.now() - start });
+          };
+
+          const resetIdle = () => {
+            if (idleTimer) clearTimeout(idleTimer);
+            idleTimer = setTimeout(() => finish('idle'), idle);
+          };
+
+          try {
+            observer = new MutationObserver(() => resetIdle());
+            observer.observe(document, {
+              subtree: true,
+              childList: true,
+              attributes: true,
+              characterData: true,
+            });
+          } catch (err) {
+            finish('observer_error');
+            return;
+          }
+
+          timeoutTimer = setTimeout(() => finish('timeout'), timeout);
+          resetIdle();
+        }),
+      args: [idleMs, timeoutMs],
+    });
+
+    return result;
+  } catch (err) {
+    console.warn('[MCP Tools] waitForDomIdle failed', err);
+    return { ok: false, error: String(err) };
+  }
+};
+
+/**
  * Captures a screenshot of the visible tab
  */
 export async function handleScreenshot(params = {}) {
@@ -178,7 +231,7 @@ export async function handleScreenshot(params = {}) {
       // Fallback: if no overlay was shown, try using the cached ref map
       if (!overlayShown) {
         const cachedRefMap = getElementRefMap(tabId);
-        if (cachedRefMap && Object.keys(cachedRefMap).length > 0) {
+        if (cachedRefMap && cachedRefMap.size > 0) {
           const overlayRefMap = Object.fromEntries(
             Array.from(cachedRefMap.entries())
               .map(([key, val]) => {

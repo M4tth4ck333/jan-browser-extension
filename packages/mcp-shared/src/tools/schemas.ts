@@ -92,9 +92,9 @@ export const SnapshotSchema = z.object({
       'Capture full page (true) or only viewport-visible content (false). Default: true'
     ),
   detail: z
-    .enum(['shallow', 'medium', 'deep'])
+    .enum(['shallow', 'medium', 'deep', 'all'])
     .optional()
-    .describe('Snapshot detail level (depth/limits). Default: deep'),
+    .describe('Snapshot detail level (depth/limits). Default: deep. Use "all" for no limits.'),
 });
 
 export const ScreenshotSchema = z.object({
@@ -105,9 +105,9 @@ export const ScreenshotSchema = z.object({
       'Whether to show snapshot refs inline before capturing the screenshot. Default: false'
     ),
   detail: z
-    .enum(['shallow', 'medium', 'deep'])
+    .enum(['shallow', 'medium', 'deep', 'all'])
     .optional()
-    .describe('Snapshot detail for ref overlay depth/limits. Default: deep'),
+    .describe('Snapshot detail for ref overlay depth/limits. Default: deep. Use "all" for no limits.'),
 });
 
 // Tool definitions with schemas
@@ -115,24 +115,25 @@ export const TOOL_DEFINITIONS = {
   browser_click: {
     name: 'browser_click',
     description:
-      "Click an element by snapshot ref (e.g., 's1e5' for main frame or 's1f2e10' for iframe elements).",
+      "Click an element by snapshot ref (e.g., 's1e5' for main frame or 's1f2e10' for iframe elements); returns a post-click snapshot with ref map.",
     schema: ClickSchema,
   },
   browser_type: {
     name: 'browser_type',
     description:
-      "Focus an element by snapshot ref (e.g., 's1e5' for main frame or 's1f2e10' for iframe elements), type text, and press keys in <kbd>…</kbd>. submit=true appends Enter.",
+      "Focus an element by snapshot ref (e.g., 's1e5' for main frame or 's1f2e10' for iframe elements), type text/keys, then return a post-type snapshot with ref map.",
     schema: TypeSchema,
   },
   browser_drag: {
     name: 'browser_drag',
-    description: 'Drag from start to end targets identified by snapshot refs.',
+    description:
+      "Drag from start to end targets identified by snapshot refs (e.g., 's1e5' main frame or 's1f2e10' iframe); returns a post-drag snapshot with ref map.",
     schema: DragSchema,
   },
   browser_navigate: {
     name: 'browser_navigate',
     description:
-      'Navigate the active tab: open a URL or move browser history. Pass "target" as a URL/domain (https added if missing) or "back"/"forward".',
+      'Navigate the active tab: open a URL or move browser history. Pass "target" as a URL/domain (https added if missing) or "back"/"forward". Returns a post-navigation snapshot with ref map.',
     schema: NavigateSchema,
   },
   browser_scroll: {
@@ -144,13 +145,13 @@ export const TOOL_DEFINITIONS = {
   browser_snapshot: {
     name: 'browser_snapshot',
     description:
-      'Capture an accessibility snapshot of the current tab. Use fullPage=false for viewport-only.',
+      'Capture an accessibility snapshot of the current tab (ARIA tree, landmarks, headings, ref map). Use fullPage=false for viewport-only.',
     schema: SnapshotSchema,
   },
   browser_screenshot: {
     name: 'browser_screenshot',
     description:
-      'Screenshot the current tab; optionally overlay snapshot refs when includeRefs=true.',
+      'Screenshot the current tab; optionally overlay snapshot refs when includeRefs=true. Returns base64 PNG.',
     schema: ScreenshotSchema,
   },
 } as const;

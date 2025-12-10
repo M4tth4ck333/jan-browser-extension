@@ -1948,7 +1948,7 @@ async function captureRawSnapshot(tabId, fullPage = true) {
   return domSnapshot;
 }
 
-export async function captureSnapshotForTab(tabId, fullPage = true, detailLevel = 'medium') {
+export async function captureSnapshotForTab(tabId, fullPage = true, detailLevel = 'deep') {
   const previousLimits = getCurrentLimits();
   setSnapshotLimits(detailLevel);
   try {
@@ -1976,7 +1976,7 @@ export async function captureSnapshotForTab(tabId, fullPage = true, detailLevel 
   }
 }
 
-export async function captureSnapshotResponse({ tabId, status, details = [], fallbackUrl, fullPage = true, detailLevel = 'medium' }) {
+export async function captureSnapshotResponse({ tabId, status, details = [], fallbackUrl, fullPage = true, detailLevel = 'deep' }) {
   try {
     const snapshot = await captureSnapshotForTab(tabId, fullPage, detailLevel);
     if (!snapshot) {
